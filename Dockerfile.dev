@@ -1,0 +1,20 @@
+# Dev Dockerfile with hot-reloading TypeScript and Prisma support
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache openssl bash netcat-openbsd
+
+COPY package*.json ./
+RUN npm install
+RUN npm install -g prisma ts-node-dev
+
+COPY prisma ./prisma
+COPY . .
+
+COPY entrypoint.dev.sh ./entrypoint.dev.sh
+RUN chmod +x ./entrypoint.dev.sh
+
+ENV NODE_ENV=development
+
+CMD ["./entrypoint.dev.sh"]

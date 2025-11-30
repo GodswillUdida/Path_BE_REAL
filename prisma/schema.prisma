@@ -1,0 +1,256 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  // output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String  @id @default(uuid())
+  name         String
+  email        String  @unique
+  password     String
+  profileImage String?
+  phone        String?
+  role         Role    @default(student)
+
+  verificationToken   String?   @unique
+  verificationExpires DateTime?
+  emailVerified       Boolean   @default(false)
+
+  resetToken        String?   @unique
+  resetTokenExpires DateTime?
+
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  deletedAt DateTime?
+
+  courses     Course[]     @relation("InstructorCourses")
+  enrollments Enrollment[]
+  payments    Payment[]
+  carts       Cart[]
+  orders      Order[]
+}
+
+model Program {
+  id          String          @id @default(uuid())
+  title       String          @unique
+  description String?
+  image       String?
+  courses     Course[]
+  enrollments Enrollment[]
+  pricings    CoursePricing[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @default(now()) @updatedAt
+}
+
+model Course {
+  id                 String              @id @default(uuid())
+  title              String
+  slug               String?             @unique
+  description        String
+  thumbnail          String?
+  type               CourseMode
+  level              String?
+  duration           String?
+  tags               String[]
+  videoPreview       String?
+  category           String?
+  location           String?
+  schedule           String?
+  instructor         User?               @relation("InstructorCourses", fields: [instructorId], references: [id])
+  instructorId       String?
+  program            Program?            @relation(fields: [programId], references: [id], onDelete: SetNull)
+  programId          String?
+  modules            Module[]
+  pricings           CoursePricing[]
+  enrollments        Enrollment[]
+  carts              Cart[]
+  enrollmentRequests EnrollmentRequest[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @default(now()) @updatedAt
+}
+
+model CoursePricing {
+  id          String       @id @default(uuid())
+  price       Float
+  duration    String // e.g., "3 months", "6 months", "1 year"
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseId    String
+  programId   String?
+  program     Program?     @relation(fields: [programId], references: [id])
+  enrollments Enrollment[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([courseId, programId, duration])
+}
+
+/////////////////////////
+// MODULES & TOPICS
+/////////////////////////
+
+model Module {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseId    String
+  topics      Topic[]
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([courseId, position])
+}
+
+model Topic {
+  id        String     @id @default(uuid())
+  title     String
+  videoUrl  String?
+  resources String[]
+  module    Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  moduleId  String
+  progress  Progress[]
+  position    Int      @default(0)
+  createdAt DateTime   @default(now())
+
+  @@index([moduleId, position])
+}
+
+model Enrollment {
+  id            String        @id @default(uuid())
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  course        Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseId      String
+  pricing       CoursePricing @relation(fields: [pricingId], references: [id])
+  pricingId     String
+  programId     String?
+  program       Program?      @relation(fields: [programId], references: [id])
+  progress      Progress[]
+  paymentStatus PaymentStatus @default(PENDING)
+  paymentRef    String?
+  startedAt     DateTime      @default(now())
+  completedAt   DateTime?
+  certificate   Certificate?
+  payments      Payment[]
+  orderId       String?
+  order         Order?        @relation(fields: [orderId], references: [id])
+
+  @@unique([userId, courseId, programId, pricingId])
+}
+
+model Progress {
+  id              String     @id @default(uuid())
+  enrollment      Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  enrollmentId    String
+  topic           Topic      @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  topicId         String
+  completed       Boolean    @default(false)
+  watchedDuration Int?
+  updatedAt       DateTime   @default(now()) @updatedAt
+
+  @@unique([enrollmentId, topicId])
+}
+
+model Cart {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  quantity  Int      @default(1)
+  price     Float
+  createdAt DateTime @default(now())
+
+  @@unique([userId, courseId])
+}
+
+model Certificate {
+  id                    String     @id @default(uuid())
+  enrollment            Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  enrollmentId          String     @unique
+  issuedAt              DateTime   @default(now())
+  url                   String
+  verification          String     @unique
+  courseTitleAtIssuance String
+}
+
+model Payment {
+  id           String        @id @default(uuid())
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  reference    String        @unique
+  enrollmentId String?
+  enrollment   Enrollment?   @relation(fields: [enrollmentId], references: [id])
+  orderId      String
+  order        Order?        @relation(fields: [orderId], references: [id])
+  amount       Float
+  currency     String        @default("NGN")
+  status       PaymentStatus @default(PENDING)
+  gateway      String
+  metadata     Json?
+  createdAt    DateTime      @default(now())
+}
+
+model Order {
+  id          String        @id @default(uuid())
+  user        User          @relation(fields: [userId], references: [id])
+  userId      String
+  amount      Float
+  currency    String        @default("NGN")
+  status      PaymentStatus @default(PENDING)
+  payments    Payment[]
+  enrollments Enrollment[]
+  createdAt   DateTime      @default(now())
+}
+
+model EnrollmentRequest {
+  id        String        @id @default(uuid())
+  name      String
+  email     String
+  phone     String
+  courseId  String?
+  course    Course?       @relation(fields: [courseId], references: [id])
+  notes     String?
+  status    RequestStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+}
+
+enum Role {
+  student
+  instructor
+  admin
+  superadmin
+}
+
+enum CourseMode {
+  online
+  physical
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum RequestStatus {
+  PENDING
+  CONTACTED
+  REGISTERED
+  REJECTED
+}

@@ -1,0 +1,143 @@
+import nodemailer, { Transporter } from "nodemailer";
+import { Resend } from "resend";
+import { google } from "googleapis";
+import ejs from "ejs";
+import path from "path";
+import crypto from "crypto";
+import logger from "../utils/logger";
+import { AppError } from "../middleware/error";
+
+const {
+  G_ID,
+  G_SECRET,
+  G_URL,
+  G_REFRESH_TOKEN,
+  EMAIL_USER,
+  ADMIN_EMAIL,
+  RESEND_API_KEY,
+  BASE_URL,
+  FRONTEND_URL,
+  RESEND_FROM,
+  NODE_ENV,
+} = process.env;
+
+if (
+  !G_ID ||
+  !G_SECRET ||
+  !G_URL ||
+  !G_REFRESH_TOKEN ||
+  !EMAIL_USER ||
+  !ADMIN_EMAIL ||
+  !RESEND_API_KEY ||
+  !BASE_URL ||
+  !FRONTEND_URL ||
+  !RESEND_FROM
+) {
+  throw new AppError("Missing required email environment variables", 500);
+}
+
+const resend = new Resend(RESEND_API_KEY);
+
+// OAuth2
+const oAuth2Client = new google.auth.OAuth2(G_ID, G_SECRET, G_URL);
+oAuth2Client.setCredentials({ refresh_token: G_REFRESH_TOKEN });
+
+export const getGmailTransporter = async (): Promise<Transporter> => {
+  const { token } = await oAuth2Client.getAccessToken();
+  if (!token) throw new AppError("No Gmail access token", 500);
+
+  return nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      type: "OAuth2",
+      user: EMAIL_USER,
+      clientId: G_ID,
+      clientSecret: G_SECRET,
+      refreshToken: G_REFRESH_TOKEN,
+      accessToken: token,
+    },
+  });
+};
+
+// const render = async (templateName: string, data: any) => {
+//   const viewsPath = path.join(process.cwd(), "src", "views");
+//   const file = path.join(viewsPath, `${templateName}.ejs`);
+//   return ejs.renderFile(file, data);
+// };
+
+// Token generator
+export const generateEmailToken = () => crypto.randomBytes(32).toString("hex");
+
+// Template renderer
+const resolveViewPath = (template: string) => {
+  const rootDir = path.resolve(
+    __dirname,
+    "..",
+    NODE_ENV === "production" ? "../views" : "views"
+  );
+  return path.join(rootDir, `${template}.ejs`);
+};
+
+const renderEmailTemplate = async (template: string, data: any) => {
+  try {
+    return await ejs.renderFile(resolveViewPath(template), data);
+  } catch (err: any) {
+    logger.error("Email template render failed: " + err.message);
+    throw new AppError("Email template error", 500);
+  }
+};
+
+// Core sender
+const sendEmail = async (to: string, subject: string, html: string) => {
+  try {
+    const transporter = await getGmailTransporter();
+    await transporter.sendMail({
+      from: `Accountant Pathfinder <${EMAIL_USER}>`,
+      to,
+      subject,
+      html,
+    });
+
+    logger.info("Gmail fallback email sent to " + to);
+    // await resend.emails.send({ from: RESEND_FROM!, to, subject, html });
+    // logger.info("Resend email sent to " + to);
+  } catch (err) {
+    logger.warn("Mail failed to send !!!");
+  }
+};
+
+// Verification Email
+export const sendVerificationEmail = async (
+  to: string,
+  name: string,
+  token: string
+) => {
+  const url = `${FRONTEND_URL}/verify-email?token=${token}`;
+  const html = await renderEmailTemplate("verifyEmail", { name, url });
+  // const html = `<p>Hi ${name}, click below to verify your email.</p><a href="${url}">${url}</a>`;
+
+  await sendEmail(to, "Verify your email - Pathfinder College", html);
+};
+
+// Password Reset Email
+export const sendPasswordResetEmail = async (
+  to: string,
+  name: string,
+  token: string
+) => {
+  const url = `${FRONTEND_URL}/reset-password?token=${token}`;
+  const html = await renderEmailTemplate("resetPassword", { name, url });
+
+  await sendEmail(to, "Reset your password - Pathfinder College", html);
+};
+
+// Enrollment Confirmation
+export const sendConfirmationEmail = async (to: string, data: any) => {
+  const html = await renderEmailTemplate("confirmation", data);
+  await sendEmail(to, "Enrollment Confirmation - Pathfinder College", html);
+};
+
+export const sendAdminNotification = async (data: any) => {
+  const html = await renderEmailTemplate("adminNotification", data);
+  await sendEmail(ADMIN_EMAIL!, `New Enrollment - ${data.name}`, html);
+};

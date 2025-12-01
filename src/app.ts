@@ -77,8 +77,12 @@ app.get("/", (req: Request, res: Response) => {
 
   res.status(200).json({
     success: true,
-    message: "Welcome to the Accountant Pathfinder API",
+    message:
+      "Welcome to the Accountant Pathfinder API. You probably shouldn't be here, but...",
+    // "Welcome to the Accountant Pathfinder Backend API! Visit /docs for API documentation.",
     device: hostname(),
+    version: process.env.npm_package_version || "unknown",
+    service: "Accountant Pathfinder Backend API",
     ip,
     userAgent,
   });

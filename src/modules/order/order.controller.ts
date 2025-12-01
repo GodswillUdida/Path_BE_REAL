@@ -11,9 +11,16 @@ export const createOrder = async (
 ) => {
   try {
     const userId = req.user!.userId || req.user!.id;
+
     const body = createOrderSchema.parse(req.body);
+
     const result = await createOrderService(userId, body);
-    return res.status(201).json({ success: true, data: result });
+
+    return res.status(201).json({
+      success: true,
+      data: result
+    });
+    
   } catch (err: any) {
     logger.error("createOrder error", err);
     return next(err);

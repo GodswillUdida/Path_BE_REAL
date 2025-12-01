@@ -2,6 +2,9 @@ import prisma from "../../lib/prisma";
 import slugify from "slugify";
 import type { CreateCourseInput } from "./course.schema";
 import { badRequest, notFound } from "../..//utils/errors";
+// import logger from "../../utils/logger";
+// import { streamUpload } from "config/stream";
+// import { AppError } from "../../middleware/error";
 
 // async function findOrCreateProgram(
 //   programId?: string | null,
@@ -65,10 +68,31 @@ export async function createCourse(data: CreateCourseInput, adminId: string) {
     throw badRequest("data.program.id");
   }
 
+    // let imageUrl = courseData.thumbnail || "";
+
+    // if (!imageUrl && !req.file) {
+    //   logger.error("❌ Course image is required");
+    //   return AppError(res, "Course image is required", 400);
+    // }
+
+    // if (req.file) {
+    //   const uploadResult = await streamUpload(
+    //     req.file.buffer,
+    //     "pathfinder/images"
+    //   );
+    //   if (typeof uploadResult === "object" && "secure_url" in uploadResult) {
+    //     imageUrl = uploadResult.secure_url as string;
+    //   } else {
+    //     logger.error("❌ Failed to upload image to Cloudinary");
+    //     return errorResponse(res, "Failed to upload course image", 500);
+    //   }
+    // }
+
   const course = await prisma.course.create({
     data: {
       ...courseData,
       slug,
+      // imageUrl,
       instructorId: data.instructorId ?? adminId ?? undefined,
       programId,
       pricings:

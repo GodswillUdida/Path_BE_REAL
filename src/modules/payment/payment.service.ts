@@ -8,6 +8,13 @@ import {
   sendAdminNotification,
 } from "../../services/emailService";
 
+interface PaystackInitResponse {
+  data: {
+    authorization_url: string;
+    reference: string;
+  };
+}
+
 // -------------------------------------------------------------
 // 1. INITIATE PAYMENT (Paystack)
 // -------------------------------------------------------------
@@ -20,13 +27,17 @@ export const initiatePaystackPayment = async (orderId: string) => {
   if (!order) throw new AppError("Order not found", 404);
 
   try {
-    const response = await axios.post(
+    const response = await axios.post<PaystackInitResponse>(
       "https://api.paystack.co/transaction/initialize",
       {
         reference: order.id,
         email: order.user.email,
+        currency: order.currency,
         amount: order.amount * 100,
-        callback_url: `${process.env.BASE_URL}/verify/payment`,
+        // callback_url: `${process.env.FRONTEND_URL}/payment/processing?reference=${order.id}`,
+        metadata: {
+          orderId: order.id,
+        },
       },
       {
         headers: {
@@ -36,14 +47,18 @@ export const initiatePaystackPayment = async (orderId: string) => {
       }
     );
 
-    const { authorization_url } = response.data.data;
+    const { authorization_url, reference } = response.data.data;
 
     return {
       paymentLink: authorization_url,
-      reference: order.id,
+      reference,
     };
   } catch (err: any) {
-    logger.error(`Paystack init failed → ${err.response?.data || err.message}`);
+    logger.error(
+      `❌ Paystack payment initiation failed → ${
+        err.response?.data?.message || err.message
+      }`
+    );
     throw new AppError("Failed to initiate payment", 500);
   }
 };
@@ -74,44 +89,51 @@ export const processPaymentWebhook = async (
   // Fetch Payment
   const payment = await prisma.payment.findUnique({ where: { reference } });
   if (!payment) {
-    logger.warn("Payment not found for webhook reference", { reference });
+    logger.warn("Payment not found for webhook reference →", { reference });
     return { ok: true };
   }
 
+  const orderId = (payment.metadata as any)?.orderId;
+
   const succeeded =
     event === "charge.success" ||
-    event === "transaction.success" ||
     data.status === "success" ||
-    data.paid === true;
+    data.paid === true ||
+    event === "transaction.success";
 
   // -----------------------------------------------------------
   // FAILED PAYMENT
   // -----------------------------------------------------------
   if (!succeeded) {
-    await prisma.payment.update({
-      where: { id: payment.id },
-      data: {
-        status: "FAILED",
-        metadata: {
-          ...(typeof payment.metadata === "object" && payment.metadata !== null
-            ? payment.metadata
-            : {}),
-          providerPayload: data,
+    const updates: any[] = [
+      prisma.payment.update({
+        where: { id: payment.id },
+        data: {
+          status: "FAILED",
+          metadata: {
+            ...(typeof payment.metadata === "object" &&
+            payment.metadata !== null
+              ? payment.metadata
+              : {}),
+            providerPayload: data,
+          },
         },
-      },
-    });
+      }),
+    ];
 
-    // Try to mark Order failed
-    const orderId = (payment.metadata as any)?.orderId;
     if (orderId) {
-      await prisma.order
-        .update({ where: { id: orderId }, data: { status: "FAILED" } })
-        .catch(() => {});
+      updates.push(
+        prisma.order.update({
+          where: { id: orderId },
+          data: { status: "FAILED" },
+        })
+      );
     }
+
+    await prisma.$transaction(updates);
 
     return { ok: true };
   }
-
   // -----------------------------------------------------------
   // SUCCESSFUL PAYMENT
   // -----------------------------------------------------------
@@ -129,13 +151,15 @@ export const processPaymentWebhook = async (
   });
 
   // Mark Order as PAID
-  const orderId = (payment.metadata as any)?.orderId;
-  if (orderId) {
-    await prisma.order.update({
-      where: { id: orderId },
-      data: { status: "PAID" },
-    });
-  }
+  // const orderId = (payment.metadata as any)?.orderId;
+  // if (orderId) {
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { status: "PAID" },
+  });
+
+  // }
 
   // Update Enrollments linked to this Order
   const enrollments = await prisma.enrollment.findMany({ where: { orderId } });
@@ -171,20 +195,24 @@ export const processPaymentWebhook = async (
           url: `${process.env.FRONTEND_URL}/dashboard`,
         } as any);
       } catch (err) {
-        logger.warn("sendConfirmationEmail failed", err);
+        logger.warn("Confirmation email failed →", err);
       }
     }
   }
 
   // Admin notification
   try {
-    const userEmail = payment.userId
-      ? (await prisma.user.findUnique({ where: { id: payment.userId } }))?.email
-      : undefined;
+    // const userEmail = payment.userId
+    //   ? (await prisma.user.findUnique({ where: { id: payment.userId } }))?.email
+    //   : undefined;
+
+    const usr = await prisma.user.findUnique({
+      where: { id: payment.userId },
+    });
 
     await sendAdminNotification({
       name: "Order Payment Received",
-      email: userEmail,
+      email: usr?.email,
       enrollmentId: enrollments.map((x) => x.id).join(","),
     } as any);
   } catch {}

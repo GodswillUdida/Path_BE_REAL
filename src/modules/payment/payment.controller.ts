@@ -5,17 +5,24 @@ import { processPaymentWebhook } from "./payment.service";
 export const paymentWebhook = async (
   req: Request,
   res: Response,
-  next: NextFunction
 ) => {
   try {
-    const raw =
-      req.body instanceof Buffer
-        ? req.body.toString("utf-8")
-        : JSON.stringify(req.body);
+    // const raw =
+    //   req.body instanceof Buffer
+    //     ? req.body.toString("utf-8")
+    //     : JSON.stringify(req.body);
+    const result = await processPaymentWebhook(
+      req.body.toString("utf-8"),
+      req.headers as any
+    );
 
-    await processPaymentWebhook(raw, req.headers as any);
+    // await processPaymentWebhook(raw, req.headers as any);
 
-    return res.status(200).send("OK");
+    return res.status(200).send({
+      success: true,
+      ...result,
+
+    });
   } catch (err: any) {
     logger.error("Payment webhook error", err);
 

@@ -1,8 +1,8 @@
 // src/modules/payment/payment.routes.ts
-import { Router } from "express";
+import { Router, raw } from "express";
 import { paymentWebhook } from "./payment.controller";
 
 const r = Router();
-r.post("/webhook", paymentWebhook);
+r.post("/webhook/paystack", raw({ type: "*/*" }), paymentWebhook);
 
 export default r;

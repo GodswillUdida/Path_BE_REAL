@@ -1,5 +1,7 @@
 // src/lib/paymentProvider.ts
 import crypto from "crypto";
+import logger from "../utils/logger";
+import { unauthorized } from "../utils/errors";
 
 export type PaymentIntent = {
   reference: string;
@@ -32,12 +34,19 @@ export function verifyWebhookSignature(
 ): boolean {
   // TODO: implement provider-specific signature verification
   // For Paystack: compute HMAC-SHA512 with PAYSTACK_SECRET and compare to signature
-  const secret = process.env.PAYSTACK_SECRET || "";
+  const secret = process.env.PAYSTACK_SECRET_KEY || "";
   if (!secret || !signature) return false;
   const hmac = crypto
     .createHmac("sha512", secret)
     .update(rawBody)
-        .digest("hex");
-    console.log("Computed HMAC:", hmac, "Signature:", signature);
+    .digest("hex");
+  console.log("Computed HMAC:", hmac);
+  console.log("Signature:", signature);
+
+  if (hmac !== signature) {
+    logger.warn("⚠️ Invalid Paystack signature");
+    throw unauthorized("Unauthorized webhook");
+  }
+
   return hmac === signature;
-};
+}

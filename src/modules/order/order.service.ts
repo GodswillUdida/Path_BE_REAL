@@ -1,8 +1,9 @@
 // src/modules/order/order.service.ts
 import prisma from "../../lib/prisma";
 import { CreateOrderDTO } from "./order.schema";
-import { notFound, forbidden } from "../../utils/errors";
-import { createCheckout } from "../../lib/paymentProvider";
+import { notFound, forbidden, unauthorized } from "../../utils/errors";
+// import { createCheckout } from "../../lib/paymentProvider";
+import { initiatePaystackPayment } from "../../modules/payment/payment.service";
 
 export async function createOrderService(userId: string, dto: CreateOrderDTO) {
   const { enrollmentIds, currency } = dto;
@@ -19,8 +20,8 @@ export async function createOrderService(userId: string, dto: CreateOrderDTO) {
   for (const e of enrollments) {
     if (e.userId !== userId)
       throw forbidden("Cannot create order for enrollments that are not yours");
-    if (e.paymentStatus !== "PENDING")
-      throw forbidden(`Enrollment ${e.id} not in PENDING`);
+    if (e.paymentStatus === "PAID")
+      throw forbidden(`Enrollment already paid for course ${e.course.title}`);
   }
 
   const amount = enrollments.reduce(
@@ -30,15 +31,15 @@ export async function createOrderService(userId: string, dto: CreateOrderDTO) {
 
   // Create order
   const order = await prisma.order.create({
-      data: {
-          userId,
-          amount,
-          currency: currency ?? "NGN",
-          status: "PENDING",
-          enrollments: {
-              connect: enrollmentIds.map((id) => ({ id })),
-          },
+    data: {
+      userId,
+      amount,
+      currency: currency ?? "NGN",
+      status: "PENDING",
+      enrollments: {
+        connect: enrollmentIds.map((id) => ({ id })),
       },
+    },
   });
 
   // attach enrollments to order in transaction and update enrollments.orderId
@@ -50,13 +51,8 @@ export async function createOrderService(userId: string, dto: CreateOrderDTO) {
   ]);
 
   // Create payment intent with provider
-  const callbackUrl = `${process.env.BASE_URL}/api/payment/webhook`; // provider should call this
-  const { reference, paymentUrl } = await createCheckout({
-    amount,
-    currency: currency ?? "NGN",
-    callbackUrl,
-    metadata: { orderId: order.id, userId },
-  });
+  // const callbackUrl = `${process.env.BASE_URL}/api/payment/webhook`; // provider should call this
+  const { reference, paymentLink } = await initiatePaystackPayment(order.id);
 
   // Create a Payment record for the order with status PENDING and provider reference
   await prisma.payment.create({
@@ -67,7 +63,7 @@ export async function createOrderService(userId: string, dto: CreateOrderDTO) {
       amount,
       currency: currency ?? "NGN",
       status: "PENDING",
-      gateway: process.env.PAYMENT_PROVIDER || "paystack",
+      gateway: "paystack",
       metadata: { orderId: order.id },
     },
   });
@@ -77,7 +73,7 @@ export async function createOrderService(userId: string, dto: CreateOrderDTO) {
     orderId: order.id,
     amount,
     currency: currency ?? "NGN",
-    paymentLink: paymentUrl,
+    paymentLink: paymentLink,
     reference,
   };
 }
@@ -91,6 +87,6 @@ export async function getOrderService(userId: string, orderId: string) {
     },
   });
   if (!order) throw notFound("Order not found");
-  if (order.userId !== userId) throw forbidden("Not allowed");
+  if (order.userId !== userId) throw unauthorized("Unauthorized order access");
   return order;
 }

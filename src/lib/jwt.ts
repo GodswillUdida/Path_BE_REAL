@@ -20,8 +20,8 @@ if (!ACCESS_SECRET || !REFRESH_SECRET) {
 }
 
 export const signAccessToken = (payload: object) => {
-  return sign(payload, ACCESS_SECRET, {
-    expiresIn: "15m",
+  return sign(payload, ACCESS_SECRET, { 
+    expiresIn: "60m",
   });
 };
 

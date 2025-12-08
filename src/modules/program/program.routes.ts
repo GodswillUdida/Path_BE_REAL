@@ -13,5 +13,19 @@ r.post(
 );
 r.get("/", ctrl.listProgramsController);
 r.get("/:id", ctrl.getProgramController);
+r.get("/:slug", ctrl.getProgramBySlugController);
+r.patch(
+  "/:id",
+  authGuard,
+  roleGuard("admin", "superadmin"),
+  ctrl.updateProgramController
+);
+
+r.delete(
+  "/:id",
+  authGuard,
+  roleGuard("admin", "superadmin"),
+  ctrl.deleteProgramController
+);
 
 export default r;

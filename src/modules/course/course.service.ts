@@ -1,7 +1,7 @@
 import prisma from "../../lib/prisma";
-import slugify from "slugify";
 import type { CreateCourseInput } from "./course.schema";
 import { badRequest, notFound } from "../..//utils/errors";
+import { generateUniqueSlug } from "../../utils/slugify";
 // import logger from "../../utils/logger";
 // import { streamUpload } from "config/stream";
 // import { AppError } from "../../middleware/error";
@@ -39,14 +39,14 @@ import { badRequest, notFound } from "../..//utils/errors";
 export async function createCourse(data: CreateCourseInput, adminId: string) {
   const { program, pricings, ...courseData } = data;
 
-  const slug = slugify(courseData.title, { lower: true, strict: true });
-
   // const programdd= await findOrCreateProgram(
   //   data.programId ?? null,
   //   data.programTitle ?? null
   // );
 
-  // handle program inline creation
+  // handle program inline creation or assignment
+
+
   let programId: string;
 
   if (data.program.id) {
@@ -65,28 +65,32 @@ export async function createCourse(data: CreateCourseInput, adminId: string) {
     });
     programId = newProgram.id;
   } else {
-    throw badRequest("data.program.id");
+    throw badRequest("Invalid program reerence");
   }
 
-    // let imageUrl = courseData.thumbnail || "";
+  // let imageUrl = courseData.thumbnail || "";
 
-    // if (!imageUrl && !req.file) {
-    //   logger.error("❌ Course image is required");
-    //   return AppError(res, "Course image is required", 400);
-    // }
+  // if (!imageUrl && !req.file) {
+  //   logger.error("❌ Course image is required");
+  //   return AppError(res, "Course image is required", 400);
+  // }
 
-    // if (req.file) {
-    //   const uploadResult = await streamUpload(
-    //     req.file.buffer,
-    //     "pathfinder/images"
-    //   );
-    //   if (typeof uploadResult === "object" && "secure_url" in uploadResult) {
-    //     imageUrl = uploadResult.secure_url as string;
-    //   } else {
-    //     logger.error("❌ Failed to upload image to Cloudinary");
-    //     return errorResponse(res, "Failed to upload course image", 500);
-    //   }
-    // }
+  // if (req.file) {
+  //   const uploadResult = await streamUpload(
+  //     req.file.buffer,
+  //     "pathfinder/images"
+  //   );
+  //   if (typeof uploadResult === "object" && "secure_url" in uploadResult) {
+  //     imageUrl = uploadResult.secure_url as string;
+  //   } else {
+  //     logger.error("❌ Failed to upload image to Cloudinary");
+  //     return errorResponse(res, "Failed to upload course image", 500);
+  //   }
+  // }
+
+  const slug = data.slug
+    ? await generateUniqueSlug(courseData.title, "course")
+    : await generateUniqueSlug(courseData.title, "course");
 
   const course = await prisma.course.create({
     data: {
@@ -126,7 +130,6 @@ export const listCourses = async (
     where.OR = [
       { title: { contains: q, mode: "insensitive" } },
       { description: { contains: q, mode: "insensitive" } },
-      // { tags: { has: q } },
     ];
   }
 
@@ -155,6 +158,25 @@ export const getCourse = async (id: string) => {
   return course;
 };
 
+export const getCourseBySlug = async (programSlug: string, courseSlug: string) => {
+  const program = await prisma.program.findUnique({
+    where: { slug: programSlug },
+  });
+  if (!program) throw notFound("Program not found");
+
+  const course = await prisma.course.findFirst({
+    where: { slug: courseSlug, programId: program.id },
+    include: {
+      program: true,
+      pricings: true,
+      modules: { include: { topics: true } },
+    },
+  });
+  if (!course) throw notFound("Course not found");
+
+  return course;
+};
+
 export const updateCourse = async (
   id: string,
   data: Partial<CreateCourseInput>
@@ -162,11 +184,28 @@ export const updateCourse = async (
   // disallow program reassign via simple update; require dedicated endpoint if needed
   const payload: any = { ...data };
   delete payload.program;
-  if (data.slug) payload.slug = data.slug;
+
+  const existing = await prisma.course.findUnique({ where: { id } });
+  if (!existing) throw badRequest("Course not found");
+
+  let updatedSlug = existing.slug;
+
+  if (data.title && !data.slug) {
+    updatedSlug = await generateUniqueSlug(data.title, "course", id);
+    payload.slug = updatedSlug;
+  }
+
+  if (data.slug) {
+    updatedSlug = await generateUniqueSlug(data.slug, "course");
+    payload.slug = updatedSlug;
+  }
 
   const updated = await prisma.course.update({
     where: { id },
-    data: payload,
+    data: {
+      ...payload,
+      slug: updatedSlug,
+    },
     include: { program: true, pricings: true },
   });
   return updated;

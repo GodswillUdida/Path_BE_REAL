@@ -49,6 +49,7 @@ model Program {
   title       String          @unique
   description String?
   image       String?
+  slug        String          @unique
   courses     Course[]
   enrollments Enrollment[]
   pricings    CoursePricing[]
@@ -59,7 +60,7 @@ model Program {
 model Course {
   id                 String              @id @default(uuid())
   title              String
-  slug               String?             @unique
+  slug               String              @unique
   description        String
   thumbnail          String?
   type               CourseMode
@@ -123,7 +124,7 @@ model Topic {
   module    Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   moduleId  String
   progress  Progress[]
-  position    Int      @default(0)
+  position  Int        @default(0)
   createdAt DateTime   @default(now())
 
   @@index([moduleId, position])

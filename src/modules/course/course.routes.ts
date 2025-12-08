@@ -8,6 +8,7 @@ const r = Router();
 // Public
 r.get("/", ctrl.listCoursesController);
 r.get("/:id", ctrl.getCourseController);
+r.get("/:programSlug/:courseSlug", ctrl.getCourseBySlugController);
 
 // Admin/Instructors
 r.post(

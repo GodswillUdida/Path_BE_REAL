@@ -1,16 +1,28 @@
 import prisma from "../../lib/prisma";
 import { badRequest } from "../../utils/errors";
+import { generateUniqueSlug } from "../../utils/slugify";
 
 export const createProgram = async (data: {
   title: string;
   description?: string;
   image?: string;
 }) => {
-  const exists = await prisma.program.findUnique({
+  const titleExists = await prisma.program.findFirst({
     where: { title: data.title },
   });
-  if (exists) throw badRequest("Program title already exists");
-  const program = await prisma.program.create({ data });
+
+  if (titleExists) throw badRequest("Program title already exists");
+
+  const slug = await generateUniqueSlug(data.title, "program");
+
+  const program = await prisma.program.create({
+    data: {
+      title: data.title,
+      description: data.description,
+      image: data.image,
+      slug,
+    },
+  });
   return program;
 };
 
@@ -23,4 +35,49 @@ export const getProgram = async (id: string) => {
     where: { id },
     include: { courses: true },
   });
+};
+
+export const getProgramBySlug = async (programSlug: string) => {
+  const program = await prisma.program.findUnique({
+    where: { slug: programSlug },
+    include: { courses: true },
+  });
+  if (!program) throw badRequest("Program not found");
+  return program;
+};
+
+export const updateProgram = async (
+  id: string,
+  data: {
+    title?: string;
+    description?: string;
+    image?: string;
+    slug?: string;
+  }
+) => {
+  let updatedSlug = data.slug;
+
+  if (data.title) {
+    const titleExists = await prisma.program.findFirst({
+      where: { title: data.title, NOT: { id } },
+    });
+
+    if (titleExists) throw badRequest("Program title already exists");
+
+    updatedSlug = await generateUniqueSlug(data.title, "program", id);
+  }
+
+  const program = await prisma.program.update({
+    where: { id },
+    data: {
+      ...data,
+      slug: updatedSlug,
+    },
+  });
+
+  return program;
+};
+
+export const deleteProgram = async (id: string) => {
+  return prisma.program.delete({ where: { id } });
 };

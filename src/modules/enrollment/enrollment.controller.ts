@@ -1,11 +1,13 @@
 import { NextFunction, Request, Response } from "express";
-import { CreateEnrollmentSchema } from "./enrollment.schema";
+import { CreateEnrollmentSchema, CreatePhysicalEnrollmentRequestSchema } from "./enrollment.schema";
 // import { enrollmentService } from "./enrollment.service";
 import logger from "../../utils/logger";
 import {
   createEnrollmentsService,
+  createPhysicalEnrollmentRequestService,
   getOneEnrollmentService,
   getUserEnrollmentsService,
+  listPhysicalEnrollmentRequestsService,
 } from "./enrollment.service";
 
 export const createEnrollment = async (
@@ -19,7 +21,7 @@ export const createEnrollment = async (
 
     const payload = Array.isArray(body) ? body : [body];
 
-    const enrollment = await createEnrollmentsService(userId, payload);
+    const data = await createEnrollmentsService(userId, payload);
 
     // await mailQueue.add("sendEnrollmentEmail", {
     //   to: req.user!.email,
@@ -34,15 +36,14 @@ export const createEnrollment = async (
     return res.json({
       success: true,
       message: "Enrollment created successfully",
-      data: enrollment,
+      data,
     });
   } catch (err: any) {
-    logger.error("Enrollment Failed to create ...", err);
+    logger.error("Enrollment Failed to create", err);
     return res.status(err.status || 500).json({
       success: false,
       message: err.message || "Failed to create enrollment",
     });
-    // next(error);
   }
 };
 
@@ -57,7 +58,6 @@ export const getMyEnrollments = async (
     return res.json({ success: true, data });
 
   } catch (err) {
-    logger.error("Fetching enrollments failed", err);
     return res
       .status(500)
       .json({ success: false, message: "Failed to fetch enrollments" });
@@ -77,5 +77,39 @@ export const getOne = async (
     return res
       .status(500)
       .json({ success: false, message: "Failed to fetch enrollments" });
+  }
+};
+
+/**
+ * PHYSICAL ENROLLMENT REQUEST (PUBLIC)
+ */
+export const createPhysicalRequest = async (req: Request, res: Response) => {
+  try {
+    const body = CreatePhysicalEnrollmentRequestSchema.parse(req.body);
+    const data = await createPhysicalEnrollmentRequestService(body);
+
+    return res.json({
+      success: true,
+      message: "Enrollment request submitted",
+      data,
+    });
+  } catch (err: any) {
+    logger.error("Physical request failed", err);
+    return res.status(err.status || 500).json({
+      success: false,
+      message: err.message || "Failed to submit request",
+    });
+  }
+};
+
+export const listPhysicalRequests = async (req: Request, res: Response) => {
+  try {
+    const data = await listPhysicalEnrollmentRequestsService();
+    return res.json({ success: true, data });
+  } catch {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch enrollment requests",
+    });
   }
 };

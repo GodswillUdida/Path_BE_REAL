@@ -1,5 +1,8 @@
 import prisma from "../../lib/prisma";
-import { CreateEnrollmentDTO } from "./enrollment.schema";
+import {
+  CreateEnrollmentDTO,
+  CreatePhysicalEnrollmentRequestInput,
+} from "./enrollment.schema";
 import { forbidden, notFound } from "../../utils/errors";
 import {
   sendAdminNotification,
@@ -15,7 +18,6 @@ const enrollmentIncludes = {
   progress: true,
   certificate: true,
   payments: true,
-  // position: true,
   user: true, // Added user relation
 };
 
@@ -210,10 +212,11 @@ export async function createEnrollmentsService(
     courseId: string;
     pricingId: string;
     programId?: string;
+    orderId?: string;
   }[] = [];
 
   for (const item of data) {
-    const { courseId, pricingId, programId } = item;
+    const { courseId, pricingId, programId, orderId } = item;
     const course = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
@@ -224,8 +227,9 @@ export async function createEnrollmentsService(
     });
     if (!course) throw notFound(`Course ${courseId} not found`);
 
-    const valid = course.pricings.some((p) => p.id === pricingId);
-    if (!valid) throw forbidden(`Invalid pricing for course ${course.title}`);
+    const validPricing = course.pricings.some((p) => p.id === pricingId);
+    if (!validPricing)
+      throw forbidden(`Invalid pricing for course ${course.title}`);
 
     if (programId && course.programId !== programId)
       throw forbidden(`Course ${course.title} does not belong to program`);
@@ -235,7 +239,17 @@ export async function createEnrollmentsService(
     });
     if (existing) throw forbidden(`Already enrolled in ${course.title}`);
 
-    toCreate.push({ courseId, pricingId, programId });
+     const exists = await prisma.enrollment.findFirst({
+      where: {
+        userId,
+        courseId,
+        pricingId,
+        programId: programId ?? null,
+      },
+    });
+    if (exists) throw forbidden("Already enrolled in this course tier");
+
+    toCreate.push({ courseId, pricingId, programId, orderId });
   }
 
   // create all enrollments in a single transaction
@@ -255,7 +269,7 @@ export async function createEnrollmentsService(
 
   // initialize first topic progress per enrollment (best-effort)
   await Promise.all(
-    created.map(async (enrollment, idx) => {
+    created.map(async (enrollment) => {
       try {
         const course = await prisma.course.findUnique({
           where: { id: enrollment.courseId },
@@ -312,4 +326,28 @@ export async function getOneEnrollmentService(id: string, userId: string) {
     throw forbidden("Access denied — this is not your enrollment");
 
   return e;
+}
+
+
+/**
+ * Create physical walk-in enrollment request
+ */
+export async function createPhysicalEnrollmentRequestService(
+  data: CreatePhysicalEnrollmentRequestInput
+) {
+  return prisma.enrollmentRequest.create({
+    data,
+    include: {
+      course: true,
+    },
+  });
+}
+
+export async function listPhysicalEnrollmentRequestsService() {
+  return prisma.enrollmentRequest.findMany({
+    include: {
+      course: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
 }

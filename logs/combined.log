@@ -1352,3 +1352,250 @@
 {"level":"info","message":"Database connected","timestamp":"2025-12-09 07:48:46"}
 {"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 07:48:46"}
 {"level":"warn","message":"🔻 Shutting down server...","timestamp":"2025-12-09 08:05:35"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:10:00"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:10:00"}
+{"level":"error","message":"[\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"courseId\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  },\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"pricingId\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  }\n]","name":"ZodError","stack":"ZodError: [\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"courseId\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  },\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"pricingId\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  }\n]\n    at createEnrollment (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\src\\modules\\enrollment\\enrollment.controller.ts:20:41)\n    at Layer.handleRequest (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\router\\lib\\layer.js:152:17)\n    at next (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\router\\lib\\route.js:157:13)\n    at authGuard (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\src\\middleware\\authGuard.ts:19:5)\n    at Layer.handleRequest (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\router\\lib\\layer.js:152:17)\n    at next (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\router\\lib\\route.js:157:13)\n    at Route.dispatch (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\router\\lib\\route.js:117:3)\n    at handle (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\router\\index.js:435:11)\n    at Layer.handleRequest (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\router\\lib\\layer.js:152:17)\n    at C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\router\\index.js:295:15","timestamp":"2025-12-09 19:10:45"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:15:32"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:15:32"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:16:11"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:16:11"}
+{"expiredAt":"2025-12-08T06:03:19.000Z","level":"error","message":"jwt expired","name":"TokenExpiredError","stack":"TokenExpiredError: jwt expired\n    at C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\jsonwebtoken\\verify.js:190:21\n    at getSecret (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\jsonwebtoken\\verify.js:97:14)\n    at module.exports (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\jsonwebtoken\\verify.js:101:10)\n    at verifyAccessToken (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\src\\lib\\jwt.ts:29:16)\n    at authGuard (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\src\\middleware\\authGuard.ts:14:38)\n    at Layer.handleRequest (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\router\\lib\\layer.js:152:17)\n    at next (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\router\\lib\\route.js:157:13)\n    at Route.dispatch (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\router\\lib\\route.js:117:3)\n    at handle (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\router\\index.js:435:11)\n    at Layer.handleRequest (C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\node_modules\\router\\lib\\layer.js:152:17)","timestamp":"2025-12-09 19:18:17"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:23:50"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:23:50"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:24:20"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:24:20"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:25:18"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:25:18"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:25:52"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:25:53"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:26:24"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:26:24"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:26:52"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:26:52"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:28:01"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:28:01"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:28:19"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:28:19"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:29:31"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:29:31"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:30:17"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:30:17"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:31:05"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:31:05"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:31:37"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:31:37"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:32:57"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:32:57"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:33:22"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:33:22"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:33:47"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:33:47"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:34:04"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:34:04"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:35:04"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:35:04"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:35:18"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:35:18"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:35:30"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:35:30"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:36:00"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:36:00"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:36:16"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:36:16"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:36:29"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:36:29"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:36:43"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:36:43"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:36:53"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:36:53"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:37:12"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:37:12"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 19:37:27"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 19:37:27"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:30:23"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:30:23"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:31:37"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:31:37"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:31:50"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:31:50"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:32:36"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:32:36"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:32:57"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:32:57"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:37:18"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:37:18"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:37:40"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:37:40"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:37:56"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:37:56"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:38:14"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:38:14"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:38:26"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:38:26"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:40:55"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:40:55"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:41:10"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:41:10"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:41:21"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:41:21"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:44:40"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:44:40"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:44:55"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:44:55"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:45:35"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:45:35"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:46:01"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:46:01"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:46:29"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:46:29"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:46:42"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:46:42"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:46:54"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:46:54"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:48:24"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:48:24"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:48:50"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:48:50"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:49:18"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:49:18"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:50:24"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:50:24"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:50:39"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:50:39"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:50:56"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:50:56"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:52:47"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:52:47"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 21:53:17"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 21:53:17"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:09:20"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:09:20"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:09:43"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:09:43"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:10:06"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:10:06"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:10:25"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:10:25"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:10:57"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:10:57"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:11:34"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:11:34"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:12:09"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:12:09"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:12:31"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:12:31"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:12:46"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:12:46"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:12:55"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:12:55"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:13:07"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:13:07"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:14:29"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:14:29"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:14:59"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:14:59"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:24:06"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:24:06"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:24:16"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:24:16"}
+{"level":"error","message":"Email template render failed: C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\src\\views\\physicalEnrollmentRequestAdmin.ejs:13\n    11|     <p><strong>Email:</strong> <%= email %></p>\r\n    12|     <p><strong>Phone:</strong> <%= phone %></p>\r\n >> 13|     <p><strong>Course:</strong> <%= courseTitle || \"N/A\" %></p>\r\n    14| \r\n    15|     <p>Request ID:</p>\r\n    16|     <pre\r\n\ncourseTitle is not defined","timestamp":"2025-12-09 22:24:35"}
+{"error":{"statusCode":500},"level":"error","message":"Unhandled Rejection","timestamp":"2025-12-09 22:24:36"}
+{"level":"warn","message":"🔻 Shutting down server...","timestamp":"2025-12-09 22:24:36"}
+{"level":"info","message":"HTTP server closed","timestamp":"2025-12-09 22:24:36"}
+{"level":"info","message":"Database disconnected","timestamp":"2025-12-09 22:24:36"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:27:15"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:27:15"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:27:23"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:27:23"}
+{"level":"error","message":"Email template render failed: C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\src\\views\\physicalEnrollmentRequestAdmin.ejs:13\n    11|     <p><strong>Email:</strong> <%= email %></p>\r\n    12|     <p><strong>Phone:</strong> <%= phone %></p>\r\n >> 13|     <p><strong>Course:</strong> <%= courseTitle || \"N/A\" %></p>\r\n    14| \r\n    15|     <p>Request ID:</p>\r\n    16|     <pre\r\n\ncourseTitle is not defined","timestamp":"2025-12-09 22:27:41"}
+{"error":{"statusCode":500},"level":"error","message":"Unhandled Rejection","timestamp":"2025-12-09 22:27:42"}
+{"level":"warn","message":"🔻 Shutting down server...","timestamp":"2025-12-09 22:27:42"}
+{"level":"info","message":"HTTP server closed","timestamp":"2025-12-09 22:27:42"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:29:32"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:29:32"}
+{"level":"error","message":"Email template render failed: C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\src\\views\\physicalEnrollmentRequestAdmin.ejs:13\n    11|     <p><strong>Email:</strong> <%= email %></p>\r\n    12|     <p><strong>Phone:</strong> <%= phone %></p>\r\n >> 13|     <p><strong>Course:</strong> <%= courseTitle || \"N/A\" %></p>\r\n    14| \r\n    15|     <p>Request ID:</p>\r\n    16|     <pre\r\n\ncourseTitle is not defined","timestamp":"2025-12-09 22:29:33"}
+{"error":{"statusCode":500},"level":"error","message":"Unhandled Rejection","timestamp":"2025-12-09 22:29:33"}
+{"level":"warn","message":"🔻 Shutting down server...","timestamp":"2025-12-09 22:29:33"}
+{"level":"info","message":"HTTP server closed","timestamp":"2025-12-09 22:29:33"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:35:01"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:35:01"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:35:23"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:35:23"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:35:32"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:35:32"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:36:00"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:36:00"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:36:33"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:36:42"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:36:51"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:36:51"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:37:21"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:37:21"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:37:34"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:37:34"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:38:03"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:38:03"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:38:12"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:38:12"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:38:49"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:38:49"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:40:28"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:40:28"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:41:20"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:41:20"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:41:46"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:41:46"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:42:26"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:42:26"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:43:14"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:43:14"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:43:49"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:43:49"}
+{"level":"warn","message":"Mail failed to send !!!","timestamp":"2025-12-09 22:46:05"}
+{"level":"error","message":"Email template render failed: C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\src\\views\\physicalEnrollmentRequestAdmin.ejs:13\n    11|     <p><strong>Email:</strong> <%= email %></p>\r\n    12|     <p><strong>Phone:</strong> <%= phone %></p>\r\n >> 13|     <!-- <p><strong>Course:</strong> <%= courseTitle || \"N/A\" %></p> -->\r\n    14| \r\n    15|     <p>Request ID:</p>\r\n    16|     <pre\r\n\ncourseTitle is not defined","timestamp":"2025-12-09 22:46:05"}
+{"level":"warn","message":"Mail failed to send !!!","timestamp":"2025-12-09 22:47:37"}
+{"level":"error","message":"Email template render failed: C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\src\\views\\physicalEnrollmentRequestAdmin.ejs:13\n    11|     <p><strong>Email:</strong> <%= email %></p>\r\n    12|     <p><strong>Phone:</strong> <%= phone %></p>\r\n >> 13|     <!-- <p><strong>Course:</strong> <%= courseTitle || \"N/A\" %></p> -->\r\n    14| \r\n    15|     <p>Request ID:</p>\r\n    16|     <pre\r\n\ncourseTitle is not defined","timestamp":"2025-12-09 22:47:37"}
+{"level":"warn","message":"Mail failed to send !!!","timestamp":"2025-12-09 22:48:13"}
+{"level":"error","message":"Email template render failed: C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\src\\views\\physicalEnrollmentRequestAdmin.ejs:13\n    11|     <p><strong>Email:</strong> <%= email %></p>\r\n    12|     <p><strong>Phone:</strong> <%= phone %></p>\r\n >> 13|     <!-- <p><strong>Course:</strong> <%= courseTitle || \"N/A\" %></p> -->\r\n    14| \r\n    15|     <p>Request ID:</p>\r\n    16|     <pre\r\n\ncourseTitle is not defined","timestamp":"2025-12-09 22:48:13"}
+{"level":"warn","message":"Mail failed to send !!!","timestamp":"2025-12-09 22:49:16"}
+{"level":"error","message":"Email template render failed: C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\src\\views\\physicalEnrollmentRequestAdmin.ejs:13\n    11|     <p><strong>Email:</strong> <%= email %></p>\r\n    12|     <p><strong>Phone:</strong> <%= phone %></p>\r\n >> 13|     <!-- <p><strong>Course:</strong> <%= courseTitle || \"N/A\" %></p> -->\r\n    14| \r\n    15|     <p>Request ID:</p>\r\n    16|     <pre\r\n\ncourseTitle is not defined","timestamp":"2025-12-09 22:49:16"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:50:05"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:50:06"}
+{"level":"warn","message":"Mail failed to send !!!","timestamp":"2025-12-09 22:50:15"}
+{"level":"error","message":"Email template render failed: C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\src\\views\\physicalEnrollmentRequestAdmin.ejs:13\n    11|     <p><strong>Email:</strong> <%= email %></p>\r\n    12|     <p><strong>Phone:</strong> <%= phone %></p>\r\n >> 13|     <p><strong>Course:</strong> <%= courseTitle || \"N/A\" %></p>\r\n    14| \r\n    15|     <p>Request ID:</p>\r\n    16|     <pre\r\n\ncourseTitle is not defined","timestamp":"2025-12-09 22:50:15"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:50:55"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:50:55"}
+{"level":"warn","message":"Mail failed to send !!!","timestamp":"2025-12-09 22:51:30"}
+{"level":"warn","message":"Mail failed to send !!!","timestamp":"2025-12-09 22:51:30"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:53:33"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:53:33"}
+{"level":"info","message":"[email:35b93073c6b6cc9bdcb8eb2862af7778a3dd4f377b9bff34b11f3758a320f88b] Gmail fallback email sent to godswilludida@gmail.com","timestamp":"2025-12-09 22:53:43"}
+{"level":"info","message":"[email:4507f77dc51367c2531e33db3d7075fd7842c34b489365b5e238300703004b41] Gmail fallback email sent to udidagodswill7@gmail.com","timestamp":"2025-12-09 22:53:46"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:55:50"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:55:50"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 22:56:30"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 22:56:30"}
+{"level":"info","message":"[email:be0b8d2775e3eb7fd4b9d54046a67e37fc724061063169f9d3f2945b002f0806] Gmail fallback email sent to godswilludida@gmail.com","timestamp":"2025-12-09 22:56:39"}
+{"level":"info","message":"[email:7af4875befa60ee2b8706e6c8f37f06b171ec2c31f188fa59d131104bca7afab] Gmail fallback email sent to udidagodswill7@gmail.com","timestamp":"2025-12-09 22:56:41"}
+{"level":"info","message":"[email:eff11fc12245d21148364859aa9be984a4f6067d642ba83833aff93a1ba65724] Gmail fallback email sent to godswilludida@gmail.com","timestamp":"2025-12-09 22:59:57"}
+{"level":"info","message":"[email:1592b783c9ffff0db7872f02535ff886c1a05c628f1b9e4d06f31c04bf776b9e] Gmail fallback email sent to udidagodswill7@gmail.com","timestamp":"2025-12-09 23:00:00"}
+{"level":"info","message":"[email:ad9e39a54a940727e545107a2214f292691b35aea316d2ac8d9d005b20ff9643] Gmail fallback email sent to godswilludida@gmail.com","timestamp":"2025-12-09 23:02:08"}
+{"level":"error","message":"Email template render failed: C:\\Users\\RBSN\\Desktop\\accountant-pathfinder-backend-new\\src\\views\\physicalEnrollmentRequestAdmin.ejs:14\n    12|     <p><strong>Phone:</strong> <%= phone %></p>\r\n    13|     <p><strong>Course:</strong> <%= courseTitle || \"N/A\" %></p>\r\n >> 14|     <p><strong>Note:</strong> <%= note %></p>\r\n    15| \r\n    16|     <p>Request ID:</p>\r\n    17|     <pre\r\n\nnote is not defined","timestamp":"2025-12-09 23:02:08"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 23:02:49"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 23:02:49"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 23:03:13"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 23:03:14"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 23:03:25"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 23:03:25"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 23:03:58"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 23:03:58"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 23:04:11"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 23:04:11"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 23:04:32"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 23:04:32"}
+{"level":"info","message":"[email:2c59b7e94037e7b886031c8d4fce903b8d7b920f6d9f840666693e57d8ef9012] Gmail fallback email sent to godswilludida@gmail.com","timestamp":"2025-12-09 23:05:04"}
+{"level":"info","message":"[email:881584e57ccc50e20010d93c21c8acee5e7c3d24bd8b050dee3302d210a7cc9d] Gmail fallback email sent to udidagodswill7@gmail.com","timestamp":"2025-12-09 23:05:07"}
+{"level":"info","message":"Database connected","timestamp":"2025-12-09 23:49:43"}
+{"level":"info","message":"Server running on http://localhost:5000","timestamp":"2025-12-09 23:49:43"}
+{"level":"info","message":"[email:d96afdd57619a1144f06163ca1526626edf72cb93583f1bb1885d4a3cf9a3fd5] Gmail fallback email sent to godswilludida@gmail.com","timestamp":"2025-12-09 23:51:08"}
+{"level":"info","message":"[email:f2b3f94aa51f05d1e5d4775090164cfb454d4bb8869db5c80d492676181231d0] Gmail fallback email sent to udidagodswill7@gmail.com","timestamp":"2025-12-09 23:51:12"}

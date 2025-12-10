@@ -1,14 +1,62 @@
-import { Request, Response } from "express";
+import { NextFunction, Request, Response } from "express";
 import { enrollmentRequestSchema } from "./enrollmentRequest.schema";
-import { createPhysicalEnrollmentRequestService, listPhysicalEnrollmentRequestsService } from "./enrollmentRequest.service";
+import {
+  createPhysicalEnrollmentRequestService,
+  getSingleEnrollmentRequestService,
+  listPhysicalEnrollmentRequestsService,
+} from "./enrollmentRequest.service";
+import {
+  sendPhysicalEnrollmentRequestAdminNotification,
+  sendPhysicalEnrollmentRequestNotification,
+} from "../../services/emailService";
 
 export const createPhysicalEnrollmentRequest = async (
   req: Request,
   res: Response
 ) => {
   try {
-    const body = enrollmentRequestSchema.parse(req.body);
-    const request = await createPhysicalEnrollmentRequestService(body);
+    const courseId = req.params.courseId as string;
+    const body = enrollmentRequestSchema.safeParse({
+      ...req.body,
+      courseId,
+    });
+
+    if (!body.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid request data",
+        errors: body.error.flatten().fieldErrors,
+      });
+    }
+
+    const request = await createPhysicalEnrollmentRequestService(courseId, {
+      name: body.data.name,
+      email: body.data.email,
+      phone: body.data.phone,
+      notes: body.data.notes,
+      courseId: body.data.courseId,
+    });
+
+    try {
+      await sendPhysicalEnrollmentRequestNotification(body.data.email, {
+        name: body.data.name,
+        course: request.courseId,
+        requestId: request.id,
+      });
+      await sendPhysicalEnrollmentRequestAdminNotification({
+        name: body.data.name,
+        email: body.data.email,
+        phone: body.data.phone,
+        notes: body.data.notes || "",
+        course: request.courseId,
+        requestId: request.id,
+      });
+    } catch (emailError) {
+      console.error(
+        "Error sending physical enrollment request emails:",
+        emailError
+      );
+    }
 
     return res.json({
       success: true,
@@ -23,15 +71,31 @@ export const createPhysicalEnrollmentRequest = async (
   }
 };
 
-export const listPhysicalRequests = async (req: Request, res: Response) => {
+export const listPhysicalRequests = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-        const requests = await listPhysicalEnrollmentRequestsService();
+    const requests = await listPhysicalEnrollmentRequestsService();
 
-        return res.json({ success: true, data: requests });
-    } catch (error) {
-        return res.status(500).json({
-            success: false,
-            message: "Unable to fetch enrollment requests",
-        });
-    }
+    return res.json({ success: true, data: requests });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getSingleRequest = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const id = req.params.id as string;
+    const request = await getSingleEnrollmentRequestService(id);
+
+    return res.json({ success: true, data: request });
+  } catch (error) {
+    next(error);
+  }
 };

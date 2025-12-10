@@ -36,7 +36,7 @@ if (
   throw new AppError("Missing required email environment variables", 500);
 }
 
-const resend = new Resend(RESEND_API_KEY);
+// const resend = new Resend(RESEND_API_KEY);
 
 // OAuth2
 const oAuth2Client = new google.auth.OAuth2(G_ID, G_SECRET, G_URL);
@@ -59,16 +59,8 @@ export const getGmailTransporter = async (): Promise<Transporter> => {
   });
 };
 
-// const render = async (templateName: string, data: any) => {
-//   const viewsPath = path.join(process.cwd(), "src", "views");
-//   const file = path.join(viewsPath, `${templateName}.ejs`);
-//   return ejs.renderFile(file, data);
-// };
+const templateCache: Record<string, string> = {};
 
-// Token generator
-export const generateEmailToken = () => crypto.randomBytes(32).toString("hex");
-
-// Template renderer
 const resolveViewPath = (template: string) => {
   const rootDir = path.resolve(
     __dirname,
@@ -80,15 +72,37 @@ const resolveViewPath = (template: string) => {
 
 const renderEmailTemplate = async (template: string, data: any) => {
   try {
-    return await ejs.renderFile(resolveViewPath(template), data);
+    if (!templateCache[template]) {
+      templateCache[template] = resolveViewPath(template);
+    }
+
+    return await ejs.renderFile(templateCache[template], data);
   } catch (err: any) {
     logger.error("Email template render failed: " + err.message);
-    throw new AppError("Email template error", 500);
+    throw new AppError("Email template rendering failed", 500);
   }
 };
 
 // Core sender
-const sendEmail = async (to: string, subject: string, html: string) => {
+const sendCoreEmail = async (to: string, subject: string, html: string) => {
+  const correlationId = crypto.randomBytes(32).toString("hex");
+
+    // try {
+    //   const result = await resend.emails.send({
+    //     from: RESEND_FROM!,
+    //     to,
+    //     subject,
+    //     html,
+    //   });
+
+    //   logger.info(`[email:${correlationId}] Resend → Delivered to ${to}`);
+    //   return { success: true, provider: "resend", id: result.id };
+    // } catch (err) {
+    //   logger.warn(
+    //     `[email:${correlationId}] Resend failed → switching to Gmail fallback`
+    //   );
+    // }
+
   try {
     const transporter = await getGmailTransporter();
     await transporter.sendMail({
@@ -98,13 +112,15 @@ const sendEmail = async (to: string, subject: string, html: string) => {
       html,
     });
 
-    logger.info("Gmail fallback email sent to " + to);
+    logger.info(`[email:${correlationId}] Gmail fallback email sent to ` + to);
     // await resend.emails.send({ from: RESEND_FROM!, to, subject, html });
     // logger.info("Resend email sent to " + to);
   } catch (err) {
     logger.warn("Mail failed to send !!!");
   }
 };
+
+export const generateEmailToken = () => crypto.randomBytes(32).toString("hex");
 
 // Verification Email
 export const sendVerificationEmail = async (
@@ -114,9 +130,8 @@ export const sendVerificationEmail = async (
 ) => {
   const url = `${FRONTEND_URL}/verify-email?token=${token}`;
   const html = await renderEmailTemplate("verifyEmail", { name, url });
-  // const html = `<p>Hi ${name}, click below to verify your email.</p><a href="${url}">${url}</a>`;
 
-  await sendEmail(to, "Verify your email - Pathfinder College", html);
+  await sendCoreEmail(to, "Verify your email - Pathfinder College", html);
 };
 
 // Password Reset Email
@@ -128,16 +143,60 @@ export const sendPasswordResetEmail = async (
   const url = `${FRONTEND_URL}/reset-password?token=${token}`;
   const html = await renderEmailTemplate("resetPassword", { name, url });
 
-  await sendEmail(to, "Reset your password - Pathfinder College", html);
+  await sendCoreEmail(to, "Reset your password - Pathfinder College", html);
 };
 
 // Enrollment Confirmation
 export const sendConfirmationEmail = async (to: string, data: any) => {
   const html = await renderEmailTemplate("confirmation", data);
-  await sendEmail(to, "Enrollment Confirmation - Pathfinder College", html);
+  await sendCoreEmail(to, "Enrollment Confirmation - Pathfinder College", html);
 };
 
 export const sendAdminNotification = async (data: any) => {
   const html = await renderEmailTemplate("adminNotification", data);
-  await sendEmail(ADMIN_EMAIL!, `New Enrollment - ${data.name}`, html);
+  await sendCoreEmail(ADMIN_EMAIL!, `New Enrollment - ${data.name}`, html);
+};
+
+//Physical Enrollment Request Notification
+export const sendPhysicalEnrollmentRequestNotification = async (
+  to: string,
+  data: {
+    name: string;
+    course: string;
+    requestId: string;
+  }
+) => {
+  const html = await renderEmailTemplate("physicalEnrollmentRequest", {
+    name: data.name,
+    courseTitle: data.course,
+    requestId: data.requestId,
+  });
+  await sendCoreEmail(
+    to,
+    "Physical Enrollment Request Received - Pathfinder College",
+    html
+  );
+};
+
+export const sendPhysicalEnrollmentRequestAdminNotification = async (data: {
+  name: string;
+  email: string;
+  phone: string;
+  notes: string;
+  course: string;
+  requestId: string;
+}) => {
+  const html = await renderEmailTemplate("physicalEnrollmentRequestAdmin", {
+    name: data.name,
+    email: data.email,
+    phone: data.phone,
+    notes: data.notes,
+    courseTitle: data.course,
+    requestId: data.requestId,
+  });
+  await sendCoreEmail(
+    ADMIN_EMAIL!,
+    `New Physical Enrollment Request - ${data.name}`,
+    html
+  );
 };

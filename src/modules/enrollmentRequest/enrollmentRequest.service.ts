@@ -1,66 +1,70 @@
 import prisma from "../../lib/prisma";
 import { notFound, forbidden } from "../../utils/errors";
-// import {
-//   sendPhysicalEnrollmentEmail,
-//   notifyAdminPhysicalEnrollment,
-// } from "../../services/emailService";
-import { EnrollmentRequestInput } from "./enrollmentRequest.schema";
+// import { EnrollmentRequestInput } from "./enrollmentRequest.schema";
 
 export async function createPhysicalEnrollmentRequestService(
-  data: EnrollmentRequestInput
-) {
-  const { courseId, programId } = data;
-
-  // Course validation (physical only)
-  if (courseId) {
-    const course = await prisma.course.findUnique({
-      where: { id: courseId },
-      select: { id: true, type: true, programId: true, title: true },
-    });
-
-    if (!course) throw notFound("Course not found");
-    if (course.type !== "physical")
-      throw forbidden("This course requires full online enrollment");
-
-    if (programId && course.programId !== programId)
-      throw forbidden("Course does not belong to this program");
+  courseId: string,
+  data: {
+    name: string;
+    email: string;
+    phone: string;
+    notes?: string;
+    courseId?: string;
   }
+) {
+  const course = await prisma.course.findUnique({
+    where: { id: courseId },
+    select: { id: true, type: true, programId: true, title: true },
+  });
+
+  if (!course) throw notFound("Course not found");
+  if (course.type !== "physical")
+    throw forbidden("This course is not available for physical enrollment");
 
   const request = await prisma.enrollmentRequest.create({
     data: {
       name: data.name,
       email: data.email,
       phone: data.phone,
-      courseId: data.courseId ?? null,
+      courseId: data.courseId || courseId,
       notes: data.notes ?? null,
-      status: "PENDING",
+      status: "REGISTERED",
     },
   });
 
-  // Fire and forget emails
-  //   try {
-  //     await Promise.all([
-  //       sendPhysicalEnrollmentEmail(data.email, {
-  //         name: data.name,
-  //         courseId: data.courseId,
-  //       }),
-  //       notifyAdminPhysicalEnrollment({
-  //         name: data.name,
-  //         email: data.email,
-  //       }),
-  //     ]);
-  //   } catch (err) {
-  //     console.error("Email error:", err);
-  //   }
-
-  return request;
+  return {...request, courseId: course.title };
 }
 
 export async function listPhysicalEnrollmentRequestsService() {
-    const requests = await prisma.enrollmentRequest.findMany({
-        where: { courseId: { not: null } }, 
-        orderBy: { createdAt: "desc" },
-    });
-    return requests;
+  const requests = await prisma.enrollmentRequest.findMany({
+    orderBy: { createdAt: "desc" },
+    include: {
+      course: {
+        select: {
+          title: true,
+          slug: true,
+          type: true,
+        },
+      },
+    },
+  });
+  return requests;
 }
 
+export async function getSingleEnrollmentRequestService(id: string) {
+  const request = await prisma.enrollmentRequest.findUnique({
+    where: { id },
+    include: {
+      course: {
+        select: {
+          title: true,
+          slug: true,
+          type: true,
+        },
+      },
+    },
+  });
+
+  if (!request) throw notFound("Enrollment request not found");
+  return request;
+}

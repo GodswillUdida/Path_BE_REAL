@@ -20,6 +20,7 @@ import programRoutes from "./modules/program/program.routes";
 import moduleRoutes from "./modules/module/module.routes";
 import topicRoutes from "./modules/topic/topic.routes";
 import enrollmentRoutes from "./modules/enrollment/enrollment.routes";
+import enrollmentRequestRoutes from "./modules/enrollmentRequest/enrollmentRequest.route";
 import orderRoutes from "./modules/order/order.routes";
 import paymentRoutes from "./modules/payment/payment.routes";
 
@@ -65,6 +66,7 @@ app.use("/api/course", courseRoutes);
 app.use("/api/modules", moduleRoutes);
 app.use("/api/topics", topicRoutes);
 app.use("/api/enrollment", enrollmentRoutes);
+app.use("/api/enrollment-physical", enrollmentRequestRoutes);
 app.use("/api/order", orderRoutes);
 app.use("/api/payment", paymentRoutes);
 

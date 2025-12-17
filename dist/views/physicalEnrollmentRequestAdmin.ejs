@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>New Physical Enrollment Request</title>
+  </head>
+  <body style="font-family: Arial, sans-serif; padding: 20px">
+    <h2>New Physical Enrollment Request</h2>
+
+    <p><strong>Name:</strong> <%= name %></p>
+    <p><strong>Email:</strong> <%= email %></p>
+    <p><strong>Phone:</strong> <%= phone %></p>
+    <p><strong>Course:</strong> <%= courseTitle || "N/A" %></p>
+    <p><strong>Note:</strong> <%= notes %></p>
+
+    <p>Request ID:</p>
+    <pre
+      style="
+        background: #f4f4f4;
+        padding: 10px;
+        border-radius: 5px;
+        display: inline-block;
+      "
+    >
+<%= requestId %></pre
+    >
+
+    <p style="margin-top: 20px">Check the admin dashboard for details.</p>
+  </body>
+</html>

@@ -1,6 +1,11 @@
+import { AppError } from "../../middleware/error";
 import prisma from "../../lib/prisma";
-import { badRequest } from "../../utils/errors";
+import { badRequest, notFound } from "../../utils/errors";
 import { generateUniqueSlug } from "../../utils/slugify";
+import { streamUpload } from "../../config/stream";
+import logger from "../../utils/logger";
+import { CreateCourseInput, OnlineCourseInput, PhysicalCourseInput } from "../../modules/course/course.schema";
+import { duration } from "zod/v4/classic/iso.cjs";
 
 export const createProgram = async (data: {
   title: string;
@@ -38,12 +43,17 @@ export const getProgram = async (id: string) => {
 };
 
 export const getProgramBySlug = async (programSlug: string) => {
-  const program = await prisma.program.findUnique({
-    where: { slug: programSlug },
-    include: { courses: true },
-  });
-  if (!program) throw badRequest("Program not found");
-  return program;
+  try {
+    const program = await prisma.program.findUnique({
+      where: { slug: programSlug },
+      include: { courses: true },
+    });
+    if (!program) throw new AppError("Program not found", 404);
+    return program;
+  } catch (error) {
+    console.error(`Error fetching program with slug ${programSlug}:`, error);
+    throw new AppError("Internal server error", 500);
+  }
 };
 
 export const updateProgram = async (

@@ -71,6 +71,7 @@ export const authenticate = async (
   userId: string;
   role: string;
   name: string;
+  email: string;
   emailVerified: boolean;
 }> => {
   const user = await prisma.user.findUnique({ where: { email } });
@@ -97,6 +98,7 @@ export const authenticate = async (
     userId: user.id,
     role: user.role,
     name: user.name,
+    email: user.email,
     emailVerified: user.emailVerified,
   };
 };

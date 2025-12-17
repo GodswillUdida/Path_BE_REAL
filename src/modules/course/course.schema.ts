@@ -1,72 +1,91 @@
 import { z } from "zod";
 
+/* -------------------- Pricing -------------------- */
 const pricingSchema = z.object({
-  duration: z.string(), // "3 months"
+  duration: z.string(), // e.g. "3 months"
   price: z.number().positive(),
 });
 
-//  title: z.string().min(3).max(200),
-//   slug: z.string().min(3),
-//   description: z.string().min(1).max(2000),
-//   thumbnail: z.string().url().optional().or(z.literal("")).optional(),
-//   price: z.number().min(0, "Invalid price"),
-//   type: z.nativeEnum(CourseMode),
-//   level: z.enum(["beginner", "intermediate", "advanced", "expert"]).optional(),
-//   duration: z.string().optional().nullable(),
-//   category: z.string().max(100).optional().nullable(),
-//   tags: z.array(z.string().max(50)).max(10).optional().default([]),
-//   instructorId: z.string().uuid().optional(),
-//   programId: z.string().optional().nullable(),
-//   programTitle: z.string().optional().nullable(),
-//   videoPreview: z.string().url().optional().or(z.literal("")).optional(),
-//   modules: z.array(moduleSchema).optional().default([]),
-
-export const createCourseSchema = z.object({
-  title: z.string().min(2),
+/* -------------------- Shared -------------------- */
+const baseCourseSchema = z.object({
+  title: z.string().min(2, "Title too short").trim(),
   slug: z.string().optional(),
-  description: z.string().min(5).max(200),
-  thumbnail: z.url().optional().or(z.literal("")).optional(),
-  type: z.enum(["online", "physical"]),
-  // level: z.enum(["beginner", "intermediate", "advanced", "expert"]).optional(),
+  description: z
+    .string()
+    .min(5, "Description too short")
+    .max(200, "Description too long")
+    .trim(),
+  thumbnail: z
+    .string()
+    .url("Invalid thumbnail URL")
+    .optional()
+    .or(z.literal("")),
   level: z.string().optional(),
   duration: z.string().optional().nullable(),
-  tags: z.array(z.string()).optional().default([]),
-  videoPreview: z.url().optional().or(z.literal("")).optional(),
+  tags: z.array(z.string().trim()).max(10, "Max 10 tags").default([]),
   category: z.string().optional(),
-  location: z.string().optional(),
-  schedule: z.string().optional(),
-  instructorId: z.uuid().optional(),
-  // programId: z.string().optional().nullable(),
-  // modules: z.array(moduleSchema).optional().default([]),
-
-  // Inline program creation OR programId
-  program: z
-    .object({
-      id: z.uuid().optional(),
-      create: z
-        .object({
-          title: z.string().min(2),
-          description: z.string().optional(),
-          image: z.string().optional(),
-        })
-        .optional(),
-    })
-    .refine((v) => v.id || v.create, {
-      message: "Provide program.id or program.create",
-    }),
-
-  // Pricing tiers ONLY required for online courses
-  pricings: z.array(pricingSchema).optional(),
+  instructorId: z.string().uuid("Invalid UUId").optional(),
 });
 
-export const updateCourseSchema = createCourseSchema.partial();
+/* -------------------- ONLINE -------------------- */
+const onlineCourseSchema = baseCourseSchema.extend({
+  // ...baseCourseSchema,
+  type: z.literal("online"),
 
+  videoPreview: z.string().url("Invalid video URL").optional().or(z.literal("")),
+
+  // REQUIRED
+  pricings: z
+    .array(pricingSchema)
+    .min(1, "Online courses need at least one pricing"),
+
+  // FORBIDDEN
+  location: z.never().optional(),
+  schedule: z.never().optional(),
+});
+
+/* -------------------- PHYSICAL -------------------- */
+const physicalCourseSchema = baseCourseSchema.extend({
+  // ...baseCourseSchema,
+  type: z.literal("physical"),
+
+  // REQUIRED
+  location: z.string().min(2),
+  schedule: z.string().min(2),
+
+  // FORBIDDEN
+  pricings: z.never().optional(),
+  videoPreview: z.never().optional(),
+});
+
+/* -------------------- PUBLIC SCHEMA -------------------- */
+export const createCourseSchema = z.discriminatedUnion("type", [
+  onlineCourseSchema,
+  physicalCourseSchema,
+]);
+
+// For updates: Partial each branch, then discriminated union
+// const updateOnlineSchema = onlineCourseSchema.partial();
+// const updatePhysicalSchema = physicalCourseSchema.partial();
+
+// export const updateCourseSchema = z.discriminatedUnion("type", [
+//   updateOnlineSchema,
+//   updatePhysicalSchema,
+// ]);
+export const updateCourseSchema = baseCourseSchema.partial().extend({
+  thumbnail: z.string().url().or(z.literal("")).optional(),
+})
+
+/* -------------------- QUERY -------------------- */
 export const listCoursesQuery = z.object({
   q: z.string().optional(),
   tag: z.string().optional(),
   type: z.enum(["online", "physical"]).optional(),
-  limit: z.coerce.number().default(20),
-  offset: z.coerce.number().default(0),
+  limit: z.coerce.number().min(1).max(50, "Max limit 50").default(20),
+  offset: z.coerce.number().min(0).default(0),
 });
 
+/* -------------------- TYPES -------------------- */
 export type CreateCourseInput = z.infer<typeof createCourseSchema>;
+export type OnlineCourseInput = z.infer<typeof onlineCourseSchema>;
+export type PhysicalCourseInput = z.infer<typeof physicalCourseSchema>;

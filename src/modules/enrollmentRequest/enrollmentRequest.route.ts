@@ -20,7 +20,7 @@ r.get(
 );
 
 r.get(
-  "/request/all",
+  "/all",
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
   ctrl.listPhysicalRequests

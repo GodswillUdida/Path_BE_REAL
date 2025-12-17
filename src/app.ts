@@ -1,19 +1,14 @@
-import express, {
-  Application,
-  Request,
-  Response,
-  NextFunction,
-  json,
-  raw,
-  urlencoded,
-} from "express";
+import express, { Application, Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
 import morgan from "morgan";
-import { join } from "path";
-import { hostname } from "os";
 import cookieParser from "cookie-parser";
+import rateLimit from "express-rate-limit";
+import { join } from "path";
+import { uptime } from "process";
+
+// Routes
 import authRoutes from "./modules/auth/auth.routes";
 import courseRoutes from "./modules/course/course.routes";
 import programRoutes from "./modules/program/program.routes";
@@ -24,95 +19,134 @@ import enrollmentRequestRoutes from "./modules/enrollmentRequest/enrollmentReque
 import orderRoutes from "./modules/order/order.routes";
 import paymentRoutes from "./modules/payment/payment.routes";
 
+// Middleware & utils
 import { corsOptions } from "./middleware/cors";
-import { uptime } from "process";
+import { errorHandler, AppError } from "./middleware/error";
+import logger from "./utils/logger";
+// import RedisStore from "rate-limit-redis";
+// import redis from "./utils/redisClient";
+import swaggerUi from "swagger-ui-express";
+import { swaggerSpec } from "./config/swagger";
 
 const app: Application = express();
+const isProduction = process.env.NODE_ENV === "production";
+const BODY_LIMIT = "2mb";
 
-// --- Core security + performance middleware ---
+/* -------------------------------------------------------------------------- */
+/*                               SECURITY LAYER                               */
+/* -------------------------------------------------------------------------- */
 
-app.use(helmet());
-app.use(cors(corsOptions));
-
-// For all API routes except webhooks
 app.use(
-  json({
-    limit: "2mb",
+  helmet({
+    contentSecurityPolicy: isProduction ? undefined : false,
   })
 );
 
+app.use(cors(corsOptions));
+
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      success: false,
+      error: "Too many requests. Try again later.",
+    },
+    // store: new RedisStore({
+    //   sendCommand: (command: string, ...args: string[]) => redis.call(command, ...args),
+    // }),
+  })
+);
+
+/* -------------------------------------------------------------------------- */
+/*                               BODY PARSERS                                 */
+/* -------------------------------------------------------------------------- */
+
+// Webhooks MUST come before JSON
+app.use(
+  "/api/paystack/webhook",
+  express.raw({ type: "*/*", limit: BODY_LIMIT })
+);
+
+// Standard parsers
+app.use(express.json({ limit: BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT }));
 app.use(cookieParser());
 app.use(compression());
 
-// Logging (env controlled)
-if (process.env.NODE_ENV !== "production") {
+/* -------------------------------------------------------------------------- */
+/*                                   LOGGING                                  */
+/* -------------------------------------------------------------------------- */
+
+if (isProduction) {
+  app.use(
+    morgan("combined", {
+      stream: {
+        write: (msg) => logger.info(msg.trim()),
+      },
+    })
+  );
+} else {
   app.use(morgan("dev"));
 }
 
-app.use(urlencoded({ extended: true }));
+/* -------------------------------------------------------------------------- */
+/*                                   VIEWS                                    */
+/* -------------------------------------------------------------------------- */
 
-// EJS for internal email previews or admin templates
 app.set("views", join(__dirname, "views"));
 app.set("view engine", "ejs");
 
-// --- Webhook raw body handler (must be before normal JSON parsing) ---
-app.use("/api/paystack/webhook", raw({ type: "*/*", limit: "2mb" }));
+/* -------------------------------------------------------------------------- */
+/*                                   ROUTES                                   */
+/* -------------------------------------------------------------------------- */
 
-// --- API Routes ---
-// app.use("/api", router);
-app.use("/api/auth", authRoutes);
-app.use("/api/programs", programRoutes);
-app.use("/api/course", courseRoutes);
-app.use("/api/modules", moduleRoutes);
-app.use("/api/topics", topicRoutes);
-app.use("/api/enrollment", enrollmentRoutes);
-app.use("/api/enrollment-physical", enrollmentRequestRoutes);
-app.use("/api/order", orderRoutes);
-app.use("/api/payment", paymentRoutes);
+const API = "/api/v1";
 
-// --- Root Route ---
-app.get("/", (req: Request, res: Response) => {
-  const ip =
-    req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown";
+app.use(`${API}/auth`, authRoutes);
+app.use(`${API}/programs`, programRoutes);
+app.use(`${API}/courses`, courseRoutes);  
+app.use(`${API}/modules`, moduleRoutes);
+app.use(`${API}/topics`, topicRoutes);
+app.use(`${API}/enrollments`, enrollmentRoutes);
+app.use(`${API}/enrollment-requests`, enrollmentRequestRoutes);
+app.use(`${API}/orders`, orderRoutes);
+app.use(`${API}/payments`, paymentRoutes);
+app.use(`${API}/docs`, swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-  const userAgent = req.headers["user-agent"] ?? "unknown";
+/* -------------------------------------------------------------------------- */
+/*                                   SYSTEM                                   */
+/* -------------------------------------------------------------------------- */
 
+app.get("/", (_req: Request, res: Response) => {
   res.status(200).json({
     success: true,
-    message:
-      "Welcome to the Accountant Pathfinder API. You probably shouldn't be here, but...",
-    // "Welcome to the Accountant Pathfinder Backend API! Visit /docs for API documentation.",
-    device: hostname(),
-    version: process.env.npm_package_version || "unknown",
-    service: "Accountant Pathfinder Backend API",
-    ip,
-    userAgent,
+    service: "Accountant's Pathfinder API",
+    version: process.env.npm_package_version ?? "unknown",
   });
 });
 
-// --- Health Check ---
-app.get("/health", async (_req: Request, res: Response) => {
+app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({
     status: "ok",
     uptime: uptime(),
   });
 });
 
-// --- Central Error Handler ---
-app.use(
-  (
-    err: Error & { status?: number },
-    _req: Request,
-    res: Response,
-    _next: NextFunction
-  ) => {
-    const status = err.status ?? 500;
+/* -------------------------------------------------------------------------- */
+/*                                404 HANDLER                                 */
+/* -------------------------------------------------------------------------- */
 
-    res.status(status).json({
-      success: false,
-      message: err.message || "Internal Server Error",
-    });
-  }
-);
+app.use((_req: Request, _res: Response, next: NextFunction) => {
+  next(new AppError("Route not found", 404));
+});
+
+/* -------------------------------------------------------------------------- */
+/*                               ERROR HANDLER                                */
+/* -------------------------------------------------------------------------- */
+
+app.use(errorHandler);
 
 export default app;

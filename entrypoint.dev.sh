@@ -1,22 +1,20 @@
-#!/bin/sh
-
-echo "🧪 Waiting for Postgres..."
-while ! nc -z postgres 5432; do
+echo "Waiting for Postgres..."
+until npx wait-port postgres:5432 > /dev/null 2>&1; do
   sleep 1
 done
-echo "✅ Postgres is ready"
+echo "Postgres is ready"
 
-echo "🧪 Waiting for Redis..."
-while ! nc -z redis 6379; do
+echo "Waiting for Redis..."
+until npx wait-port redis:6379 > /dev/null 2>&1; do
   sleep 1
 done
-echo "✅ Redis is ready"
+echo "Redis is ready"
 
-echo "🔄 Running Prisma generate..."
+echo "Generating Prisma client..."
 npx prisma generate
 
-echo "🛠️ Running Prisma migrate dev (safe fallback)..."
-npx prisma migrate dev --name init --skip-seed || true
+echo "Running migrations..."
+npx prisma migrate deploy
 
-echo "🚀 Starting dev server with hot reload..."
+echo "Starting dev server..."
 npm run dev

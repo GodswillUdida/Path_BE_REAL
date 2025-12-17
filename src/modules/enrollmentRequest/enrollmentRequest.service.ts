@@ -48,6 +48,9 @@ export async function listPhysicalEnrollmentRequestsService() {
       },
     },
   });
+
+
+  if (!requests) throw notFound("Error Listing all enrollment"); 
   return requests;
 }
 

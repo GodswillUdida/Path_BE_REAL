@@ -1,4 +1,4 @@
-import { Router } from "express";
+    import { Router } from "express";
 import * as ctrl from "./auth.controller";
 
 // {
@@ -13,7 +13,7 @@ import * as ctrl from "./auth.controller";
 
 const r = Router();
 
-r.post("/register", ctrl.registerController);
+r.post("/register", ctrl.registerController);   
 r.post("/login", ctrl.loginController);
 r.post("/verify-email", ctrl.verifyEmailController);
 r.post("/forgot-password", ctrl.forgotPasswordController);

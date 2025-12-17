@@ -8,7 +8,8 @@ const prisma = new PrismaClient({
   log: [
     "info",
     "warn",
-    // "query"
+    // "query",
+    "error"
   ],
 });
 

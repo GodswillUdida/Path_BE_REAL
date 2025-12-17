@@ -5,15 +5,63 @@ import {
   listCoursesQuery,
   updateCourseSchema,
 } from "./course.schema";
+import { badRequest } from "../../utils/errors";
 
-export const createCourseController = async (
+export const createOnlineCourseController = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const body = createCourseSchema.parse(req.body);
-    const course = await svc.createCourse(body, req.user?.userId);
+    const { programSlug } = req.params;
+    const body = createCourseSchema.parse({
+      ...req.body,
+      type: "online",
+      pricings: req.body.pricings ? JSON.parse(req.body.pricings) : undefined,
+    });
+
+    if (body.type !== "online") {
+      throw badRequest("Invalid course type for online endpoint");
+    }
+
+    const course = await svc.createOnlineCourse(
+      programSlug,
+      body,
+      req.user!.id,
+      req.file?.buffer,
+      req.file?.mimetype
+    );
+
+    res.status(201).json({
+      success: true,
+      course,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createPhysicalCourseController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { programSlug } = req.params;
+    const body = createCourseSchema.parse({ ...req.body, type: "physical" });
+
+    if (body.type !== "physical") {
+      throw badRequest("Invalid course type for physical endpoint");
+    }
+
+    const course = await svc.createPhysicalCourse(
+      programSlug,
+      body,
+      req.user.id,
+      req.file?.buffer,
+      req.file?.mimetype
+    );
+
     res.status(201).json({ success: true, course });
   } catch (error) {
     next(error);
@@ -29,7 +77,7 @@ export const listCoursesController = async (
     const query = listCoursesQuery.parse(req.query);
     const courses = await svc.listCourses(
       query.q,
-      query.type as any,
+      query.type,
       query.limit,
       query.offset
     );
@@ -75,7 +123,12 @@ export const updateCourseController = async (
 ) => {
   try {
     const body = updateCourseSchema.parse(req.body);
-    const updated = await svc.updateCourse(req.params.id, body);
+    const updated = await svc.updateCourse(
+      req.params.id,
+      body,
+      req.file?.buffer,
+      req.file?.mimetype
+    );
     res.json({ success: true, updated });
   } catch (error) {
     next(error);

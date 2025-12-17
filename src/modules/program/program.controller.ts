@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
-import * as svc from "./program.service";
 import { createProgramSchema } from "./program.schema";
+import z from "zod";
+import * as svc from "./program.service";
 
 export const createProgramController = async (
   req: Request,
@@ -50,14 +51,33 @@ export const getProgramController = async (
 export const getProgramBySlugController = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next:NextFunction
 ) => {
+  const slugSchema = z.object({
+    slug: z
+      .string()
+      .min(1)
+      .max(255)
+      .regex(/^[a-z0-9-]+$/i, "Invalid slug format"), // Security: Restrict to safe characters
+  });
   try {
-    const slug = req.params.slug;
-    console.log("Fetching program with slug:", slug);
+    const { slug } = slugSchema.parse(req.params)
+    console.log("Validating Slug from params: ", slug);
 
     const program = await svc.getProgramBySlug(slug);
-    res.json({ success: true, program });
+
+    if (!program) {
+      return res.status(404).json({
+        success: false,
+        message: "Program not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      program
+    });
+    
   } catch (error) {
     next(error);
   }

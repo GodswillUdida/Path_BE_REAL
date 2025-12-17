@@ -5,6 +5,8 @@
 // // import { verificationEmailTemplate } from "../templates/verification";
 // // import { passwordResetTemplate } from "../templates/password-reset";
 
+// import redis from "utils/redisClient";
+
 // const emailService = new EmailService();
 
 // export const emailWorker = new Worker(
@@ -32,6 +34,7 @@
 //   },
 //   {
 //     connection: { url: process.env.REDIS_URL },
+// connection: redis,
 //     concurrency: 10,
 //   }
 // );

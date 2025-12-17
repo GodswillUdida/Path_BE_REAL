@@ -1,4 +1,3 @@
-
 services:
   redis:
     image: redis:7-alpine
@@ -19,7 +18,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: godswill
-      POSTGRES_DB: pathFinderBE
+      POSTGRES_DB: accountant_pathfinder_be
     ports:
       - "5432:5432"
     volumes:
@@ -37,14 +36,27 @@ services:
     container_name: pathfinder-api
     ports:
       - "5000:5000"
+      - "5555:5555"
     volumes:
       - .:/app
       - /app/node_modules
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
-      - NODE_ENV=development
+      DATABASE_URL: postgresql://postgres:godswill@postgres:5432/accountant_pathfinder_be?schema=public
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: development
+      FRONTEND_URL: http://localhost:5173
+      JWT_ACCESS_SECRET: super-access-secret
+      JWT_REFRESH_SECRET: super-secret-refresh
+      REFRESH_TOKEN_SECRET: super-secret-refresh
+      REFRESH_COOKIE_NAME: refresh_token
+      RESEND_API_KEY: your-key
+      MAIL_FROM: udidagodswill7@gmail.com
+      ADMIN_EMAIL: udidagodswill7@gmail.com
 
 volumes:
   redis_data:

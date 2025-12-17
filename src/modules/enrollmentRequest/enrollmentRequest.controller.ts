@@ -79,8 +79,11 @@ export const listPhysicalRequests = async (
   try {
     const requests = await listPhysicalEnrollmentRequestsService();
 
+    console.log("Enrollments: ", requests);
+
     return res.json({ success: true, data: requests });
-  } catch (error) {
+  } catch (error: any) {
+    console.error("Error: ", error.message);
     next(error);
   }
 };

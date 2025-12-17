@@ -1,7 +1,3 @@
-import nodemailer, { Transporter } from "nodemailer";
-import { Resend } from "resend";
-import { google } from "googleapis";
-import ejs from "ejs";
 import path from "path";
 import crypto from "crypto";
 import logger from "../utils/logger";
@@ -36,14 +32,26 @@ if (
   throw new AppError("Missing required email environment variables", 500);
 }
 
+let oAuth2Client: any;
+const getOAuth2Client = async () => {
+  if (!oAuth2Client) {
+    const { google } = await import("googleapis");
+    oAuth2Client = new google.auth.OAuth2(G_ID, G_SECRET, G_URL);
+    oAuth2Client.setCredentials({ refresh_token: G_REFRESH_TOKEN });
+  }
+  return oAuth2Client;
+};
+
 // const resend = new Resend(RESEND_API_KEY);
 
 // OAuth2
-const oAuth2Client = new google.auth.OAuth2(G_ID, G_SECRET, G_URL);
-oAuth2Client.setCredentials({ refresh_token: G_REFRESH_TOKEN });
+// const oAuth2Client = new google.auth.OAuth2(G_ID, G_SECRET, G_URL);
+// oAuth2Client.setCredentials({ refresh_token: G_REFRESH_TOKEN });
 
-export const getGmailTransporter = async (): Promise<Transporter> => {
-  const { token } = await oAuth2Client.getAccessToken();
+export const getGmailTransporter = async (): Promise<any> => {
+  const nodemailer = await import("nodemailer");
+  const client = await getOAuth2Client();
+  const { token } = await client.getAccessToken();
   if (!token) throw new AppError("No Gmail access token", 500);
 
   return nodemailer.createTransport({
@@ -75,7 +83,7 @@ const renderEmailTemplate = async (template: string, data: any) => {
     if (!templateCache[template]) {
       templateCache[template] = resolveViewPath(template);
     }
-
+    const ejs = await import("ejs");
     return await ejs.renderFile(templateCache[template], data);
   } catch (err: any) {
     logger.error("Email template render failed: " + err.message);
@@ -87,22 +95,6 @@ const renderEmailTemplate = async (template: string, data: any) => {
 const sendCoreEmail = async (to: string, subject: string, html: string) => {
   const correlationId = crypto.randomBytes(32).toString("hex");
 
-    // try {
-    //   const result = await resend.emails.send({
-    //     from: RESEND_FROM!,
-    //     to,
-    //     subject,
-    //     html,
-    //   });
-
-    //   logger.info(`[email:${correlationId}] Resend → Delivered to ${to}`);
-    //   return { success: true, provider: "resend", id: result.id };
-    // } catch (err) {
-    //   logger.warn(
-    //     `[email:${correlationId}] Resend failed → switching to Gmail fallback`
-    //   );
-    // }
-
   try {
     const transporter = await getGmailTransporter();
     await transporter.sendMail({
@@ -113,8 +105,6 @@ const sendCoreEmail = async (to: string, subject: string, html: string) => {
     });
 
     logger.info(`[email:${correlationId}] Gmail fallback email sent to ` + to);
-    // await resend.emails.send({ from: RESEND_FROM!, to, subject, html });
-    // logger.info("Resend email sent to " + to);
   } catch (err) {
     logger.warn("Mail failed to send !!!");
   }
@@ -130,7 +120,6 @@ export const sendVerificationEmail = async (
 ) => {
   const url = `${FRONTEND_URL}/verify-email?token=${token}`;
   const html = await renderEmailTemplate("verifyEmail", { name, url });
-
   await sendCoreEmail(to, "Verify your email - Pathfinder College", html);
 };
 
@@ -142,7 +131,6 @@ export const sendPasswordResetEmail = async (
 ) => {
   const url = `${FRONTEND_URL}/reset-password?token=${token}`;
   const html = await renderEmailTemplate("resetPassword", { name, url });
-
   await sendCoreEmail(to, "Reset your password - Pathfinder College", html);
 };
 

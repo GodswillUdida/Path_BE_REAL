@@ -90,10 +90,6 @@ const createPhysicalCourse = async (programSlug, data, adminId, fileBuffer, file
     else if (!thumbnail) {
         throw (0, errors_1.badRequest)("Thumbnail URL or file is required");
     }
-    // const { secure_url } = await streamUpload(
-    //       fileBuffer,
-    //       "pathfinder/images/physical-courses"
-    //     );
     if (!thumbnail)
         throw (0, errors_1.badRequest)("Thumbnail/Image is required");
     const slug = await (0, slugify_1.generateUniqueSlug)(data.title, "course");

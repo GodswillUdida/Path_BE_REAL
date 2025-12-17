@@ -6,7 +6,6 @@ import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import { join } from "path";
-import { uptime } from "process";
 
 // Routes
 import authRoutes from "./modules/auth/auth.routes";
@@ -23,7 +22,6 @@ import paymentRoutes from "./modules/payment/payment.routes";
 import { corsOptions } from "./middleware/cors";
 import { errorHandler, AppError } from "./middleware/error";
 import logger from "./utils/logger";
-// import RedisStore from "rate-limit-redis";
 // import redis from "./utils/redisClient";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
@@ -55,9 +53,6 @@ app.use(
       success: false,
       error: "Too many requests. Try again later.",
     },
-    // store: new RedisStore({
-    //   sendCommand: (command: string, ...args: string[]) => redis.call(command, ...args),
-    // }),
   })
 );
 
@@ -129,11 +124,10 @@ app.get("/", (_req: Request, res: Response) => {
   });
 });
 
-app.get("/health", async (_req: Request, res: Response) => {
+app.get("/health", async (_, res: Response) => {
   await prisma.$queryRaw`SELECT 1`;
   res.status(200).json({
     status: "ok",
-    // uptime: uptime(),
   });
 });
 

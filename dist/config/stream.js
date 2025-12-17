@@ -4,11 +4,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.streamUpload = void 0;
-const cloudinary_1 = __importDefault(require("./cloudinary"));
 const streamifier_1 = __importDefault(require("streamifier"));
+const cloudinary_1 = require("./cloudinary");
 const streamUpload = (buffer, folder) => {
     return new Promise(async (resolve, reject) => {
-        let stream = cloudinary_1.default.uploader.upload_stream({
+        const cloudinary = await (0, cloudinary_1.getCloudinary)();
+        let stream = cloudinary.uploader.upload_stream({
             folder,
             resource_type: "image",
             transformation: [{ quality: "auto", fetch_format: "auto" }],

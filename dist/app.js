@@ -25,7 +25,6 @@ const payment_routes_1 = __importDefault(require("./modules/payment/payment.rout
 const cors_2 = require("./middleware/cors");
 const error_1 = require("./middleware/error");
 const logger_1 = __importDefault(require("./utils/logger"));
-// import RedisStore from "rate-limit-redis";
 // import redis from "./utils/redisClient";
 const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
 const swagger_1 = require("./config/swagger");
@@ -49,9 +48,6 @@ app.use((0, express_rate_limit_1.default)({
         success: false,
         error: "Too many requests. Try again later.",
     },
-    // store: new RedisStore({
-    //   sendCommand: (command: string, ...args: string[]) => redis.call(command, ...args),
-    // }),
 }));
 /* -------------------------------------------------------------------------- */
 /*                               BODY PARSERS                                 */
@@ -105,11 +101,10 @@ app.get("/", (_req, res) => {
         version: process.env.npm_package_version ?? "unknown",
     });
 });
-app.get("/health", async (_req, res) => {
+app.get("/health", async (_, res) => {
     await prisma_1.default.$queryRaw `SELECT 1`;
     res.status(200).json({
         status: "ok",
-        // uptime: uptime(),
     });
 });
 /* -------------------------------------------------------------------------- */

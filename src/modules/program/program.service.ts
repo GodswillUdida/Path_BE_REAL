@@ -2,10 +2,7 @@ import { AppError } from "../../middleware/error";
 import prisma from "../../lib/prisma";
 import { badRequest, notFound } from "../../utils/errors";
 import { generateUniqueSlug } from "../../utils/slugify";
-import { streamUpload } from "../../config/stream";
-import logger from "../../utils/logger";
-import { CreateCourseInput, OnlineCourseInput, PhysicalCourseInput } from "../../modules/course/course.schema";
-import { duration } from "zod/v4/classic/iso.cjs";
+
 
 export const createProgram = async (data: {
   title: string;

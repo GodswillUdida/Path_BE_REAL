@@ -111,10 +111,6 @@ export const createPhysicalCourse = async (
   } else if (!thumbnail) {
     throw badRequest("Thumbnail URL or file is required");
   }
-  // const { secure_url } = await streamUpload(
-  //       fileBuffer,
-  //       "pathfinder/images/physical-courses"
-  //     );
 
   if (!thumbnail) throw badRequest("Thumbnail/Image is required");
 

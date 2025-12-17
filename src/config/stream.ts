@@ -1,8 +1,9 @@
-import cloudinary from "./cloudinary";
 import streamifier from "streamifier";
+import { getCloudinary } from "./cloudinary";
 
 export const streamUpload = (buffer: Buffer, folder:string):Promise<any> => {
   return new Promise<any>(async (resolve, reject) => {
+    const cloudinary = await getCloudinary();
     let stream = cloudinary.uploader.upload_stream(
       {
         folder,

@@ -1,13 +1,19 @@
-import { v2 as cloudinary } from "cloudinary";
 import env from "dotenv";
-
 env.config();
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
-  api_key: process.env.CLOUDINARY_API_KEY!,
-  api_secret: process.env.CLOUDINARY_API_SECRET!,
-  secure: true,
-});
+let cloudinaryInstance: typeof import("cloudinary").v2 | null = null;
 
-export default cloudinary;
+export const getCloudinary = async () => {
+  if (!cloudinaryInstance) {
+    const { v2 } = await import("cloudinary");
+    cloudinaryInstance = v2;
+
+    cloudinaryInstance.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
+      api_key: process.env.CLOUDINARY_API_KEY!,
+      api_secret: process.env.CLOUDINARY_API_SECRET!,
+      secure: true,
+    });
+  }
+  return cloudinaryInstance;
+};

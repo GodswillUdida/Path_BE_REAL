@@ -11,7 +11,6 @@ const morgan_1 = __importDefault(require("morgan"));
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 const path_1 = require("path");
-const process_1 = require("process");
 // Routes
 const auth_routes_1 = __importDefault(require("./modules/auth/auth.routes"));
 const course_routes_1 = __importDefault(require("./modules/course/course.routes"));
@@ -30,6 +29,7 @@ const logger_1 = __importDefault(require("./utils/logger"));
 // import redis from "./utils/redisClient";
 const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
 const swagger_1 = require("./config/swagger");
+const prisma_1 = __importDefault(require("./lib/prisma"));
 const app = (0, express_1.default)();
 const isProduction = process.env.NODE_ENV === "production";
 const BODY_LIMIT = "2mb";
@@ -105,10 +105,11 @@ app.get("/", (_req, res) => {
         version: process.env.npm_package_version ?? "unknown",
     });
 });
-app.get("/health", (_req, res) => {
+app.get("/health", async (_req, res) => {
+    await prisma_1.default.$queryRaw `SELECT 1`;
     res.status(200).json({
         status: "ok",
-        uptime: (0, process_1.uptime)(),
+        // uptime: uptime(),
     });
 });
 /* -------------------------------------------------------------------------- */

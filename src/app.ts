@@ -27,6 +27,7 @@ import logger from "./utils/logger";
 // import redis from "./utils/redisClient";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
+import prisma from "./lib/prisma";
 
 const app: Application = express();
 const isProduction = process.env.NODE_ENV === "production";
@@ -107,7 +108,7 @@ const API = "/api/v1";
 
 app.use(`${API}/auth`, authRoutes);
 app.use(`${API}/programs`, programRoutes);
-app.use(`${API}/courses`, courseRoutes);  
+app.use(`${API}/courses`, courseRoutes);
 app.use(`${API}/modules`, moduleRoutes);
 app.use(`${API}/topics`, topicRoutes);
 app.use(`${API}/enrollments`, enrollmentRoutes);
@@ -128,10 +129,11 @@ app.get("/", (_req: Request, res: Response) => {
   });
 });
 
-app.get("/health", (_req: Request, res: Response) => {
+app.get("/health", async (_req: Request, res: Response) => {
+  await prisma.$queryRaw`SELECT 1`;
   res.status(200).json({
     status: "ok",
-    uptime: uptime(),
+    // uptime: uptime(),
   });
 });
 

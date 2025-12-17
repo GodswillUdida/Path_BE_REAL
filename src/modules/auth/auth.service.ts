@@ -14,7 +14,7 @@ import {
 } from "../../lib/jwt";
 import { badRequest, unauthorized } from "../../utils/errors";
 import logger from "../../utils/logger";
-import { emailQueue } from "../../jobs/email/emailJobs";
+// import { emailQueue } from "../../jobs/email/emailJobs";
 import {
   sendPasswordResetEmail,
   sendVerificationEmail,

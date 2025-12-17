@@ -1,0 +1,38 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const winston_1 = __importDefault(require("winston"));
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
+// Ensure logs directory exists
+const logDir = path_1.default.join(__dirname, '../../logs');
+if (!fs_1.default.existsSync(logDir)) {
+    fs_1.default.mkdirSync(logDir, { recursive: true });
+}
+const isProduction = process.env.NODE_ENV === 'production';
+const logger = winston_1.default.createLogger({
+    level: isProduction ? 'info' : 'debug',
+    format: winston_1.default.format.combine(winston_1.default.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }), winston_1.default.format.errors({ stack: true }), // log full stack traces
+    winston_1.default.format.splat(), // enables printf-style logs
+    winston_1.default.format.json()),
+    transports: [
+        // File transport: errors only
+        new winston_1.default.transports.File({
+            filename: path_1.default.join(logDir, 'error.log'),
+            level: 'error',
+        }),
+        // File transport: all logs
+        new winston_1.default.transports.File({
+            filename: path_1.default.join(logDir, 'combined.log'),
+        }),
+    ],
+});
+// Add console logs in dev environment
+if (!isProduction) {
+    logger.add(new winston_1.default.transports.Console({
+        format: winston_1.default.format.combine(winston_1.default.format.colorize(), winston_1.default.format.printf(({ level, message, timestamp, stack }) => `${timestamp} ${level}: ${stack || message}`)),
+    }));
+}
+exports.default = logger;

@@ -1,4 +1,10 @@
-import express, { Application, Request, Response, NextFunction } from "express";
+import express, {
+  Application,
+  Request,
+  Response,
+  NextFunction,
+  json,
+} from "express";
 import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
@@ -22,7 +28,6 @@ import paymentRoutes from "./modules/payment/payment.routes";
 import { corsOptions } from "./middleware/cors";
 import { errorHandler, AppError } from "./middleware/error";
 import logger from "./utils/logger";
-// import redis from "./utils/redisClient";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
 import prisma from "./lib/prisma";
@@ -67,7 +72,7 @@ app.use(
 );
 
 // Standard parsers
-app.use(express.json({ limit: BODY_LIMIT }));
+app.use(json({ limit: BODY_LIMIT }));
 app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT }));
 app.use(cookieParser());
 app.use(compression());
@@ -112,6 +117,18 @@ app.use(`${API}/orders`, orderRoutes);
 app.use(`${API}/payments`, paymentRoutes);
 app.use(`${API}/docs`, swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
+// app.use(`${API}/docs`, async (_req, _res, next) => {
+//   try {
+//     const swaggerUi = await import("swagger-ui-express");
+//     const { swaggerSpec } = await import("./config/swagger");
+//     swaggerUi.serve(_req, _res, () =>
+//       swaggerUi.setup(swaggerSpec)(_req, _res, next)
+//     );
+//   } catch (err) {
+//     next(err);
+//   }
+// });
+
 /* -------------------------------------------------------------------------- */
 /*                                   SYSTEM                                   */
 /* -------------------------------------------------------------------------- */
@@ -124,11 +141,16 @@ app.get("/", (_req: Request, res: Response) => {
   });
 });
 
-app.get("/health", async (_, res: Response) => {
-  await prisma.$queryRaw`SELECT 1`;
-  res.status(200).json({
-    status: "ok",
-  });
+app.get("/health", async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { default: prisma } = await import("./lib/prisma");
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({
+      status: "ok",
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 /* -------------------------------------------------------------------------- */

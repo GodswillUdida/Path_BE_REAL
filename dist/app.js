@@ -149,7 +149,9 @@ app.get("/", (_req, res) => {
 app.get("/health", async (_req, res, next) => {
     try {
         const { default: prisma } = await Promise.resolve().then(() => __importStar(require("./lib/prisma")));
-        await prisma.$queryRaw `SELECT 1`;
+        // await prisma.$queryRaw`SELECT 1`;
+        const result = await prisma.$queryRaw `SELECT 1`;
+        console.log("DB check:", result);
         res.status(200).json({
             status: "ok",
         });
@@ -161,8 +163,12 @@ app.get("/health", async (_req, res, next) => {
 /* -------------------------------------------------------------------------- */
 /*                                404 HANDLER                                 */
 /* -------------------------------------------------------------------------- */
-app.use((_req, _res, next) => {
-    next(new error_1.AppError("Route not found", 404));
+app.use((err, req, res, next) => {
+    console.error("PROD ERROR:", err);
+    res
+        .status(500)
+        .json({ success: false, error: err.message || "Internal Server Error" });
+    // next(new AppError("Route not found", 404));
 });
 /* -------------------------------------------------------------------------- */
 /*                               ERROR HANDLER                                */

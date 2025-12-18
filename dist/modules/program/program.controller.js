@@ -43,6 +43,7 @@ const svc = __importStar(require("./program.service"));
 const createProgramController = async (req, res, next) => {
     try {
         const body = program_schema_1.createProgramSchema.parse(req.body);
+        console.log("Body", body);
         const program = await svc.createProgram(body);
         res.status(201).json({ success: true, program });
     }
@@ -96,7 +97,7 @@ const getProgramBySlugController = async (req, res, next) => {
         }
         res.status(200).json({
             success: true,
-            program
+            program,
         });
     }
     catch (error) {

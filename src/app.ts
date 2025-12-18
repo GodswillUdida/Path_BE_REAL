@@ -30,7 +30,6 @@ import { errorHandler, AppError } from "./middleware/error";
 import logger from "./utils/logger";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
-import prisma from "./lib/prisma";
 
 const app: Application = express();
 const isProduction = process.env.NODE_ENV === "production";
@@ -66,10 +65,10 @@ app.use(
 /* -------------------------------------------------------------------------- */
 
 // Webhooks MUST come before JSON
-app.use(
-  "/api/paystack/webhook",
-  express.raw({ type: "*/*", limit: BODY_LIMIT })
-);
+// app.use(
+//   "/api/paystack/webhook",
+//   express.raw({ type: "*/*", limit: BODY_LIMIT })
+// );
 
 // Standard parsers
 app.use(json({ limit: BODY_LIMIT }));
@@ -144,7 +143,10 @@ app.get("/", (_req: Request, res: Response) => {
 app.get("/health", async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const { default: prisma } = await import("./lib/prisma");
-    await prisma.$queryRaw`SELECT 1`;
+    // await prisma.$queryRaw`SELECT 1`;
+    const result = await prisma.$queryRaw`SELECT 1`;
+    console.log("DB check:", result);
+
     res.status(200).json({
       status: "ok",
     });
@@ -157,8 +159,12 @@ app.get("/health", async (_req: Request, res: Response, next: NextFunction) => {
 /*                                404 HANDLER                                 */
 /* -------------------------------------------------------------------------- */
 
-app.use((_req: Request, _res: Response, next: NextFunction) => {
-  next(new AppError("Route not found", 404));
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  console.error("PROD ERROR:", err);
+  res
+    .status(500)
+    .json({ success: false, error: err.message || "Internal Server Error" });
+  // next(new AppError("Route not found", 404));
 });
 
 /* -------------------------------------------------------------------------- */

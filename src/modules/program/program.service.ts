@@ -3,7 +3,6 @@ import prisma from "../../lib/prisma";
 import { badRequest, notFound } from "../../utils/errors";
 import { generateUniqueSlug } from "../../utils/slugify";
 
-
 export const createProgram = async (data: {
   title: string;
   description?: string;
@@ -21,8 +20,8 @@ export const createProgram = async (data: {
     data: {
       title: data.title,
       description: data.description,
-      image: data.image,
       slug,
+      // image: data.image ?? null,
     },
   });
   return program;

@@ -10,6 +10,7 @@ export const createProgramController = async (
 ) => {
   try {
     const body = createProgramSchema.parse(req.body);
+    console.log("Incoming create program payload:", req.body);
     const program = await svc.createProgram(body);
     res.status(201).json({ success: true, program });
   } catch (error) {
@@ -51,7 +52,7 @@ export const getProgramController = async (
 export const getProgramBySlugController = async (
   req: Request,
   res: Response,
-  next:NextFunction
+  next: NextFunction
 ) => {
   const slugSchema = z.object({
     slug: z
@@ -61,7 +62,7 @@ export const getProgramBySlugController = async (
       .regex(/^[a-z0-9-]+$/i, "Invalid slug format"), // Security: Restrict to safe characters
   });
   try {
-    const { slug } = slugSchema.parse(req.params)
+    const { slug } = slugSchema.parse(req.params);
     console.log("Validating Slug from params: ", slug);
 
     const program = await svc.getProgramBySlug(slug);
@@ -75,9 +76,8 @@ export const getProgramBySlugController = async (
 
     res.status(200).json({
       success: true,
-      program
+      program,
     });
-    
   } catch (error) {
     next(error);
   }

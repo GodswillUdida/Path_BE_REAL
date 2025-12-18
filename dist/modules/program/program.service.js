@@ -19,8 +19,8 @@ const createProgram = async (data) => {
         data: {
             title: data.title,
             description: data.description,
-            image: data.image,
             slug,
+            // image: data.image ?? null,
         },
     });
     return program;

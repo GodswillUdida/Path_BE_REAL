@@ -45,14 +45,11 @@ r.post(
   ctrl.createProgramController
 );
 
-
-
 r.get("/", ctrl.listProgramsController);
 
 r.get("/:id", ctrl.getProgramController);
 
 r.get("/:slug", ctrl.getProgramBySlugController);
-
 
 r.patch(
   "/:id",

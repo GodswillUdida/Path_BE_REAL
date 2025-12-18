@@ -5,9 +5,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "npx prisma generate && tsnd --respawn --transpile-only src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js",
+    "dev": "npx prisma migrate deploy && tsnd --respawn --transpile-only src/server.ts",
+    "build": "npx prisma generate && tsc",
+    "start": "npx prisma migrate deploy && node dist/server.js",
     "dev:docker": "docker compose -f docker-compose.dev.yml up --build",
     "dev:docker:logs": "docker compose -f docker-compose.dev.yml logs -f pathfinder-api",
     "prod:docker": "docker compose -f docker-compose.yml up --build -d",

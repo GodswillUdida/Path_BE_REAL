@@ -84,7 +84,10 @@ app.use((0, express_rate_limit_1.default)({
 /*                               BODY PARSERS                                 */
 /* -------------------------------------------------------------------------- */
 // Webhooks MUST come before JSON
-app.use("/api/paystack/webhook", express_1.default.raw({ type: "*/*", limit: BODY_LIMIT }));
+// app.use(
+//   "/api/paystack/webhook",
+//   express.raw({ type: "*/*", limit: BODY_LIMIT })
+// );
 // Standard parsers
 app.use((0, express_1.json)({ limit: BODY_LIMIT }));
 app.use(express_1.default.urlencoded({ extended: true, limit: BODY_LIMIT }));

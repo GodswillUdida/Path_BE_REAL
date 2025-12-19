@@ -62,7 +62,7 @@ const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
 const swagger_1 = require("./config/swagger");
 const app = (0, express_1.default)();
 const isProduction = process.env.NODE_ENV === "production";
-const BODY_LIMIT = "2mb";
+const BODY_LIMIT = "1mb";
 /* -------------------------------------------------------------------------- */
 /*                               SECURITY LAYER                               */
 /* -------------------------------------------------------------------------- */
@@ -147,29 +147,20 @@ app.get("/", (_req, res) => {
     });
 });
 app.get("/health", async (_req, res, next) => {
-    try {
-        const { default: prisma } = await Promise.resolve().then(() => __importStar(require("./lib/prisma")));
-        // await prisma.$queryRaw`SELECT 1`;
-        const result = await prisma.$queryRaw `SELECT 1`;
-        console.log("DB check:", result);
-        res.status(200).json({
-            status: "ok",
-        });
-    }
-    catch (error) {
-        next(error);
-    }
+    res.status(200).json({
+        status: "ok",
+    });
 });
 /* -------------------------------------------------------------------------- */
 /*                                404 HANDLER                                 */
 /* -------------------------------------------------------------------------- */
-app.use((err, req, res, next) => {
-    console.error("PROD ERROR:", err);
-    res
-        .status(500)
-        .json({ success: false, error: err.message || "Internal Server Error" });
-    // next(new AppError("Route not found", 404));
-});
+// app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+//   console.error("PROD ERROR:", err);
+//   res
+//     .status(500)
+//     .json({ success: false, error: err.message || "Internal Server Error" });
+//   // next(new AppError("Route not found", 404));
+// });
 /* -------------------------------------------------------------------------- */
 /*                               ERROR HANDLER                                */
 /* -------------------------------------------------------------------------- */

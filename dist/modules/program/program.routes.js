@@ -64,13 +64,18 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const ctrl = __importStar(require("./program.controller"));
 const authGuard_1 = require("../../middleware/authGuard");
 const roleGuard_1 = require("../../middleware/roleGuard");
+const multer_1 = __importDefault(require("../../config/multer"));
 const r = (0, express_1.Router)();
 r.post("/", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin"), ctrl.createProgramController);
+r.post("/:programId/courses/physical", multer_1.default.single("thumbnail"), authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), ctrl.createCourseFromProgramController);
 r.get("/", ctrl.listProgramsController);
 r.get("/:id", ctrl.getProgramController);
 r.get("/:slug", ctrl.getProgramBySlugController);

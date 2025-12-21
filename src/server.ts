@@ -1,9 +1,21 @@
+import "dotenv/config";
 import dotenv from "dotenv";
 dotenv.config();
 import app from "./app";
 import prisma from "./lib/prisma";
 import logger from "./utils/logger";
 import { validateEnv } from "./utils/validateEnv";
+
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL is missing");
+}
+
+if (process.env.NODE_ENV === "development") {
+  console.log(
+    "DB host:",
+    process.env.DATABASE_URL?.split("@")[1]?.split("/")[0]
+  );
+}
 
 validateEnv(["PORT", "DATABASE_URL", "NODE_ENV"]);
 

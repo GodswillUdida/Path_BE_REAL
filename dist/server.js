@@ -3,12 +3,19 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+require("dotenv/config");
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const app_1 = __importDefault(require("./app"));
 const prisma_1 = __importDefault(require("./lib/prisma"));
 const logger_1 = __importDefault(require("./utils/logger"));
 const validateEnv_1 = require("./utils/validateEnv");
+if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is missing");
+}
+if (process.env.NODE_ENV === "development") {
+    console.log("DB host:", process.env.DATABASE_URL?.split("@")[1]?.split("/")[0]);
+}
 (0, validateEnv_1.validateEnv)(["PORT", "DATABASE_URL", "NODE_ENV"]);
 const PORT = Number(process.env.PORT) || 5000;
 let server = null;

@@ -2,6 +2,7 @@ import { AppError } from "../../middleware/error";
 import prisma from "../../lib/prisma";
 import { badRequest, notFound } from "../../utils/errors";
 import { generateUniqueSlug } from "../../utils/slugify";
+import { createOnlineCourse, createPhysicalCourse } from "../../modules/course/course.service";
 
 export const createProgram = async (data: {
   title: string;
@@ -26,6 +27,45 @@ export const createProgram = async (data: {
   });
   return program;
 };
+
+export async function createCourseFromProgramId(params: {
+  programId: string;
+  type: "physical" | "online";
+  payload: any;
+  adminId: string;
+  fileBuffer?: Buffer;
+  fileMime?: string;
+}) {
+  const program = await prisma.program.findUnique({
+    where: { id: params.programId },
+    select: { slug: true },
+  });
+
+  if (!program) throw notFound("Program not found");
+
+  if (params.type === "physical") {
+    return createPhysicalCourse(
+      program.slug,
+      params.payload,
+      params.adminId,
+      params.fileBuffer,
+      params.fileMime
+    );
+  }
+
+  if (params.type === "online") {
+    return createOnlineCourse(
+      program.slug,
+      params.payload,
+      params.adminId,
+      params.fileBuffer,
+      params.fileMime
+    );
+  }
+
+  throw new Error("Invalid course type");
+}
+
 
 export const listPrograms = async () => {
   return prisma.program.findMany({ include: { courses: true } });

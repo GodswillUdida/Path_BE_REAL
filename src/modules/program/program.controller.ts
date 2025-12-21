@@ -18,6 +18,31 @@ export const createProgramController = async (
   }
 };
 
+export const createCourseFromProgramController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { programId } = req.params;
+
+    const course = await svc.createCourseFromProgramId({
+      programId,
+      type: req.body.type,
+      payload: req.body,
+      adminId: req.user.id,
+      fileBuffer: req.file?.buffer,
+      fileMime: req.file?.mimetype,
+    });
+
+    res.status(201).json({ course });
+  } catch (error) {
+    next(error)
+  }
+};
+
+
+
 export const listProgramsController = async (
   _req: Request,
   res: Response,
@@ -45,7 +70,7 @@ export const getProgramController = async (
     const program = await svc.getProgram(id);
     res.json({ success: true, program });
   } catch (error) {
-    next;
+    next(error);
   }
 };
 

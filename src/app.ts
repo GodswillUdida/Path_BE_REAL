@@ -141,9 +141,15 @@ app.get("/", (_req: Request, res: Response) => {
 });
 
 app.get("/health", async (_req: Request, res: Response, next: NextFunction) => {
-  res.status(200).json({
-    status: "ok",
-  });
+  try {
+    const { default: prisma } = await import("./lib/prisma");
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({
+      status: "ok",
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 /* -------------------------------------------------------------------------- */

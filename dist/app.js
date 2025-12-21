@@ -147,9 +147,16 @@ app.get("/", (_req, res) => {
     });
 });
 app.get("/health", async (_req, res, next) => {
-    res.status(200).json({
-        status: "ok",
-    });
+    try {
+        const { default: prisma } = await Promise.resolve().then(() => __importStar(require("./lib/prisma")));
+        await prisma.$queryRaw `SELECT 1`;
+        res.status(200).json({
+            status: "ok",
+        });
+    }
+    catch (error) {
+        next(error);
+    }
 });
 /* -------------------------------------------------------------------------- */
 /*                                404 HANDLER                                 */

@@ -4,10 +4,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteProgram = exports.updateProgram = exports.getProgramBySlug = exports.getProgram = exports.listPrograms = exports.createProgram = void 0;
+exports.createCourseFromProgramId = createCourseFromProgramId;
 const error_1 = require("../../middleware/error");
 const prisma_1 = __importDefault(require("../../lib/prisma"));
 const errors_1 = require("../../utils/errors");
 const slugify_1 = require("../../utils/slugify");
+const course_service_1 = require("../../modules/course/course.service");
 const createProgram = async (data) => {
     const titleExists = await prisma_1.default.program.findFirst({
         where: { title: data.title },
@@ -26,6 +28,21 @@ const createProgram = async (data) => {
     return program;
 };
 exports.createProgram = createProgram;
+async function createCourseFromProgramId(params) {
+    const program = await prisma_1.default.program.findUnique({
+        where: { id: params.programId },
+        select: { slug: true },
+    });
+    if (!program)
+        throw (0, errors_1.notFound)("Program not found");
+    if (params.type === "physical") {
+        return (0, course_service_1.createPhysicalCourse)(program.slug, params.payload, params.adminId, params.fileBuffer, params.fileMime);
+    }
+    if (params.type === "online") {
+        return (0, course_service_1.createOnlineCourse)(program.slug, params.payload, params.adminId, params.fileBuffer, params.fileMime);
+    }
+    throw new Error("Invalid course type");
+}
 const listPrograms = async () => {
     return prisma_1.default.program.findMany({ include: { courses: true } });
 };

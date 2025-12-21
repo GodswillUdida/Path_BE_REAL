@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteProgramController = exports.updateProgramController = exports.getProgramBySlugController = exports.getProgramController = exports.listProgramsController = exports.createProgramController = void 0;
+exports.deleteProgramController = exports.updateProgramController = exports.getProgramBySlugController = exports.getProgramController = exports.listProgramsController = exports.createCourseFromProgramController = exports.createProgramController = void 0;
 const program_schema_1 = require("./program.schema");
 const zod_1 = __importDefault(require("zod"));
 const svc = __importStar(require("./program.service"));
@@ -52,6 +52,24 @@ const createProgramController = async (req, res, next) => {
     }
 };
 exports.createProgramController = createProgramController;
+const createCourseFromProgramController = async (req, res, next) => {
+    try {
+        const { programId } = req.params;
+        const course = await svc.createCourseFromProgramId({
+            programId,
+            type: req.body.type,
+            payload: req.body,
+            adminId: req.user.id,
+            fileBuffer: req.file?.buffer,
+            fileMime: req.file?.mimetype,
+        });
+        res.status(201).json({ course });
+    }
+    catch (error) {
+        next(error);
+    }
+};
+exports.createCourseFromProgramController = createCourseFromProgramController;
 const listProgramsController = async (_req, res, next) => {
     try {
         const programs = await svc.listPrograms();
@@ -73,7 +91,7 @@ const getProgramController = async (req, res, next) => {
         res.json({ success: true, program });
     }
     catch (error) {
-        next;
+        next(error);
     }
 };
 exports.getProgramController = getProgramController;

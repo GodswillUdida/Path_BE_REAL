@@ -35,6 +35,7 @@ import { Router } from "express";
 import * as ctrl from "./program.controller";
 import { authGuard } from "../../middleware/authGuard";
 import { roleGuard } from "../../middleware/roleGuard";
+import uploadImage from "../../config/multer";
 
 const r = Router();
 
@@ -43,6 +44,14 @@ r.post(
   authGuard,
   roleGuard("admin", "superadmin"),
   ctrl.createProgramController
+);
+
+r.post(
+  "/:programId/courses/physical",
+  uploadImage.single("thumbnail"),
+  authGuard,
+  roleGuard("admin", "superadmin", "instructor"),
+  ctrl.createCourseFromProgramController
 );
 
 r.get("/", ctrl.listProgramsController);

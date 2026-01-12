@@ -3,7 +3,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getSingleRequest = exports.listPhysicalRequests = exports.createPhysicalEnrollmentRequest = void 0;
 const enrollmentRequest_schema_1 = require("./enrollmentRequest.schema");
 const enrollmentRequest_service_1 = require("./enrollmentRequest.service");
-const emailService_1 = require("../../services/emailService");
+// import {
+//   sendPhysicalEnrollmentRequestAdminNotification,
+//   sendPhysicalEnrollmentRequestNotification,
+// } from "../../services/emailService";
 const createPhysicalEnrollmentRequest = async (req, res) => {
     try {
         const courseId = req.params.courseId;
@@ -25,24 +28,26 @@ const createPhysicalEnrollmentRequest = async (req, res) => {
             notes: body.data.notes,
             courseId: body.data.courseId,
         });
-        try {
-            await (0, emailService_1.sendPhysicalEnrollmentRequestNotification)(body.data.email, {
-                name: body.data.name,
-                course: request.courseId,
-                requestId: request.id,
-            });
-            await (0, emailService_1.sendPhysicalEnrollmentRequestAdminNotification)({
-                name: body.data.name,
-                email: body.data.email,
-                phone: body.data.phone,
-                notes: body.data.notes || "",
-                course: request.courseId,
-                requestId: request.id,
-            });
-        }
-        catch (emailError) {
-            console.error("Error sending physical enrollment request emails:", emailError);
-        }
+        // try {
+        //   await sendPhysicalEnrollmentRequestNotification(body.data.email, {
+        //     name: body.data.name,
+        //     course: request.courseId,
+        //     requestId: request.id,
+        //   });
+        //   await sendPhysicalEnrollmentRequestAdminNotification({
+        //     name: body.data.name,
+        //     email: body.data.email,
+        //     phone: body.data.phone,
+        //     notes: body.data.notes || "",
+        //     course: request.courseId,
+        //     requestId: request.id,
+        //   });
+        // } catch (emailError) {
+        //   console.error(
+        //     "Error sending physical enrollment request emails:",
+        //     emailError
+        //   );
+        // }
         return res.json({
             success: true,
             message: "Your request has been submitted",
@@ -60,7 +65,6 @@ exports.createPhysicalEnrollmentRequest = createPhysicalEnrollmentRequest;
 const listPhysicalRequests = async (req, res, next) => {
     try {
         const requests = await (0, enrollmentRequest_service_1.listPhysicalEnrollmentRequestsService)();
-        console.log("Enrollments: ", requests);
         return res.json({ success: true, data: requests });
     }
     catch (error) {

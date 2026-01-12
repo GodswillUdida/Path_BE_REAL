@@ -1,31 +1,13 @@
 import "dotenv/config";
-import dotenv from "dotenv";
-dotenv.config();
 import app from "./app";
 import prisma from "./lib/prisma";
 import logger from "./utils/logger";
 import { validateEnv } from "./utils/validateEnv";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is missing");
-}
-
-if (process.env.NODE_ENV === "development") {
-  console.log(
-    "DB host:",
-    process.env.DATABASE_URL?.split("@")[1]?.split("/")[0]
-  );
-}
-
 validateEnv(["PORT", "DATABASE_URL", "NODE_ENV"]);
 
 const PORT = Number(process.env.PORT) || 5000;
-
 let server: ReturnType<typeof app.listen> | null = null;
-
-/* -------------------------------------------------------------------------- */
-/*                             GRACEFUL SHUTDOWN                               */
-/* -------------------------------------------------------------------------- */
 
 const shutdown = async (signal: string) => {
   logger.warn(`🔻 ${signal} received. Shutting down...`);
@@ -38,7 +20,6 @@ const shutdown = async (signal: string) => {
 
     await prisma.$disconnect();
     logger.info("Database disconnected");
-
     process.exit(0);
   } catch (err) {
     logger.error("Shutdown failed", err);
@@ -46,31 +27,23 @@ const shutdown = async (signal: string) => {
   }
 };
 
-["SIGINT", "SIGTERM"].forEach((signal) => {
-  process.on(signal, shutdown);
-});
+if (process.env.NODE_ENV === "production") {
+  ["SIGINT", "SIGTERM"].forEach((signal) => {
+    process.on(signal, shutdown);
+  });
+}
 
-process.on("unhandledRejection", (err) => {
-  logger.error("Uncaught Exception", err);
-  shutdown("uncaughtException");
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled Rejection", reason);
 });
 
 process.on("uncaughtException", (err) => {
-  logger.error("Unhandled Rejection", err);
-  shutdown("unhandledRejection");
+  logger.error("Uncaught Exception", err);
+  process.exit(1);
 });
 
-const start = async () => {
-  try {
-    logger.info(`Server Starting ...`);
+logger.info("🚀 Booting Pathfinder API...");
 
-    server = app.listen(PORT, "0.0.0.0", () => {
-      logger.info(`Server running on port ${PORT}`);
-    });
-  } catch (err) {
-    logger.error("Startup failed", err);
-    process.exit(1);
-  }
-};
-
-start();
+server = app.listen(PORT, "0.0.0.0", () => {
+  logger.info(`✅ Server running on port ${PORT}`);
+});

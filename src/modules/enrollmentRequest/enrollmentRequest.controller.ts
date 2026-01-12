@@ -5,10 +5,10 @@ import {
   getSingleEnrollmentRequestService,
   listPhysicalEnrollmentRequestsService,
 } from "./enrollmentRequest.service";
-import {
-  sendPhysicalEnrollmentRequestAdminNotification,
-  sendPhysicalEnrollmentRequestNotification,
-} from "../../services/emailService";
+// import {
+//   sendPhysicalEnrollmentRequestAdminNotification,
+//   sendPhysicalEnrollmentRequestNotification,
+// } from "../../services/emailService";
 
 export const createPhysicalEnrollmentRequest = async (
   req: Request,
@@ -37,26 +37,26 @@ export const createPhysicalEnrollmentRequest = async (
       courseId: body.data.courseId,
     });
 
-    try {
-      await sendPhysicalEnrollmentRequestNotification(body.data.email, {
-        name: body.data.name,
-        course: request.courseId,
-        requestId: request.id,
-      });
-      await sendPhysicalEnrollmentRequestAdminNotification({
-        name: body.data.name,
-        email: body.data.email,
-        phone: body.data.phone,
-        notes: body.data.notes || "",
-        course: request.courseId,
-        requestId: request.id,
-      });
-    } catch (emailError) {
-      console.error(
-        "Error sending physical enrollment request emails:",
-        emailError
-      );
-    }
+    // try {
+    //   await sendPhysicalEnrollmentRequestNotification(body.data.email, {
+    //     name: body.data.name,
+    //     course: request.courseId,
+    //     requestId: request.id,
+    //   });
+    //   await sendPhysicalEnrollmentRequestAdminNotification({
+    //     name: body.data.name,
+    //     email: body.data.email,
+    //     phone: body.data.phone,
+    //     notes: body.data.notes || "",
+    //     course: request.courseId,
+    //     requestId: request.id,
+    //   });
+    // } catch (emailError) {
+    //   console.error(
+    //     "Error sending physical enrollment request emails:",
+    //     emailError
+    //   );
+    // }
 
     return res.json({
       success: true,
@@ -78,9 +78,6 @@ export const listPhysicalRequests = async (
 ) => {
   try {
     const requests = await listPhysicalEnrollmentRequestsService();
-
-    console.log("Enrollments: ", requests);
-
     return res.json({ success: true, data: requests });
   } catch (error: any) {
     console.error("Error: ", error.message);
@@ -96,7 +93,6 @@ export const getSingleRequest = async (
   try {
     const id = req.params.id as string;
     const request = await getSingleEnrollmentRequestService(id);
-
     return res.json({ success: true, data: request });
   } catch (error) {
     next(error);

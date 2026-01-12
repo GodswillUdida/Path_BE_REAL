@@ -39,6 +39,8 @@ const BODY_LIMIT = "1mb";
 /*                               SECURITY LAYER                               */
 /* -------------------------------------------------------------------------- */
 
+app.set("trust proxy", 1);
+
 app.use(
   helmet({
     contentSecurityPolicy: isProduction ? undefined : false,

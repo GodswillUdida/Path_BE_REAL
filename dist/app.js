@@ -52,8 +52,8 @@ const module_routes_1 = __importDefault(require("./modules/module/module.routes"
 const topic_routes_1 = __importDefault(require("./modules/topic/topic.routes"));
 const enrollment_routes_1 = __importDefault(require("./modules/enrollment/enrollment.routes"));
 const enrollmentRequest_route_1 = __importDefault(require("./modules/enrollmentRequest/enrollmentRequest.route"));
-const order_routes_1 = __importDefault(require("./modules/order/order.routes"));
-const payment_routes_1 = __importDefault(require("./modules/payment/payment.routes"));
+// import orderRoutes from "./modules/order/order.routes";
+// import paymentRoutes from "./modules/payment/payment.routes";
 // Middleware & utils
 const cors_2 = require("./middleware/cors");
 const error_1 = require("./middleware/error");
@@ -66,20 +66,38 @@ const BODY_LIMIT = "1mb";
 /* -------------------------------------------------------------------------- */
 /*                               SECURITY LAYER                               */
 /* -------------------------------------------------------------------------- */
+app.get("/health", async (_req, res) => {
+    try {
+        const { default: prisma } = await Promise.resolve().then(() => __importStar(require("./lib/prisma")));
+        await prisma.$queryRaw `SELECT 1`;
+        res.status(200).json({
+            status: "ok",
+            uptime: process.uptime(),
+            timestamp: Date.now(),
+        });
+    }
+    catch {
+        res.status(503).json({ status: "unhealthy" });
+    }
+});
+app.get("/", (_req, res) => {
+    res.status(200).send("OK");
+    // res.status(200).json({
+    //   success: true,
+    //   service: "Accountant's Pathfinder API",
+    //   version: process.env.npm_package_version ?? "unknown",
+    // });
+});
 app.set("trust proxy", 1);
 app.use((0, helmet_1.default)({
     contentSecurityPolicy: isProduction ? undefined : false,
 }));
 app.use((0, cors_1.default)(cors_2.corsOptions));
-app.use((0, express_rate_limit_1.default)({
+app.use("/api", (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000,
     max: 100,
     standardHeaders: true,
     legacyHeaders: false,
-    message: {
-        success: false,
-        error: "Too many requests. Try again later.",
-    },
 }));
 /* -------------------------------------------------------------------------- */
 /*                               BODY PARSERS                                 */
@@ -123,8 +141,8 @@ app.use(`${API}/modules`, module_routes_1.default);
 app.use(`${API}/topics`, topic_routes_1.default);
 app.use(`${API}/enrollments`, enrollment_routes_1.default);
 app.use(`${API}/enrollment-requests`, enrollmentRequest_route_1.default);
-app.use(`${API}/orders`, order_routes_1.default);
-app.use(`${API}/payments`, payment_routes_1.default);
+// app.use(`${API}/orders`, orderRoutes);
+// app.use(`${API}/payments`, paymentRoutes);
 app.use(`${API}/docs`, swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swagger_1.swaggerSpec));
 // app.use(`${API}/docs`, async (_req, _res, next) => {
 //   try {
@@ -140,25 +158,6 @@ app.use(`${API}/docs`, swagger_ui_express_1.default.serve, swagger_ui_express_1.
 /* -------------------------------------------------------------------------- */
 /*                                   SYSTEM                                   */
 /* -------------------------------------------------------------------------- */
-app.get("/", (_req, res) => {
-    res.status(200).json({
-        success: true,
-        service: "Accountant's Pathfinder API",
-        version: process.env.npm_package_version ?? "unknown",
-    });
-});
-app.get("/health", async (_req, res, next) => {
-    try {
-        const { default: prisma } = await Promise.resolve().then(() => __importStar(require("./lib/prisma")));
-        await prisma.$queryRaw `SELECT 1`;
-        res.status(200).json({
-            status: "ok",
-        });
-    }
-    catch (error) {
-        next(error);
-    }
-});
 /* -------------------------------------------------------------------------- */
 /*                                404 HANDLER                                 */
 /* -------------------------------------------------------------------------- */

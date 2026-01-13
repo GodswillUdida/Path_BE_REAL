@@ -21,8 +21,8 @@ import moduleRoutes from "./modules/module/module.routes";
 import topicRoutes from "./modules/topic/topic.routes";
 import enrollmentRoutes from "./modules/enrollment/enrollment.routes";
 import enrollmentRequestRoutes from "./modules/enrollmentRequest/enrollmentRequest.route";
-import orderRoutes from "./modules/order/order.routes";
-import paymentRoutes from "./modules/payment/payment.routes";
+// import orderRoutes from "./modules/order/order.routes";
+// import paymentRoutes from "./modules/payment/payment.routes";
 
 // Middleware & utils
 import { corsOptions } from "./middleware/cors";
@@ -39,6 +39,31 @@ const BODY_LIMIT = "1mb";
 /*                               SECURITY LAYER                               */
 /* -------------------------------------------------------------------------- */
 
+
+app.get("/health", async (_req, res) => {
+  try {
+    const { default: prisma } = await import("./lib/prisma");
+    await prisma.$queryRaw`SELECT 1`;
+
+    res.status(200).json({
+      status: "ok",
+      uptime: process.uptime(),
+      timestamp: Date.now(),
+    });
+  } catch {
+    res.status(503).json({ status: "unhealthy" });
+  }
+});
+
+app.get("/", (_req, res) => {
+   res.status(200).send("OK");
+  // res.status(200).json({
+  //   success: true,
+  //   service: "Accountant's Pathfinder API",
+  //   version: process.env.npm_package_version ?? "unknown",
+  // });
+});
+
 app.set("trust proxy", 1);
 
 app.use(
@@ -50,15 +75,12 @@ app.use(
 app.use(cors(corsOptions));
 
 app.use(
+  "/api",
   rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 100,
     standardHeaders: true,
     legacyHeaders: false,
-    message: {
-      success: false,
-      error: "Too many requests. Try again later.",
-    },
   })
 );
 
@@ -114,8 +136,8 @@ app.use(`${API}/modules`, moduleRoutes);
 app.use(`${API}/topics`, topicRoutes);
 app.use(`${API}/enrollments`, enrollmentRoutes);
 app.use(`${API}/enrollment-requests`, enrollmentRequestRoutes);
-app.use(`${API}/orders`, orderRoutes);
-app.use(`${API}/payments`, paymentRoutes);
+// app.use(`${API}/orders`, orderRoutes);
+// app.use(`${API}/payments`, paymentRoutes);
 app.use(`${API}/docs`, swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // app.use(`${API}/docs`, async (_req, _res, next) => {
@@ -134,25 +156,7 @@ app.use(`${API}/docs`, swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 /*                                   SYSTEM                                   */
 /* -------------------------------------------------------------------------- */
 
-app.get("/", (_req: Request, res: Response) => {
-  res.status(200).json({
-    success: true,
-    service: "Accountant's Pathfinder API",
-    version: process.env.npm_package_version ?? "unknown",
-  });
-});
 
-app.get("/health", async (_req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { default: prisma } = await import("./lib/prisma");
-    await prisma.$queryRaw`SELECT 1`;
-    res.status(200).json({
-      status: "ok",
-    });
-  } catch (error) {
-    next(error);
-  }
-});
 
 /* -------------------------------------------------------------------------- */
 /*                                404 HANDLER                                 */

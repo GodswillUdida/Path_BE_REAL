@@ -2857,3 +2857,75 @@
 {"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-12 17:57:32"}
 {"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-12 17:59:42"}
 {"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-12 17:59:42"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 13:34:50"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 13:34:50"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 13:35:07"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 13:35:07"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 13:39:17"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 13:39:17"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 13:39:17"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 13:40:57"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 13:40:57"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 13:47:07"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 13:47:07"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 13:47:47"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 13:47:47"}
+{"level":"info","message":"105.113.95.152 - - [13/Jan/2026:13:47:53 +0000] \"POST /api/v1/auth/login HTTP/1.1\" 200 693 \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36\"","timestamp":"2026-01-13 13:47:53"}
+{"level":"info","message":"105.113.95.152 - - [13/Jan/2026:13:47:56 +0000] \"GET /api/v1/programs HTTP/1.1\" 200 - \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36\"","timestamp":"2026-01-13 13:47:56"}
+{"level":"info","message":"105.113.95.152 - - [13/Jan/2026:13:48:25 +0000] \"GET /api/v1/courses HTTP/1.1\" 200 - \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36\"","timestamp":"2026-01-13 13:48:25"}
+{"level":"info","message":"105.113.95.152 - - [13/Jan/2026:13:49:02 +0000] \"GET /api/v1/enrollment-requests/all HTTP/1.1\" 200 - \"-\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36\"","timestamp":"2026-01-13 13:49:02"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 13:50:31"}
+{"level":"info","message":"HTTP server closed","timestamp":"2026-01-13 13:50:31"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 13:50:40"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 13:50:40"}
+{"level":"info","message":"172.166.156.99 - - [13/Jan/2026:13:57:12 +0000] \"GET /api/v1/courses HTTP/1.1\" 200 - \"-\" \"node\"","timestamp":"2026-01-13 13:57:12"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:24:50"}
+{"level":"info","message":"HTTP server closed","timestamp":"2026-01-13 14:24:50"}
+{"level":"info","message":"Database disconnected","timestamp":"2026-01-13 14:24:50"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:24:50"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:24:50"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:24:52"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:24:52"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:24:52"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:26:55"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:26:55"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:26:55"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:27:06"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:27:07"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:27:07"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:27:48"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:27:49"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:27:49"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:27:51"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:27:52"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:27:52"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:27:53"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:27:53"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:27:53"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:27:56"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:27:57"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:27:57"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:27:59"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:27:59"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:27:59"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:30:55"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:30:56"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:30:56"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:31:04"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:31:04"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:31:04"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:31:19"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:31:19"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:31:19"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:31:21"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:31:22"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:31:22"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:31:26"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:31:26"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:31:26"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:31:27"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:31:28"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:31:28"}
+{"level":"warn","message":"🔻 SIGTERM received. Shutting down...","timestamp":"2026-01-13 14:32:06"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-01-13 14:32:06"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-01-13 14:32:06"}

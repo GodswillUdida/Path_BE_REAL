@@ -39,7 +39,6 @@ const BODY_LIMIT = "1mb";
 /*                               SECURITY LAYER                               */
 /* -------------------------------------------------------------------------- */
 
-
 app.get("/health", async (_req, res) => {
   try {
     const { default: prisma } = await import("./lib/prisma");
@@ -56,7 +55,7 @@ app.get("/health", async (_req, res) => {
 });
 
 app.get("/", (_req, res) => {
-   res.status(200).send("OK");
+  res.status(200).send("OK");
   // res.status(200).json({
   //   success: true,
   //   service: "Accountant's Pathfinder API",
@@ -69,7 +68,7 @@ app.set("trust proxy", 1);
 app.use(
   helmet({
     contentSecurityPolicy: isProduction ? undefined : false,
-  })
+  }),
 );
 
 app.use(cors(corsOptions));
@@ -81,7 +80,7 @@ app.use(
     max: 100,
     standardHeaders: true,
     legacyHeaders: false,
-  })
+  }),
 );
 
 /* -------------------------------------------------------------------------- */
@@ -110,7 +109,7 @@ if (isProduction) {
       stream: {
         write: (msg) => logger.info(msg.trim()),
       },
-    })
+    }),
   );
 } else {
   app.use(morgan("dev"));
@@ -155,8 +154,6 @@ app.use(`${API}/docs`, swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 /* -------------------------------------------------------------------------- */
 /*                                   SYSTEM                                   */
 /* -------------------------------------------------------------------------- */
-
-
 
 /* -------------------------------------------------------------------------- */
 /*                                404 HANDLER                                 */

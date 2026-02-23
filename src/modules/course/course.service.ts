@@ -8,8 +8,8 @@ import type {
   UpdateCourseInput,
   CoursePricingInput,
 } from "./course.schema";
-import redis from "../../utils/redisClient";
 // import redis from "../../utils/redisClient";
+import redis from "../../utils/redisClient";
 
 /* -------------------- CREATE ONLINE COURSE -------------------- */
 export async function createOnlineCourse(
@@ -87,8 +87,9 @@ export async function getCourse(courseId: string) {
     include: {
       pricings: true,
       program: true,
-      modules: { include: { topics: true } },
+      modules: true,
       enrollments: true,
+      // modules: { include: { topics: true } },
     },
   });
   if (!course) throw notFound("Course not found");

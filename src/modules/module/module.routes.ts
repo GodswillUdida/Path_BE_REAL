@@ -10,22 +10,25 @@ r.get("/course/:courseId", ctrl.listModulesController);
 
 // Admin / instructor
 r.post(
-  "/",
+  "/:courseId",
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
-  ctrl.createModuleController
+  ctrl.createModuleController,
 );
+
 r.patch(
   "/:id",
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
-  ctrl.updateModuleController
+  ctrl.updateModuleController,
 );
 r.delete(
   "/:id",
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
-  ctrl.deleteModuleController
+  ctrl.deleteModuleController,
 );
+
+// r.post("/complete/:id", authGuard, );
 
 export default r;

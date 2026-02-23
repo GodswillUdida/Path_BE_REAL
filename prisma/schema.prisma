@@ -179,6 +179,7 @@ model Module {
   id          String  @id @default(uuid())
   title       String
   description String?
+  slug        String  @unique @default("")
 
   course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
   courseId String
@@ -187,7 +188,12 @@ model Module {
 
   topics Topic[]
 
+  views Int @default(0)
+  completions Int @default(0)
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+  deletedAt DateTime?
 
   @@index([courseId, position])
 }
@@ -197,6 +203,7 @@ model Topic {
   title           String
   videoUrl        String?
   durationSeconds Int?
+  slug            String @unique
 
   resources Json?
 
@@ -209,7 +216,7 @@ model Topic {
 
   createdAt DateTime @default(now())
 
-  @@index([moduleId, position])
+  @@index([slug, moduleId, position])
 }
 
 model Enrollment {

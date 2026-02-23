@@ -20,7 +20,7 @@ import programRoutes from "./modules/program/program.routes";
 import moduleRoutes from "./modules/module/module.routes";
 import topicRoutes from "./modules/topic/topic.routes";
 import enrollmentRoutes from "./modules/enrollment/enrollment.routes";
-import enrollmentRequestRoutes from "./modules/enrollmentRequest/enrollmentRequest.route";
+// import enrollmentRequestRoutes from "./modules/enrollmentRequest/enrollmentRequest.route";
 // import orderRoutes from "./modules/order/order.routes";
 // import paymentRoutes from "./modules/payment/payment.routes";
 
@@ -135,7 +135,7 @@ app.use(`${API}/courses`, courseRoutes);
 app.use(`${API}/modules`, moduleRoutes);
 app.use(`${API}/topics`, topicRoutes);
 app.use(`${API}/enrollments`, enrollmentRoutes);
-app.use(`${API}/enrollment-requests`, enrollmentRequestRoutes);
+// app.use(`${API}/enrollment-requests`, enrollmentRequestRoutes);
 // app.use(`${API}/orders`, orderRoutes);
 // app.use(`${API}/payments`, paymentRoutes);
 app.use(`${API}/docs`, swaggerUi.serve, swaggerUi.setup(swaggerSpec));

@@ -25,7 +25,7 @@ const initiatePaystackPayment = async (orderId) => {
             reference: order.id,
             email: order.user.email,
             currency: order.currency,
-            amount: order.amount * 100,
+            amount: order.totalAmount * 100,
             callback_url: `${process.env.FRONTEND_URL}/payment/processing?reference=${order.id}`,
             metadata: {
                 orderId: order.id,

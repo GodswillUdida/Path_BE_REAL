@@ -16,3 +16,7 @@ const asyncHandler = (fn) => {
     };
 };
 exports.asyncHandler = asyncHandler;
+/* -------------------- ASYNC WRAPPER -------------------- */
+// const asyncHandler =
+//   (fn: any) => (req: Request, res: Response, next: NextFunction) =>
+//     Promise.resolve(fn(req, res, next)).catch(next);

@@ -6,8 +6,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createEnrollmentsService = createEnrollmentsService;
 exports.getUserEnrollmentsService = getUserEnrollmentsService;
 exports.getOneEnrollmentService = getOneEnrollmentService;
-exports.createPhysicalEnrollmentRequestService = createPhysicalEnrollmentRequestService;
-exports.listPhysicalEnrollmentRequestsService = listPhysicalEnrollmentRequestsService;
 const prisma_1 = __importDefault(require("../../lib/prisma"));
 const errors_1 = require("../../utils/errors");
 const enrollmentIncludes = {
@@ -195,7 +193,7 @@ async function createEnrollmentsService(userId, data) {
         if (programId && course.programId !== programId)
             throw (0, errors_1.forbidden)(`Course ${course.title} does not belong to program`);
         const existing = await prisma_1.default.enrollment.findFirst({
-            where: { userId, courseId, pricingId, programId: programId ?? null },
+            where: { userId, courseId, pricingId },
         });
         if (existing)
             throw (0, errors_1.forbidden)(`Already enrolled in ${course.title}`);
@@ -204,7 +202,7 @@ async function createEnrollmentsService(userId, data) {
                 userId,
                 courseId,
                 pricingId,
-                programId: programId ?? null,
+                // programId: programId ?? null,
             },
         });
         if (exists)
@@ -217,8 +215,10 @@ async function createEnrollmentsService(userId, data) {
             userId,
             courseId: d.courseId,
             pricingId: d.pricingId,
-            programId: d.programId ?? null,
+            // programId: d.programId ?? null,
             paymentStatus: "PENDING",
+            orderItemId: d.orderId ?? null,
+            expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year from now
         },
     })));
     // initialize first topic progress per enrollment (best-effort)
@@ -279,19 +279,21 @@ async function getOneEnrollmentService(id, userId) {
 /**
  * Create physical walk-in enrollment request
  */
-async function createPhysicalEnrollmentRequestService(data) {
-    return prisma_1.default.enrollmentRequest.create({
-        data,
-        include: {
-            course: true,
-        },
-    });
-}
-async function listPhysicalEnrollmentRequestsService() {
-    return prisma_1.default.enrollmentRequest.findMany({
-        include: {
-            course: true,
-        },
-        orderBy: { createdAt: "desc" },
-    });
-}
+// export async function createPhysicalEnrollmentRequestService(
+//   data: CreatePhysicalEnrollmentRequestInput
+// ) {
+//   return prisma.enrollmentRequest.create({
+//     data,
+//     include: {
+//       course: true,
+//     },
+//   });
+// }
+// export async function listPhysicalEnrollmentRequestsService() {
+//   return prisma.enrollmentRequest.findMany({
+//     include: {
+//       course: true,
+//     },
+//     orderBy: { createdAt: "desc" },
+//   });
+// }

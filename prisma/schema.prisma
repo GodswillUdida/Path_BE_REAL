@@ -12,8 +12,6 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  // directUrl = env("DIRECT_URL")
-  // connection_limit  = 1
 }
 
 model User {
@@ -32,73 +30,145 @@ model User {
   resetToken        String?   @unique
   resetTokenExpires DateTime?
 
-  refreshToken        String?
-  refreshTokenExpires DateTime?
-
   createdAt DateTime  @default(now())
-  updatedAt DateTime  @default(now()) @updatedAt
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+  // Relations
+  sessions    Session[]
   courses     Course[]     @relation("InstructorCourses")
   enrollments Enrollment[]
   payments    Payment[]
   carts       Cart[]
   orders      Order[]
+
+  @@index([email])
+  @@index([verificationToken])
+  @@index([deletedAt])
+  @@map("users")
 }
 
-model Program {
-  id          String          @id @default(uuid())
-  title       String          @unique
-  description String?
-  image       String?
-  slug        String          @unique
-  courses     Course[]
-  enrollments Enrollment[]
-  pricings    CoursePricing[]
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @default(now()) @updatedAt
-}
+//////////////////////////////////////////////////////
+// SESSION (Refresh Token + Device Tracking)
+//////////////////////////////////////////////////////
 
-model Course {
-  id                 String              @id @default(uuid())
-  title              String
-  slug               String              @unique
-  description        String
-  thumbnail          String?
-  type               CourseMode
-  level              String?
-  duration           String?
-  tags               String[]
-  videoPreview       String?
-  category           String?
-  location           String?
-  schedule           String?
-  instructor         User?               @relation("InstructorCourses", fields: [instructorId], references: [id])
-  instructorId       String?
-  program            Program?            @relation(fields: [programId], references: [id], onDelete: SetNull)
-  programId          String?
-  modules            Module[]
-  pricings           CoursePricing[]
-  enrollments        Enrollment[]
-  carts              Cart[]
-  enrollmentRequests EnrollmentRequest[]
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @default(now()) @updatedAt
-}
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-model CoursePricing {
-  id          String       @id @default(uuid())
-  price       Float
-  duration    String // e.g., "3 months", "6 months", "1 year"
-  course      Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  courseId    String
-  programId   String?
-  program     Program?     @relation(fields: [programId], references: [id])
-  enrollments Enrollment[]
+  tokenId   String   @unique      // from JWT payload
+  tokenHash String   @unique      // hashed refresh token
+
+  userAgent   String?
+  ipAddress   String?
+  fingerprint String?
+
+  expiresAt DateTime
+  revokedAt DateTime?
 
   createdAt DateTime @default(now())
 
-  @@unique([courseId, programId, duration])
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+  @@map("sessions")
+}
+
+model Program {
+  id          String   @id @default(uuid())
+  title       String   @unique
+  description String
+  image       String?
+  slug        String   @unique
+  courses     Course[]
+  // enrollments Enrollment[]
+
+  status CourseStatus @default(DRAFT)
+
+  price    Float?
+  currency String @default("NGN")
+
+  deletedAt DateTime?
+  // pricings    CoursePricing[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([slug])
+  @@index([deletedAt])
+}
+
+model Course {
+  id           String  @id @default(uuid())
+  title        String
+  slug         String  @unique
+  description  String
+  thumbnail    String?
+  videoPreview String?
+
+  level String?
+  tags  String[]
+
+  duration Int?
+  status   CourseStatus @default(DRAFT)
+
+  // category           String?
+  // schedule           String?
+
+  instructor   User?   @relation("InstructorCourses", fields: [instructorId], references: [id])
+  instructorId String?
+
+  program   Program? @relation(fields: [programId], references: [id], onDelete: SetNull)
+  programId String?
+
+  pricings    CoursePricing[]
+  enrollments Enrollment[]
+  modules     Module[]
+
+  carts     Cart[]
+  deletedAt DateTime?
+
+  // enrollmentRequests EnrollmentRequest[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+  @@index([programId])
+  @@index([deletedAt])
+}
+
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model CoursePricing {
+  id       String @id @default(uuid())
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseId String
+
+  name     String? // e.g. "1 Day Access"
+  price    Float
+  currency String  @default("NGN")
+
+  durationDays Int
+
+  // programId   String?
+  // program     Program?     @relation(fields: [programId], references: [id])
+
+  // enrollments Enrollment[]
+
+  isActive Boolean @default(true)
+
+  createdAt   DateTime     @default(now())
+  enrollments Enrollment[]
+  carts       Cart[]
+  orderItems  OrderItem[]
+
+  @@unique([courseId, durationDays])
+  @@index([courseId])
 }
 
 /////////////////////////
@@ -106,79 +176,173 @@ model CoursePricing {
 /////////////////////////
 
 model Module {
-  id          String   @id @default(uuid())
+  id          String  @id @default(uuid())
   title       String
   description String?
-  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  courseId    String
-  topics      Topic[]
-  position    Int      @default(0)
-  createdAt   DateTime @default(now())
+
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseId String
+
+  position Int @default(0)
+
+  topics Topic[]
+
+  createdAt DateTime @default(now())
 
   @@index([courseId, position])
 }
 
 model Topic {
-  id        String     @id @default(uuid())
-  title     String
-  videoUrl  String?
-  resources String[]
-  module    Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  moduleId  String
-  progress  Progress[]
-  position  Int        @default(0)
-  createdAt DateTime   @default(now())
+  id              String  @id @default(uuid())
+  title           String
+  videoUrl        String?
+  durationSeconds Int?
+
+  resources Json?
+
+  module   Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  moduleId String
+
+  progress Progress[]
+
+  position Int @default(0)
+
+  createdAt DateTime @default(now())
 
   @@index([moduleId, position])
 }
 
 model Enrollment {
-  id            String        @id @default(uuid())
-  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId        String
-  course        Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  courseId      String
-  pricing       CoursePricing @relation(fields: [pricingId], references: [id])
-  pricingId     String
-  programId     String?
-  program       Program?      @relation(fields: [programId], references: [id])
-  progress      Progress[]
+  id     String @id @default(uuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseId String
+
+  pricing   CoursePricing @relation(fields: [pricingId], references: [id])
+  pricingId String
+
+  orderItemId String    @unique
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id])
+
+  // programId     String?
+  // program       Program?      @relation(fields: [programId], references: [id])
+
+  // progress      Progress[]
+
   paymentStatus PaymentStatus @default(PENDING)
   paymentRef    String?
-  startedAt     DateTime      @default(now())
-  completedAt   DateTime?
-  certificate   Certificate?
-  payments      Payment[]
-  orderId       String?
-  order         Order?        @relation(fields: [orderId], references: [id])
 
-  @@unique([userId, courseId, programId, pricingId])
+  startedAt DateTime @default(now())
+  expiresAt DateTime
+
+  completedAt DateTime?
+
+  progressPercentage Float @default(0)
+
+  progressRecords Progress[]
+
+  certificate Certificate?
+  payments    Payment[]
+
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id])
+
+  @@unique([userId, courseId, pricingId])
+  @@index([userId, courseId])
+  @@index([expiresAt])
 }
 
 model Progress {
-  id              String     @id @default(uuid())
-  enrollment      Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
-  enrollmentId    String
-  topic           Topic      @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  topicId         String
-  completed       Boolean    @default(false)
-  watchedDuration Int?
-  updatedAt       DateTime   @default(now()) @updatedAt
+  id String @id @default(uuid())
+
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  enrollmentId String
+
+  topic   Topic  @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  topicId String
+
+  completed      Boolean @default(false)
+  watchedSeconds Int?    @default(0)
+
+  lastWatchedAt DateTime?
+  updatedAt     DateTime  @updatedAt
 
   @@unique([enrollmentId, topicId])
 }
 
 model Cart {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  courseId  String
-  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  quantity  Int      @default(1)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  pricingId String
+  pricing   CoursePricing @relation(fields: [pricingId], references: [id], onDelete: Cascade)
+
+  quantity Int @default(1)
+
+  // courseId  String
+  // course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
   price     Float
   createdAt DateTime @default(now())
+  course    Course?  @relation(fields: [courseId], references: [id])
+  courseId  String?
 
-  @@unique([userId, courseId])
+  @@unique([userId, pricingId])
+}
+
+model Order {
+  // id          String        @id @default(uuid())
+  // user        User          @relation(fields: [userId], references: [id])
+  // userId      String
+
+  // amount      Float
+  // currency    String        @default("NGN")
+
+  // status      PaymentStatus @default(PENDING)
+  // payments    Payment[]
+  // enrollments Enrollment[]
+
+  // createdAt   DateTime      @default(now())
+
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  totalAmount Float
+  currency    String @default("NGN")
+
+  status PaymentStatus @default(PENDING)
+
+  items    OrderItem[]
+  payments Payment[]
+
+  createdAt DateTime @default(now())
+
+  enrollments Enrollment[]
+
+  @@index([userId])
+}
+
+model OrderItem {
+  id String @id @default(uuid())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  pricingId String
+  pricing   CoursePricing @relation(fields: [pricingId], references: [id])
+
+  price    Float
+  quantity Int
+
+  enrollment Enrollment?
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
 }
 
 model Certificate {
@@ -192,44 +356,28 @@ model Certificate {
 }
 
 model Payment {
-  id           String        @id @default(uuid())
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId       String
-  reference    String        @unique
+  id     String @id @default(uuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  reference String @unique
+
   enrollmentId String?
-  enrollment   Enrollment?   @relation(fields: [enrollmentId], references: [id])
-  orderId      String
-  order        Order?        @relation(fields: [orderId], references: [id])
-  amount       Float
-  currency     String        @default("NGN")
-  status       PaymentStatus @default(PENDING)
-  gateway      String
-  metadata     Json?
-  createdAt    DateTime      @default(now())
-}
+  enrollment   Enrollment? @relation(fields: [enrollmentId], references: [id])
 
-model Order {
-  id          String        @id @default(uuid())
-  user        User          @relation(fields: [userId], references: [id])
-  userId      String
-  amount      Float
-  currency    String        @default("NGN")
-  status      PaymentStatus @default(PENDING)
-  payments    Payment[]
-  enrollments Enrollment[]
-  createdAt   DateTime      @default(now())
-}
+  orderId String
+  order   Order? @relation(fields: [orderId], references: [id])
 
-model EnrollmentRequest {
-  id        String        @id @default(uuid())
-  name      String
-  email     String
-  phone     String
-  courseId  String?
-  course    Course?       @relation(fields: [courseId], references: [id])
-  notes     String?
-  status    RequestStatus @default(PENDING)
-  createdAt DateTime      @default(now())
+  amount   Float
+  currency String @default("NGN")
+
+  status   PaymentStatus @default(PENDING)
+  gateway  String
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
 }
 
 enum Role {
@@ -237,11 +385,6 @@ enum Role {
   instructor
   admin
   superadmin
-}
-
-enum CourseMode {
-  online
-  physical
 }
 
 enum PaymentStatus {

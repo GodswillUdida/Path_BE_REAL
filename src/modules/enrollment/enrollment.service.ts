@@ -235,7 +235,7 @@ export async function createEnrollmentsService(
       throw forbidden(`Course ${course.title} does not belong to program`);
 
     const existing = await prisma.enrollment.findFirst({
-      where: { userId, courseId, pricingId, programId: programId ?? null },
+      where: { userId, courseId, pricingId},
     });
     if (existing) throw forbidden(`Already enrolled in ${course.title}`);
 
@@ -244,7 +244,7 @@ export async function createEnrollmentsService(
         userId,
         courseId,
         pricingId,
-        programId: programId ?? null,
+        // programId: programId ?? null,
       },
     });
     if (exists) throw forbidden("Already enrolled in this course tier");
@@ -260,8 +260,10 @@ export async function createEnrollmentsService(
           userId,
           courseId: d.courseId,
           pricingId: d.pricingId,
-          programId: d.programId ?? null,
+          // programId: d.programId ?? null,
           paymentStatus: "PENDING",
+          orderItemId: d.orderId! ?? null,
+          expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year from now
         },
       })
     )
@@ -332,22 +334,22 @@ export async function getOneEnrollmentService(id: string, userId: string) {
 /**
  * Create physical walk-in enrollment request
  */
-export async function createPhysicalEnrollmentRequestService(
-  data: CreatePhysicalEnrollmentRequestInput
-) {
-  return prisma.enrollmentRequest.create({
-    data,
-    include: {
-      course: true,
-    },
-  });
-}
+// export async function createPhysicalEnrollmentRequestService(
+//   data: CreatePhysicalEnrollmentRequestInput
+// ) {
+//   return prisma.enrollmentRequest.create({
+//     data,
+//     include: {
+//       course: true,
+//     },
+//   });
+// }
 
-export async function listPhysicalEnrollmentRequestsService() {
-  return prisma.enrollmentRequest.findMany({
-    include: {
-      course: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
-}
+// export async function listPhysicalEnrollmentRequestsService() {
+//   return prisma.enrollmentRequest.findMany({
+//     include: {
+//       course: true,
+//     },
+//     orderBy: { createdAt: "desc" },
+//   });
+// }

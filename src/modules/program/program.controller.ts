@@ -1,29 +1,24 @@
 import { NextFunction, Request, Response } from "express";
-import { createProgramSchema } from "./program.schema";
+import { createProgramSchema, updateProgramSchema } from "./program.schema";
 import z from "zod";
 import * as svc from "./program.service";
+import { asyncHandler } from "../../utils/asyncHandler";
 
-export const createProgramController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
+export const createProgramController = asyncHandler(
+  async (req: Request, res: Response) => {
     const body = createProgramSchema.parse(req.body);
-    console.log("Incoming create program payload:", req.body);
     const program = await svc.createProgram(body);
-    res.status(201).json({ success: true, program });
-  } catch (error) {
-    next(error);
-  }
-};
 
-export const createCourseFromProgramController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
+    res.status(201).json({
+      success: true,
+      message: "Program created successfully",
+      program,
+    });
+  },
+);
+
+export const createCourseFromProgramController = asyncHandler(
+  async (req: Request, res: Response) => {
     const { programId } = req.params;
 
     const course = await svc.createCourseFromProgramId({
@@ -35,104 +30,77 @@ export const createCourseFromProgramController = async (
       fileMime: req.file?.mimetype,
     });
 
-    res.status(201).json({ course });
-  } catch (error) {
-    next(error)
-  }
-};
+    res.status(201).json({
+      success: true,
+      message: "Course created successfully",
+      course,
+    });
+  },
+);
 
-
-
-export const listProgramsController = async (
-  _req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
+export const listProgramsController = asyncHandler(
+  async (_req: Request, res: Response) => {
     const programs = await svc.listPrograms();
     res.json({
       success: true,
       count: programs.length,
       programs,
     });
-  } catch (error) {
-    next(error);
-  }
-};
+  },
+);
 
-export const getProgramController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const id = req.params.id;
-    const program = await svc.getProgram(id);
-    res.json({ success: true, program });
-  } catch (error) {
-    next(error);
-  }
-};
+export const getProgramController = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const program = await svc.getProgram(id);
 
-export const getProgramBySlugController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  const slugSchema = z.object({
-    slug: z
-      .string()
-      .min(1)
-      .max(255)
-      .regex(/^[a-z0-9-]+$/i, "Invalid slug format"), // Security: Restrict to safe characters
+  res.status(200).json({
+    success: true,
+    program,
   });
-  try {
+});
+
+export const getProgramBySlugController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const slugSchema = z.object({
+      slug: z
+        .string()
+        .min(1)
+        .max(255)
+        .regex(/^[a-z0-9-]+$/i, "Invalid slug format"),
+    });
     const { slug } = slugSchema.parse(req.params);
-    console.log("Validating Slug from params: ", slug);
 
     const program = await svc.getProgramBySlug(slug);
-
-    if (!program) {
-      return res.status(404).json({
-        success: false,
-        message: "Program not found",
-      });
-    }
 
     res.status(200).json({
       success: true,
       program,
     });
-  } catch (error) {
-    next(error);
-  }
-};
+  },
+);
 
-export const updateProgramController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const id = req.params.id;
-    const body = req.body;
-    const program = await svc.updateProgram(id, body);
-    res.json({ success: true, program });
-  } catch (error) {
-    next(error);
-  }
-};
+export const updateProgramController = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const body = updateProgramSchema.parse(req.body);
 
-export const deleteProgramController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const id = req.params.id;
+  const program = await svc.updateProgram(id, body);
+
+  res.status(200).json({
+    success: true,
+    message: "Program updated successfully",
+    program,
+  });
+});
+
+export const deleteProgramController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { id } = req.params;
+
     await svc.deleteProgram(id);
-    res.json({ success: true, message: "Program deleted" });
-  } catch (error) {
-    next(error);
-  }
-};
+
+    res.status(200).json({
+      success: true,
+      message: "Program deleted successfully",
+    });
+  },
+);

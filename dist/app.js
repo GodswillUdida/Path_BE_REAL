@@ -51,7 +51,7 @@ const program_routes_1 = __importDefault(require("./modules/program/program.rout
 const module_routes_1 = __importDefault(require("./modules/module/module.routes"));
 const topic_routes_1 = __importDefault(require("./modules/topic/topic.routes"));
 const enrollment_routes_1 = __importDefault(require("./modules/enrollment/enrollment.routes"));
-const enrollmentRequest_route_1 = __importDefault(require("./modules/enrollmentRequest/enrollmentRequest.route"));
+// import enrollmentRequestRoutes from "./modules/enrollmentRequest/enrollmentRequest.route";
 // import orderRoutes from "./modules/order/order.routes";
 // import paymentRoutes from "./modules/payment/payment.routes";
 // Middleware & utils
@@ -140,7 +140,7 @@ app.use(`${API}/courses`, course_routes_1.default);
 app.use(`${API}/modules`, module_routes_1.default);
 app.use(`${API}/topics`, topic_routes_1.default);
 app.use(`${API}/enrollments`, enrollment_routes_1.default);
-app.use(`${API}/enrollment-requests`, enrollmentRequest_route_1.default);
+// app.use(`${API}/enrollment-requests`, enrollmentRequestRoutes);
 // app.use(`${API}/orders`, orderRoutes);
 // app.use(`${API}/payments`, paymentRoutes);
 app.use(`${API}/docs`, swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swagger_1.swaggerSpec));

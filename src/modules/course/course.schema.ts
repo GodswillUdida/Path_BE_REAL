@@ -1,91 +1,59 @@
 import { z } from "zod";
 
-/* -------------------- Pricing -------------------- */
-const pricingSchema = z.object({
-  duration: z.string(), // e.g. "3 months"
-  price: z.number().positive(),
+/* -------------------- ENUMS -------------------- */
+export const courseStatusEnum = z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]);
+
+/* -------------------- Pricing Schema -------------------- */
+export const coursePricingSchema = z.object({
+  id: z.string().uuid().optional(), // for updates
+  name: z.string().optional(), // e.g., "1 Day Access"
+  price: z.number().positive("Price must be positive"),
+  currency: z.string().default("NGN"),
+  durationDays: z.number().int().positive("Duration must be positive"),
+  isActive: z.boolean().default(true),
 });
 
-/* -------------------- Shared -------------------- */
-const baseCourseSchema = z.object({
+/* -------------------- Base Course Schema -------------------- */
+export const baseCourseSchema = z.object({
   title: z.string().min(2, "Title too short").trim(),
   slug: z.string().optional(),
-  description: z
-    .string()
-    .min(5, "Description too short")
-    .max(200, "Description too long")
-    .trim(),
-  thumbnail: z
-    .string()
-    .url("Invalid thumbnail URL")
-    .optional()
-    .or(z.literal("")),
+  description: z.string().min(5, "Description too short").trim(),
+  thumbnail: z.string().url("Invalid thumbnail URL").optional(),
+  videoPreview: z.string().url("Invalid video URL").optional(),
   level: z.string().optional(),
-  duration: z.string().optional().nullable(),
-  tags: z.array(z.string().trim()).max(10, "Max 10 tags").default([]),
-  category: z.string().optional(),
-  instructorId: z.string().uuid("Invalid UUId").optional(),
+  tags: z.array(z.string().trim()).max(20, "Max 20 tags").default([]),
+  duration: z.number().int().positive().optional(),
+  status: courseStatusEnum.default("DRAFT"),
+  instructorId: z.string().uuid().optional(),
+  programId: z.string().uuid().optional(),
 });
 
-/* -------------------- ONLINE -------------------- */
-const onlineCourseSchema = baseCourseSchema.extend({
-  // ...baseCourseSchema,
+/* -------------------- Online Course Schema -------------------- */
+export const createCourseSchema = baseCourseSchema.extend({
   type: z.literal("online"),
-
-  videoPreview: z.string().url("Invalid video URL").optional().or(z.literal("")),
-
-  // REQUIRED
   pricings: z
-    .array(pricingSchema)
-    .min(1, "Online courses need at least one pricing"),
-
-  // FORBIDDEN
-  location: z.never().optional(),
-  schedule: z.never().optional(),
+    .array(coursePricingSchema)
+    .min(1, "Online courses must have at least one pricing"),
 });
 
-/* -------------------- PHYSICAL -------------------- */
-const physicalCourseSchema = baseCourseSchema.extend({
-  // ...baseCourseSchema,
-  type: z.literal("physical"),
-
-  // REQUIRED
-  location: z.string().min(2),
-  schedule: z.string().min(2),
-
-  // FORBIDDEN
-  pricings: z.never().optional(),
-  videoPreview: z.never().optional(),
-});
-
-/* -------------------- PUBLIC SCHEMA -------------------- */
-export const createCourseSchema = z.discriminatedUnion("type", [
-  onlineCourseSchema,
-  physicalCourseSchema,
-]);
-
-// For updates: Partial each branch, then discriminated union
-// const updateOnlineSchema = onlineCourseSchema.partial();
-// const updatePhysicalSchema = physicalCourseSchema.partial();
-
-// export const updateCourseSchema = z.discriminatedUnion("type", [
-//   updateOnlineSchema,
-//   updatePhysicalSchema,
-// ]);
+/* -------------------- Update Course Schema -------------------- */
 export const updateCourseSchema = baseCourseSchema.partial().extend({
-  thumbnail: z.string().url().or(z.literal("")).optional(),
-})
+  thumbnail: z.string().url().optional(),
+  videoPreview: z.string().url().optional(),
+  pricings: z.array(coursePricingSchema).optional(),
+  status: courseStatusEnum.optional(),
+  duration: z.number().int().positive().optional(),
+});
 
-/* -------------------- QUERY -------------------- */
+/* -------------------- Query Params Schema -------------------- */
 export const listCoursesQuery = z.object({
   q: z.string().optional(),
   tag: z.string().optional(),
-  type: z.enum(["online", "physical"]).optional(),
-  limit: z.coerce.number().min(1).max(50, "Max limit 50").default(20),
+  limit: z.coerce.number().min(1).max(50).default(20),
   offset: z.coerce.number().min(0).default(0),
 });
 
 /* -------------------- TYPES -------------------- */
 export type CreateCourseInput = z.infer<typeof createCourseSchema>;
-export type OnlineCourseInput = z.infer<typeof onlineCourseSchema>;
-export type PhysicalCourseInput = z.infer<typeof physicalCourseSchema>;
+export type UpdateCourseInput = z.infer<typeof updateCourseSchema>;
+export type CoursePricingInput = z.infer<typeof coursePricingSchema>;

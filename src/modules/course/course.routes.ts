@@ -6,39 +6,59 @@ import uploadImage from "../../config/multer";
 
 const r = Router();
 
-// Public
+/**
+ * --------------------------------
+ * Public Routes
+ * --------------------------------
+ */
+
+// List courses (cached)
 r.get("/", ctrl.listCoursesController);
-r.get("/:id", ctrl.getCourseController);
-r.get("/:programSlug/:courseSlug", ctrl.getCourseBySlugController);
 
+// Get single course by ID
+r.get("/id/:id", ctrl.getCourseController);
+
+// Get by slug (program + course)
+r.get("/slug/:programSlug/:courseSlug", ctrl.getCourseBySlugController);
+
+/**
+ * --------------------------------
+ * Protected Routes
+ * --------------------------------
+ */
+
+// Create course (unified)
 r.post(
-  "/:programSlug/courses/online",
+  "/:programId",
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
   uploadImage.single("thumbnail"),
-  ctrl.createOnlineCourseController
+  ctrl.createCourseController,
 );
 
-r.post(
-  "/:programSlug/courses/physical",
-  uploadImage.single("thumbnail"),
-  authGuard,
-  roleGuard("admin", "superadmin", "instructor"),
-  ctrl.createPhysicalCourseController
-);
-
+// Update
 r.patch(
   "/:id",
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
-  ctrl.updateCourseController
+  uploadImage.single("thumbnail"),
+  ctrl.updateCourseController,
 );
 
+// Soft delete
 r.delete(
   "/:id",
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
-  ctrl.deleteCourseController
+  ctrl.deleteCourseController,
+);
+
+// Course analytics
+r.get(
+  "/:id/analytics",
+  authGuard,
+  roleGuard("admin", "superadmin", "instructor"),
+  ctrl.courseAnalyticsController,
 );
 
 export default r;

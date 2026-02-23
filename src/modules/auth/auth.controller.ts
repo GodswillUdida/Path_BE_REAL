@@ -42,7 +42,12 @@ export const loginController = asyncHandler(
     const payload = loginSchema.parse(req.body);
     const result = await authService.authenticate(
       payload.email,
-      payload.password
+      payload.password,
+      {
+        userAgent: req.headers["user-agent"],
+        ipAddress: req.ip,
+        fingerprint: req.headers["x-device-fingerprint"] as string | undefined,
+      },
     );
 
     // set refresh token as httpOnly cookie
@@ -51,14 +56,13 @@ export const loginController = asyncHandler(
     return res.status(200).json({
       success: true,
       message: "Login Successful",
-      ...result,
-      // accessToken: result.tokens.accessToken,
-      // user: {
-      //   id: result.userId,
-      //   role: result.role,
-      //   name: result.name,
-      //   emailVerified: result.emailVerified,
-      // },
+      accessToken: result.tokens.accessToken,
+      user: {
+        id: result.userId,
+        role: result.role,
+        name: result.name,
+        emailVerified: result.emailVerified,
+      },
     });
   }
 );
@@ -93,38 +97,97 @@ export const resetPasswordController = asyncHandler(
 
 export const refreshTokenController = asyncHandler(
   async (req: Request, res: Response) => {
-    const cookie =
-      req.cookies?.[process.env.REFRESH_COOKIE_NAME ?? "refresh_token"];
-    if (!cookie) throw badRequest("No refresh token provided");
+    const token = req.cookies?.[REFRESH_COOKIE_NAME];
+    if (!token) throw badRequest("No refresh token provided");
 
-    const rotated = await authService.rotateRefreshToken(cookie);
+    const rotated = await authService.rotateRefreshToken(token);
 
-    // set new refresh cookie
     res.cookie(REFRESH_COOKIE_NAME, rotated.refreshToken, COOKIE_OPTIONS);
 
-    res.status(200).json({ success: true, accessToken: rotated.accessToken });
+    return res.status(200).json({
+      success: true,
+      accessToken: rotated.accessToken,
+    });
   }
 );
 
 export const logoutController = asyncHandler(
   async (req: Request, res: Response) => {
-    try {
-      const cookie =
-        req.cookies?.[process.env.REFRESH_COOKIE_NAME ?? "refresh_token"];
-      if (cookie) {
+    const token = req.cookies?.[REFRESH_COOKIE_NAME];
+
+    if (token) {
+      try {
         const { verifyRefreshToken } = await import("../../lib/jwt");
-        const payload = verifyRefreshToken(cookie) as { userId?: string };
-        if (payload?.userId) {
-          await authService.logout(payload.userId);
+        const payload = verifyRefreshToken(token) as { tokenId?: string };
+
+        if (payload?.tokenId) {
+          await authService.logout(payload.tokenId);
         }
+      } catch (err) {
+        logger.warn("Logout: invalid refresh token", {
+          error: (err as Error).message,
+        });
       }
-    } catch (err: unknown) {
-      logger.warn("Logout: refresh token invalid", {
-        error: (err as Error).message,
-      });
-    } finally {
-      res.clearCookie(REFRESH_COOKIE_NAME, { path: "/api/auth" });
-      res.status(200).json({ success: true, message: "Logged out" });
     }
-  }
+
+    res.clearCookie(REFRESH_COOKIE_NAME, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/api/auth",
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Logged out",
+    });
+  },
+);
+
+export const logoutAllController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user?.id; // from auth middleware
+    if (!userId) throw badRequest("Unauthorized");
+
+    await authService.logoutAll(userId);
+
+    res.clearCookie(REFRESH_COOKIE_NAME, {
+      path: "/api/auth",
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Logged out from all devices",
+    });
+  },
+);
+
+export const getSessionsController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) throw badRequest("Unauthorized");
+
+    const sessions = await authService.getUserSessions(userId);
+
+    return res.status(200).json({
+      success: true,
+      sessions,
+    });
+  },
+);
+
+export const revokeSessionController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    const { id } = req.params;
+
+    if (!userId) throw badRequest("Unauthorized");
+
+    await authService.revokeSession(userId, id);
+
+    return res.status(200).json({
+      success: true,
+      message: "Session revoked",
+    });
+  },
 );

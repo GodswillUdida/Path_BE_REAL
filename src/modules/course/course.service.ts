@@ -1,193 +1,101 @@
 import prisma from "../../lib/prisma";
-import type {
-  CreateCourseInput,
-  OnlineCourseInput,
-  PhysicalCourseInput,
-} from "./course.schema";
-import { badRequest, notFound } from "../..//utils/errors";
+import { badRequest, notFound } from "../../utils/errors";
 import { generateUniqueSlug } from "../../utils/slugify";
 import { streamUpload } from "../../config/stream";
 import logger from "../../utils/logger";
+import type {
+  CreateCourseInput,
+  UpdateCourseInput,
+  CoursePricingInput,
+} from "./course.schema";
+import redis from "../../utils/redisClient";
+// import redis from "../../utils/redisClient";
 
+/* -------------------- CREATE ONLINE COURSE -------------------- */
 export async function createOnlineCourse(
-  programSlug: string,
-  data: OnlineCourseInput,
+  data: CreateCourseInput,
   adminId: string,
   fileBuffer?: Buffer,
-  fileMime?: string
+  fileMime?: string,
 ) {
-  const program = await prisma.program.findUnique({
-    where: { slug: programSlug },
-  });
+  if (data.type !== "online")
+    throw badRequest("Only online courses allowed here");
 
-  if (!program) throw notFound("Program not found");
+  // Fetch program if assigned
+  const program = data.programId
+    ? await prisma.program.findUnique({ where: { id: data.programId } })
+    : null;
 
+  if (data.programId && !program) throw notFound("Program not found");
+
+  // Handle thumbnail upload
   let thumbnail = data.thumbnail ?? "";
-
   if (fileBuffer) {
-    if (!fileMime?.startsWith("image/")) {
-      throw badRequest("Invalid image file type");
-    }
+    if (!fileMime?.startsWith("image/")) throw badRequest("Invalid image type");
     try {
       const uploadResult = await streamUpload(
         fileBuffer,
-        "pathfinder/images/courses"
+        "pathfinder/images/courses",
       );
       thumbnail = uploadResult.secure_url;
     } catch (err) {
-      logger.error("Failed to upload image", err);
-      throw badRequest("Failed to upload image");
+      logger.error("Thumbnail upload failed", err);
+      throw badRequest("Failed to upload thumbnail");
     }
   } else if (!thumbnail) {
-    throw badRequest("Thumbnail URL or file is required");
+    throw badRequest("Thumbnail is required");
   }
 
-  if (!thumbnail) throw badRequest("Thumbnail/Image is required");
+  // Generate unique slug
+  const slug = await generateUniqueSlug(data.slug ?? data.title, "course");
 
-  if (data.type !== "online") {
-    throw badRequest("Only online course allowed for this endpoint");
-  }
-
-  const slug = await generateUniqueSlug(data.title, "course");
-
+  // Prisma create course with pricing
   const course = await prisma.course.create({
     data: {
-      ...data,
-      slug,
-      thumbnail,
-      type: "online",
-      level: data.level,
-      duration: data.duration,
-      tags: data.tags,
-      category: data.category,
-      videoPreview: data.videoPreview,
-      programId: program.id,
-      instructorId: adminId,
-      pricings: {
-        create: data.pricings.map((p) => ({
-          duration: p.duration,
-          price: p.price,
-        })),
-      },
-    },
-    include: {
-      program: true,
-      pricings: true,
-    },
-  });
-  return course;
-}
-
-export const createPhysicalCourse = async (
-  programSlug: string,
-  data: PhysicalCourseInput,
-  adminId: string,
-  fileBuffer?: Buffer,
-  fileMime?: string
-) => {
-  const program = await prisma.program.findUnique({
-    where: { slug: programSlug },
-  });
-
-  if (!program) throw notFound("Program not found");
-
-  let thumbnail = data.thumbnail ?? "";
-  // const { secure_url, public_id }: any = await streamUpload(req);
-
-  if (fileBuffer) {
-    if (!fileMime?.startsWith("image/")) {
-      throw badRequest("Invalid image file type");
-    }
-    try {
-      const uploadResult = await streamUpload(
-        fileBuffer,
-        "pathfinder/images/physical-courses"
-      );
-      thumbnail = uploadResult.secure_url;
-    } catch (err) {
-      logger.error("Failed to upload image", err);
-      throw badRequest("Failed to upload image");
-    }
-  } else if (!thumbnail) {
-    throw badRequest("Thumbnail URL or file is required");
-  }
-
-  if (!thumbnail) throw badRequest("Thumbnail/Image is required");
-
-  const slug = await generateUniqueSlug(data.title, "course");
-
-  if (data.type !== "physical") {
-    throw badRequest("Invalid course type for this endpoint");
-  }
-
-  const physicalCourse = await prisma.course.create({
-    data: {
-      // ...data,
       title: data.title,
       description: data.description,
       slug,
       thumbnail,
-      type: "physical",
-      level: data.level,
-      duration: data.duration,
+      videoPreview: data.videoPreview ?? null,
+      level: data.level ?? null,
       tags: data.tags,
-      category: data.category,
-      location: data.location,
-      schedule: data.schedule,
-      programId: program.id,
+      duration: data.duration ?? null,
+      status: data.status ?? "DRAFT",
+      programId: data.programId ?? null,
       instructorId: adminId,
+      // type: "online",
+      pricings: {
+        create: data.pricings.map((p: CoursePricingInput) => ({
+          name: p.name ?? null,
+          price: p.price,
+          currency: p.currency ?? "NGN",
+          durationDays: p.durationDays,
+          isActive: p.isActive ?? true,
+        })),
+      },
     },
-    include: {
-      program: true,
-    },
+    include: { pricings: true, program: true },
   });
-  return physicalCourse;
-};
 
-export const listCourses = async (
-  q?: string,
-  type?: "online" | "physical",
-  limit?: number,
-  offset?: number
-) => {
-  const where: any = {};
+  return course;
+}
 
-  if (q) {
-    where.OR = [
-      { title: { contains: q, mode: "insensitive" } },
-      { description: { contains: q, mode: "insensitive" } },
-    ];
-  }
-
-  if (type) where.type = type;
-
-  return prisma.course.findMany({
-    where,
-    take: limit ?? 20,
-    skip: offset ?? 0,
-    include: { program: true, pricings: true, enrollments: true },
-    orderBy: { createdAt: "desc" },
-  });
-};
-
-export const getCourse = async (id: string) => {
+/* -------------------- GET COURSE -------------------- */
+export async function getCourse(courseId: string) {
   const course = await prisma.course.findUnique({
-    where: { id },
+    where: { id: courseId },
     include: {
-      program: true,
       pricings: true,
+      program: true,
       modules: { include: { topics: true } },
       enrollments: true,
     },
   });
   if (!course) throw notFound("Course not found");
   return course;
-};
+}
 
-export const getCourseBySlug = async (
-  programSlug: string,
-  courseSlug: string
-) => {
+export async function getCourseBySlug(programSlug: string, courseSlug: string) {
   const program = await prisma.program.findUnique({
     where: { slug: programSlug },
   });
@@ -196,72 +104,205 @@ export const getCourseBySlug = async (
   const course = await prisma.course.findFirst({
     where: { slug: courseSlug, programId: program.id },
     include: {
-      program: true,
       pricings: true,
+      program: true,
       modules: { include: { topics: true } },
     },
   });
+
   if (!course) throw notFound("Course not found");
-
   return course;
-};
+}
 
-export const updateCourse = async (
+/* -------------------- LIST COURSES -------------------- */
+// export async function listCourses(
+//   q?: string,
+//   tag?: string,
+//   type?: "online" | "physical",
+//   limit = 20,
+//   offset = 0,
+// ) {
+//   const where: any = {};
+
+//   if (q)
+//     where.OR = [
+//       { title: { contains: q, mode: "insensitive" } },
+//       { description: { contains: q, mode: "insensitive" } },
+//     ];
+//   if (tag) where.tags = { has: tag };
+//   if (type) where.type = type;
+
+//   return prisma.course.findMany({
+//     where,
+//     skip: offset,
+//     take: limit,
+//     include: { pricings: true, program: true, enrollments: true },
+//     orderBy: { createdAt: "desc" },
+//   });
+// }
+
+export async function listCourses(
+  q?: string,
+  tag?: string,
+  limit = 20,
+  offset = 0,
+) {
+  const where: any = { deletedAt: null };
+
+  if (q) {
+    where.OR = [
+      { title: { contains: q, mode: "insensitive" } },
+      { description: { contains: q, mode: "insensitive" } },
+    ];
+  }
+
+  if (tag) where.tags = { has: tag };
+
+  const cacheKey = `courses:${q ?? ""}:${tag ?? ""}:${limit}:${offset}`;
+
+  const cached = await redis.get(cacheKey);
+  if (cached) return JSON.parse(cached);
+
+  const [total, courses] = await prisma.$transaction([
+    prisma.course.count({ where }),
+    prisma.course.findMany({
+      where,
+      skip: offset,
+      take: limit,
+      include: { pricings: true, program: true },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+
+  const result = {
+    data: courses,
+    meta: {
+      total,
+      limit,
+      offset,
+      pages: Math.ceil(total / limit),
+    },
+  };
+
+  await redis.set(cacheKey, JSON.stringify(result), "EX", 60);
+
+  return result;
+}
+
+/* -------------------- UPDATE COURSE -------------------- */
+export async function updateCourse(
   id: string,
-  data: Partial<CreateCourseInput>,
+  data: UpdateCourseInput,
   fileBuffer?: Buffer,
-  fileMime?: string
-) => {
-  // disallow program reassign via simple update; require dedicated endpoint if needed
-  const payload: any = { ...data };
-  delete payload.program;
-
-  const existing = await prisma.course.findUnique({ where: { id } });
-  if (!existing) throw badRequest("Course not found");
+  fileMime?: string,
+) {
+  const existing = await prisma.course.findUnique({
+    where: { id },
+    include: { pricings: true },
+  });
+  if (!existing) throw notFound("Course not found");
 
   let thumbnail = data.thumbnail ?? existing.thumbnail;
-
   if (fileBuffer) {
-    if (!fileMime?.startsWith("image/")) {
-      throw badRequest("Invalid image file type");
-    }
+    if (!fileMime?.startsWith("image/")) throw badRequest("Invalid image type");
     try {
       const uploadResult = await streamUpload(
         fileBuffer,
-        "pathfinder/images/courses"
+        "pathfinder/images/courses",
       );
       thumbnail = uploadResult.secure_url;
     } catch (err) {
-      logger.error("Failed to upload image", err);
-      throw badRequest("Failed to upload image");
+      logger.error("Thumbnail upload failed", err);
+      throw badRequest("Failed to upload thumbnail");
     }
   }
 
+  // Handle slug update
   let updatedSlug = existing.slug;
-
-  if (data.title && !data.slug) {
+  if (data.title && !data.slug)
     updatedSlug = await generateUniqueSlug(data.title, "course", id);
-    payload.slug = updatedSlug;
-  }
+  if (data.slug)
+    updatedSlug = await generateUniqueSlug(data.slug, "course", id);
 
-  if (data.slug) {
-    updatedSlug = await generateUniqueSlug(data.slug, "course");
-    payload.slug = updatedSlug;
-  }
+  // Update course
+  const { pricings, ...updateData } = data;
 
   const updated = await prisma.course.update({
     where: { id },
     data: {
-      ...payload,
+      ...updateData,
       slug: updatedSlug,
       thumbnail,
+      instructorId: existing.instructorId!,
+      ...(pricings && {
+        pricings: {
+          deleteMany: {},
+          create: pricings.map((p: CoursePricingInput) => ({
+            name: p.name ?? null,
+            price: p.price,
+            currency: p.currency ?? "NGN",
+            durationDays: p.durationDays,
+            isActive: p.isActive ?? true,
+          })),
+        },
+      }),
     },
     include: { program: true, pricings: true },
   });
-  return updated;
-};
 
-export const deleteCourse = async (id: string) => {
-  await prisma.course.delete({ where: { id } });
+  // const updated = await prisma.course.update({
+  //   where: { id },
+  //   data: {
+  //     ...data,
+  //     slug: updatedSlug,
+  //     thumbnail,
+  //     instructorId: undefined,
+  //   },
+  //   include: { pricings: true, program: true },
+  // });
+
+  return updated;
+}
+
+/* -------------------- DELETE COURSE -------------------- */
+export async function deleteCourse(id: string) {
+  const existing = await prisma.course.findUnique({
+    where: { id },
+  });
+
+  if (!existing) throw notFound("Course not found");
+
+  await prisma.course.update({
+    where: { id },
+    data: { deletedAt: new Date() },
+  });
+
   return true;
-};
+}
+
+export async function getCourseAnalytics(courseId: string) {
+  const course = await prisma.course.findUnique({
+    where: { id: courseId, deletedAt: null },
+  });
+
+  if (!course) throw notFound("Course not found");
+
+  const [totalEnrollments, activePricings, revenue] = await prisma.$transaction(
+    [
+      prisma.enrollment.count({ where: { courseId } }),
+      prisma.coursePricing.count({
+        where: { courseId, isActive: true },
+      }),
+      prisma.orderItem.aggregate({
+        _sum: { price: true },
+        // where: { courseId },
+      }),
+    ],
+  );
+
+  return {
+    totalEnrollments,
+    activePricings,
+    totalRevenue: revenue._sum.price ?? 0,
+  };
+}

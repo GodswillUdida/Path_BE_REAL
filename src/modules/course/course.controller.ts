@@ -1,149 +1,153 @@
-import { NextFunction, Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import * as svc from "./course.service";
 import {
   createCourseSchema,
   listCoursesQuery,
   updateCourseSchema,
 } from "./course.schema";
-import { badRequest } from "../../utils/errors";
+import { badRequest, notFound } from "../../utils/errors";
+import { asyncHandler } from "../../utils/asyncHandler";
 
-export const createOnlineCourseController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const { programSlug } = req.params;
-    const body = createCourseSchema.parse({
+/* -------------------- CREATE COURSE -------------------- */
+export const createCourseController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { programId } = req.params;
+    if (!programId) throw badRequest("programId is required");
+    // Handle pricing JSON if multipart/form-data
+    let pricings = req.body.pricings;
+
+    if (typeof pricings === "string") {
+      try {
+        pricings = JSON.parse(pricings);
+      } catch {
+        throw badRequest("Invalid pricings format");
+      }
+    }
+
+    const parsed = createCourseSchema.parse({
       ...req.body,
-      type: "online",
+      programId,
       pricings: req.body.pricings ? JSON.parse(req.body.pricings) : undefined,
     });
 
-    if (body.type !== "online") {
-      throw badRequest("Invalid course type for online endpoint");
-    }
+    const file = req.file;
+    const instructorId = req.user?.id;
+    if (!instructorId) throw badRequest("Unauthorized");
 
     const course = await svc.createOnlineCourse(
-      programSlug,
-      body,
-      req.user!.id,
-      req.file?.buffer,
-      req.file?.mimetype
+      parsed,
+      instructorId,
+      file?.buffer,
+      file?.mimetype,
     );
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      course,
+      message: "Course created successfully",
+      data: course,
     });
-  } catch (error) {
-    next(error);
-  }
-};
+  },
+);
 
-export const createPhysicalCourseController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const { programSlug } = req.params;
-    const body = createCourseSchema.parse({ ...req.body, type: "physical" });
+/* -------------------- LIST COURSES -------------------- */
 
-    if (body.type !== "physical") {
-      throw badRequest("Invalid course type for physical endpoint");
+export const listCoursesController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const query = listCoursesQuery.parse(req.query);
+
+    const result = await svc.listCourses(
+      query.q,
+      query.tag,
+      // undefined,
+      query.limit,
+      query.offset,
+    );
+
+    return res.json({
+      success: true,
+      ...result,
+    });
+  },
+);
+
+/* -------------------- GET COURSE BY ID -------------------- */
+export const getCourseController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const course = await svc.getCourse(req.params.id);
+
+    return res.json({
+      success: true,
+      data: course,
+    });
+  },
+);
+
+/* -------------------- GET COURSE BY SLUG -------------------- */
+export const getCourseBySlugController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { programSlug, courseSlug } = req.params;
+
+    const course = await svc.getCourseBySlug(programSlug, courseSlug);
+
+    return res.json({
+      success: true,
+      data: course,
+    });
+  },
+);
+
+/* -------------------- UPDATE COURSE -------------------- */
+export const updateCourseController = asyncHandler(
+  async (req: Request, res: Response) => {
+    let pricings = req.body.pricings;
+
+    if (typeof pricings === "string") {
+      try {
+        pricings = JSON.parse(pricings);
+      } catch {
+        throw badRequest("Invalid pricings format");
+      }
     }
 
-    const course = await svc.createPhysicalCourse(
-      programSlug,
-      body,
-      req.user.id,
-      req.file?.buffer,
-      req.file?.mimetype
-    );
+    const parsed = updateCourseSchema.parse({
+      ...req.body,
+      pricings,
+    });
 
-    res.status(201).json({ success: true, course });
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const listCoursesController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const query = listCoursesQuery.parse(req.query);
-    const courses = await svc.listCourses(
-      query.q,
-      query.type,
-      query.limit,
-      query.offset
-    );
-    res.json({ success: true, courses });
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const getCourseController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const course = await svc.getCourse(req.params.id);
-    res.json({ success: true, course });
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const getCourseBySlugController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const course = await svc.getCourseBySlug(
-      req.params.programSlug,
-      req.params.courseSlug
-    );
-    res.json({ success: true, course });
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const updateCourseController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const body = updateCourseSchema.parse(req.body);
     const updated = await svc.updateCourse(
       req.params.id,
-      body,
+      parsed,
       req.file?.buffer,
-      req.file?.mimetype
+      req.file?.mimetype,
     );
-    res.json({ success: true, updated });
-  } catch (error) {
-    next(error);
-  }
-};
 
-export const deleteCourseController = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
+    return res.json({
+      success: true,
+      message: "Course updated successfully",
+      data: updated,
+    });
+  },
+);
+
+export const courseAnalyticsController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const analytics = await svc.getCourseAnalytics(req.params.id);
+
+    return res.json({
+      success: true,
+      data: analytics,
+    });
+  },
+);
+
+/* -------------------- DELETE COURSE -------------------- */
+export const deleteCourseController = asyncHandler(
+  async (req: Request, res: Response) => {
     await svc.deleteCourse(req.params.id);
-    res.json({ success: true, message: "Deleted" });
-  } catch (error) {
-    next(error);
-  }
-};
+
+    return res.json({
+      success: true,
+      message: "Course deleted successfully",
+    });
+  },
+);

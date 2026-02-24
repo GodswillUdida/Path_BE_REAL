@@ -47,12 +47,12 @@ export const listModulesForCourse = async (
   // const cached = await redis.get(cacheKey);
   // if (cached) return JSON.parse(cached);
 
-    // try {
-    //   const cached = await redis.get(cacheKey);
-    //   if (cached) return JSON.parse(cached);
-    // } catch (err) {
-    //   console.warn("Redis read failed, continuing without cache");
-    // }
+  // try {
+  //   const cached = await redis.get(cacheKey);
+  //   if (cached) return JSON.parse(cached);
+  // } catch (err) {
+  //   console.warn("Redis read failed, continuing without cache");
+  // }
 
   const [total, modules] = await prisma.$transaction([
     prisma.module.count({ where: { courseId, deletedAt: null } }),

@@ -9,11 +9,24 @@ const resourceValidator = z.string().refine(
   { message: "Must be a valid URL or filename" }
 );
 
-export const createTopicSchema = z.object({
-  moduleId: z.uuid(),
-  title: z.string().min(1),
-  videoUrl: z.url().optional().nullable(),
-  resources: z.array(resourceValidator).optional().default([]),
+/* ---------- PARAMS ---------- */
+export const topicParamsSchema = z.object({
+  id: z.string().uuid(),
 });
+
+export const moduleParamsSchema = z.object({
+  moduleId: z.string().uuid(),
+});
+
+export const createTopicSchema = z.object({
+  // moduleId: z.uuid(),
+  title: z.string().min(1),
+  // videoUrl: z.url().optional().nullable(),
+  position: z.number().int().min(0).optional(),
+  resources: z.any().optional().default([]),
+  // resources: z.array(resourceValidator).optional().default([]),
+});
+
+export type CreateTopicInput = z.infer<typeof createTopicSchema>;
 
 export const updateTopicSchema = createTopicSchema.partial();

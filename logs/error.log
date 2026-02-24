@@ -825,3 +825,16 @@
 {"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:30:23"}
 {"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:30:23"}
 {"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:30:24"}
+{"level":"error","message":"Unhandled Rejection Connection is closed.","stack":"Error: Connection is closed.\n    at EventEmitter.sendCommand (/workspaces/Path_BE_REAL/node_modules/ioredis/built/Redis.js:333:28)\n    at EventEmitter.quit (/workspaces/Path_BE_REAL/node_modules/ioredis/built/utils/Commander.js:90:25)\n    at process.<anonymous> (/workspaces/Path_BE_REAL/src/utils/redisClient.ts:63:17)\n    at process.emit (node:events:508:28)\n    at process.emit (/workspaces/Path_BE_REAL/node_modules/source-map-support/source-map-support.js:516:21)","timestamp":"2026-02-23 19:34:18"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:40:29"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:40:29"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:40:29"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:40:30"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:40:30"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:40:30"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:41:16"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:41:16"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:41:16"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:41:16"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:41:16"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:41:17"}

@@ -199,24 +199,29 @@ model Module {
 }
 
 model Topic {
-  id              String  @id @default(uuid())
+  id              String   @id @default(uuid())
   title           String
-  videoUrl        String?
-  durationSeconds Int?
-  slug            String @unique
+  slug            String   @unique
 
-  resources Json?
+  bunnyVideoId    String?  @unique
+  videoStatus     String?  // created | uploaded | processing | ready | failed
+  durationSeconds Int?
+  thumbnailUrl    String?
+
+  resources       Json?
 
   module   Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   moduleId String
 
   progress Progress[]
 
-  position Int @default(0)
+  position  Int @default(0)
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
 
-  @@index([slug, moduleId, position])
+  @@index([moduleId, position])
 }
 
 model Enrollment {

@@ -4237,3 +4237,50 @@
 {"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:30:23"}
 {"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:30:23"}
 {"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:30:24"}
+{"level":"error","message":"Unhandled Rejection Connection is closed.","stack":"Error: Connection is closed.\n    at EventEmitter.sendCommand (/workspaces/Path_BE_REAL/node_modules/ioredis/built/Redis.js:333:28)\n    at EventEmitter.quit (/workspaces/Path_BE_REAL/node_modules/ioredis/built/utils/Commander.js:90:25)\n    at process.<anonymous> (/workspaces/Path_BE_REAL/src/utils/redisClient.ts:63:17)\n    at process.emit (node:events:508:28)\n    at process.emit (/workspaces/Path_BE_REAL/node_modules/source-map-support/source-map-support.js:516:21)","timestamp":"2026-02-23 19:34:18"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-02-23 19:40:29"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-02-23 19:40:29"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:40:29"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:40:29"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:40:29"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:40:30"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:40:30"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:40:30"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-02-23 19:41:16"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-02-23 19:41:16"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:41:16"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:41:16"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:41:16"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:41:16"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:41:16"}
+{"level":"error","message":"❌ Redis Error:","timestamp":"2026-02-23 19:41:17"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-02-23 19:42:18"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-02-23 19:42:18"}
+{"level":"info","message":"✅ Connected to Redis","timestamp":"2026-02-23 19:42:18"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-02-23 19:42:53"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-02-23 19:42:53"}
+{"level":"info","message":"✅ Connected to Redis","timestamp":"2026-02-23 19:42:53"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-02-23 19:43:00"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-02-23 19:43:00"}
+{"level":"info","message":"✅ Connected to Redis","timestamp":"2026-02-23 19:43:00"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-02-23 19:43:26"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-02-23 19:43:26"}
+{"level":"info","message":"✅ Connected to Redis","timestamp":"2026-02-23 19:43:26"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-02-23 19:55:02"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-02-23 19:55:02"}
+{"level":"info","message":"✅ Connected to Redis","timestamp":"2026-02-23 19:55:02"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-02-23 19:56:45"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-02-23 19:56:45"}
+{"level":"info","message":"✅ Connected to Redis","timestamp":"2026-02-23 19:56:45"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-02-23 19:59:10"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-02-23 19:59:10"}
+{"level":"info","message":"✅ Connected to Redis","timestamp":"2026-02-23 19:59:10"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-02-23 20:00:34"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-02-23 20:00:34"}
+{"level":"info","message":"✅ Connected to Redis","timestamp":"2026-02-23 20:00:34"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-02-23 20:00:52"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-02-23 20:00:52"}
+{"level":"info","message":"✅ Connected to Redis","timestamp":"2026-02-23 20:00:52"}
+{"level":"info","message":"🚀 Booting Pathfinder API...","timestamp":"2026-02-23 20:06:02"}
+{"level":"info","message":"✅ Server running on port 5000","timestamp":"2026-02-23 20:06:02"}
+{"level":"info","message":"✅ Connected to Redis","timestamp":"2026-02-23 20:06:02"}

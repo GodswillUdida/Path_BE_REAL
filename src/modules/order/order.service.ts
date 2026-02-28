@@ -91,3 +91,111 @@
 //   if (order.userId !== userId) throw unauthorized("Unauthorized order access");
 //   return order;
 // }
+
+
+// order.service.ts
+// Rewritten & Enhanced — February 2026
+// Senior Engineer @ modern TypeScript/Prisma stack
+// Fully aligned with enrollment.service.ts
+// • Atomic order + items creation
+// • Pre-validation + total calculation
+// • Returns orderItem.id ready for createEnrollmentsService
+// • Rich includes for frontend (course titles, linked enrollments)
+
+import prisma from "../../lib/prisma";
+import { CreateOrderItemDTO } from "./order.schema";
+import { forbidden, notFound } from "../../utils/errors";
+
+const orderIncludes = {
+  user: { select: { id: true, name: true, email: true } },
+  items: {
+    include: {
+      pricing: {
+        include: {
+          course: {
+            select: { id: true, title: true },
+          },
+        },
+      },
+    },
+  },
+  payments: true,
+  enrollments: {
+    include: {
+      course: { select: { id: true, title: true } },
+      pricing: true,
+    },
+  },
+} as const;
+
+/**
+ * Create order (single or bulk items)
+ * - Validates all pricings exist
+ * - Calculates totalAmount atomically
+ * - Nested creation of Order + OrderItems
+ * - Returns order with .items[].id → use directly as orderItemId in enrollment
+ */
+export async function createOrderService(
+  userId: string,
+  data: CreateOrderItemDTO[]
+) {
+  if (!data?.length) throw forbidden("No items provided");
+
+  const pricingIds = [...new Set(data.map((i) => i.pricingId))];
+
+  const pricings = await prisma.coursePricing.findMany({
+    where: { id: { in: pricingIds } },
+  });
+
+  const pricingMap = new Map(pricings.map((p) => [p.id, p]));
+
+  let totalAmount = 0;
+  const itemsToCreate = data.map((item) => {
+    const pricing = pricingMap.get(item.pricingId);
+    if (!pricing) throw notFound(`Pricing ${item.pricingId} not found`);
+
+    const quantity = item.quantity ?? 1;
+    totalAmount += pricing.price * quantity;
+
+    return {
+      pricingId: item.pricingId,
+      price: pricing.price, // unit price
+      quantity,
+    };
+  });
+
+  const order = await prisma.order.create({
+    data: {
+      userId,
+      totalAmount,
+      currency: "NGN",
+      status: "PENDING",
+      items: {
+        create: itemsToCreate,
+      },
+    },
+    include: orderIncludes,
+  });
+
+  return order;
+}
+
+export async function getUserOrdersService(userId: string) {
+  return prisma.order.findMany({
+    where: { userId },
+    include: orderIncludes,
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function getOneOrderService(id: string, userId: string) {
+  const order = await prisma.order.findUnique({
+    where: { id },
+    include: orderIncludes,
+  });
+
+  if (!order) throw notFound("Order not found");
+  if (order.userId !== userId) throw forbidden("Access denied — this is not your order");
+
+  return order;
+}

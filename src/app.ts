@@ -128,6 +128,12 @@ app.set("view engine", "ejs");
 
 const API = "/api/v1";
 
+// app.post(
+//   "/api/topics/webhooks/bunny",
+//   express.raw({ type: "application/json" }),
+//   bunnyWebhookController,
+// );
+
 app.use(`${API}/auth`, authRoutes);
 app.use(`${API}/programs`, programRoutes);
 app.use(`${API}/courses`, courseRoutes);

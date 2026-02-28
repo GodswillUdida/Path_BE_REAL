@@ -14,7 +14,7 @@ export const generateUniqueSlug = async (
     program: prisma.program,
     course: prisma.course,
     module: prisma.module,
-    topic: prisma.topic
+    topic: prisma.topic,
   };
 
   while (true) {

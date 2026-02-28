@@ -1,46 +1,51 @@
+// enrollment.controller.ts
+// Rewritten & Enhanced — February 2026
+// Senior Engineer @ modern TypeScript/Express stack
+// Fully aligned with enrollment.service.ts (2026 version)
+// • Removed all physical/walk-in enrollment code (dead since schema update)
+// • Removed dead mailQueue + commented imports
+// • Consistent, production-grade error handling (propagates 403/404 from service)
+// • Structured logging with context
+// • Clean Zod handling (single or bulk)
+// • Best-practice response shape + semantic status codes
+
 import { NextFunction, Request, Response } from "express";
-import { CreateEnrollmentSchema, CreatePhysicalEnrollmentRequestSchema } from "./enrollment.schema";
-// import { enrollmentService } from "./enrollment.service";
+import { CreateEnrollmentSchema } from "./enrollment.schema";
 import logger from "../../utils/logger";
+
 import {
   createEnrollmentsService,
-  // createPhysicalEnrollmentRequestService,
   getOneEnrollmentService,
   getUserEnrollmentsService,
-  // listPhysicalEnrollmentRequestsService,
 } from "./enrollment.service";
 
 export const createEnrollment = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
-  try {
-    const userId = req.user!.userId || req.user!.id;
-    const body = CreateEnrollmentSchema.parse(req.body);
+  const userId = req.user!.userId || req.user!.id;
 
+  try {
+    const body = CreateEnrollmentSchema.parse(req.body);
     const payload = Array.isArray(body) ? body : [body];
 
     const data = await createEnrollmentsService(userId, payload);
 
-    // await mailQueue.add("sendEnrollmentEmail", {
-    //   to: req.user!.email,
-    //   subject: "Enrollment Successful",
-    //   template: "enrollment-success",
-    //   data: {
-    //     user: req.user,
-    //     enrollment,
-    //   },
-    // });
-
-    return res.json({
+    return res.status(201).json({
       success: true,
-      message: "Enrollment created successfully",
+      message: `Enrollment${payload.length > 1 ? "s" : ""} created successfully`,
       data,
     });
   } catch (err: any) {
-    logger.error("Enrollment Failed to create", err);
-    return res.status(err.status || 500).json({
+    logger.error(`Enrollment creation failed for user ${userId}`, {
+      error: err.message,
+      stack: err.stack,
+      body: req.body,
+    });
+
+    const status = err.status || 500;
+    return res.status(status).json({
       success: false,
       message: err.message || "Failed to create enrollment",
     });
@@ -50,66 +55,53 @@ export const createEnrollment = async (
 export const getMyEnrollments = async (
   req: Request,
   res: Response,
+  next: NextFunction,
 ) => {
+  const userId = req.user!.userId || req.user!.id;
+
   try {
-    const userId = req.user!.userId || req.user!.id;
     const data = await getUserEnrollmentsService(userId);
 
-    return res.json({ success: true, data });
+    return res.json({
+      success: true,
+      data,
+    });
+  } catch (err: any) {
+    logger.error(`Failed to fetch enrollments for user ${userId}`, err);
 
-  } catch (err) {
-    return res
-      .status(500)
-      .json({ success: false, message: "Failed to fetch enrollments" });
+    const status = err.status || 500;
+    return res.status(status).json({
+      success: false,
+      message: err.message || "Failed to fetch enrollments",
+    });
   }
 };
 
-export const getOne = async (
+export const getOneEnrollment = async (
   req: Request,
   res: Response,
+  next: NextFunction,
 ) => {
-  try {
-    const userId = req.user!.userId || req.user!.id;
-    const data = await getOneEnrollmentService(req.params.id, userId);
+  const userId = req.user!.userId || req.user!.id;
+  const enrollmentId = req.params.id;
 
-    return res.json({ success: true, data });
-  } catch (error) {
-    return res
-      .status(500)
-      .json({ success: false, message: "Failed to fetch enrollments" });
+  try {
+    const data = await getOneEnrollmentService(enrollmentId, userId);
+
+    return res.json({
+      success: true,
+      data,
+    });
+  } catch (err: any) {
+    logger.error(
+      `Failed to fetch enrollment ${enrollmentId} for user ${userId}`,
+      err,
+    );
+
+    const status = err.status || 500;
+    return res.status(status).json({
+      success: false,
+      message: err.message || "Failed to fetch enrollment",
+    });
   }
 };
-
-/**
- * PHYSICAL ENROLLMENT REQUEST (PUBLIC)
- */
-// export const createPhysicalRequest = async (req: Request, res: Response) => {
-//   try {
-//     const body = CreatePhysicalEnrollmentRequestSchema.parse(req.body);
-//     const data = await createPhysicalEnrollmentRequestService(body);
-
-//     return res.json({
-//       success: true,
-//       message: "Enrollment request submitted",
-//       data,
-//     });
-//   } catch (err: any) {
-//     logger.error("Physical request failed", err);
-//     return res.status(err.status || 500).json({
-//       success: false,
-//       message: err.message || "Failed to submit request",
-//     });
-//   }
-// };
-
-// export const listPhysicalRequests = async (req: Request, res: Response) => {
-//   try {
-//     const data = await listPhysicalEnrollmentRequestsService();
-//     return res.json({ success: true, data });
-//   } catch {
-//     return res.status(500).json({
-//       success: false,
-//       message: "Failed to fetch enrollment requests",
-//     });
-//   }
-// };

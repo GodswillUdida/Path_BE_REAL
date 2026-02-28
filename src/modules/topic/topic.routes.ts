@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { raw, Router } from "express";
 import * as ctrl from "./topic.controller";
 import { authGuard } from "../../middleware/authGuard";
 import { roleGuard } from "../../middleware/roleGuard";
@@ -36,6 +36,6 @@ r.get(
 );
 
 /* Bunny Webhook */
-r.post("/webhooks/bunny", ctrl.bunnyWebhookController);
+r.post("/webhooks/bunny", raw({ type: "application/json" }), ctrl.bunnyWebhookController);
 
 export default r;

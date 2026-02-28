@@ -22,24 +22,40 @@ export const getPlaybackController = asyncHandler(
   async (req: Request, res: Response) => {
     const { id } = topicParamsSchema.parse(req.params);
 
-    const url = await svc.generateSignedPlaybackUrl(
-      id,
-      req.user.id
-    );
+    const url = await svc.generateSignedPlaybackUrl(id, req.user.id);
 
     res.json({
       success: true,
       playbackUrl: url,
     });
-  }
+  },
 );
 
 /* -------- BUNNY WEBHOOK -------- */
 export const bunnyWebhookController = asyncHandler(
   async (req: Request, res: Response) => {
+
+    // const signature = req.headers["bunny-signature"] as string;
+
+    // if (!signature) {
+    //   return res.status(400).send("Missing signature");
+    // }
+
+    // const isValid = svc.verifyBunnyWebhookSignature(
+    //   req.body as Buffer,
+    //   signature,
+    // );
+
+    // if (!isValid) {
+    //   return res.status(401).send("Invalid signature");
+    // }
+
+    // const payload = JSON.parse(req.body.toString());
+    // await svc.handleBunnyWebhook(payload);
+
     await svc.handleBunnyWebhook(req.body);
     res.status(200).send("OK");
-  }
+  },
 );
 
 export const listTopicsController = asyncHandler(

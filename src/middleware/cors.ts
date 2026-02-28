@@ -5,14 +5,15 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
   "https://accountant-pathfinder.vercel.app",
+  "https://lq8gym-3000.csb.app",
   "https://path-be-real.onrender.com",
-  "https://sturdy-telegram-v6rw5wq4qxxgfxxq6-3000.app.github.dev"
+  "https://sturdy-spoon-x5px4xv6v6x53465-3000.app.github.dev",
 ];
 
 export const corsOptions: CorsOptions = {
   origin: (
     origin: string | undefined,
-    callback: (err: Error | null, origin?: any) => void
+    callback: (err: Error | null, origin?: any) => void,
   ) => {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);

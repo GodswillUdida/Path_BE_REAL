@@ -6,7 +6,7 @@ import { roleGuard } from "../../middleware/roleGuard";
 const r = Router({ mergeParams: true });
 
 // Public: list modules for a course
-r.get("/course/:courseId", ctrl.listModulesController);
+r.get("/:courseId", ctrl.listModulesController);
 
 // Admin / instructor
 r.post(

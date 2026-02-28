@@ -16,10 +16,10 @@ const r = Router();
 r.get("/", ctrl.listCoursesController);
 
 // Get single course by ID
-r.get("/id/:id", ctrl.getCourseController);
+r.get("/:id", ctrl.getCourseController);
 
 // Get by slug (program + course)
-r.get("/slug/:programSlug/:courseSlug", ctrl.getCourseBySlugController);
+r.get("/:programSlug/:courseSlug", ctrl.getCourseBySlugController);
 
 /**
  * --------------------------------

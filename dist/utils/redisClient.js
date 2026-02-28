@@ -4,17 +4,18 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteCache = exports.getCache = exports.setCache = void 0;
-const ioredis_1 = __importDefault(require("ioredis"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const ioredis_1 = __importDefault(require("ioredis"));
 const logger_1 = __importDefault(require("./logger"));
 dotenv_1.default.config();
+// if (!process.env.REDIS_URL!) throw Error("Redis env missing");
 const redis = new ioredis_1.default(process.env.REDIS_URL, {
-    maxRetriesPerRequest: null,
-    enableReadyCheck: false,
+    maxRetriesPerRequest: 3,
+    enableReadyCheck: true,
     retryStrategy: (times) => {
-        if (times > 10)
+        if (times > 5)
             return null;
-        return Math.min(times * 100, 3000);
+        return Math.min(times * 50, 2000);
     },
 });
 redis.on("connect", () => logger_1.default.info("✅ Connected to Redis"));

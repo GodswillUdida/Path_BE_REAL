@@ -2,27 +2,27 @@ import { AppError } from "../../middleware/error";
 import prisma from "../../lib/prisma";
 import { badRequest, notFound } from "../../utils/errors";
 import { generateUniqueSlug } from "../../utils/slugify";
-import { createOnlineCourse, createPhysicalCourse } from "../../modules/course/course.service";
+import {
+  createOnlineCourse,
+} from "../../modules/course/course.service";
+import { CreateProgramDTO, UpdateProgramDTO } from "./program.schema";
 
-export const createProgram = async (data: {
-  title: string;
-  description?: string;
-  image?: string;
-}) => {
+export const createProgram = async (data: CreateProgramDTO) => {
   const titleExists = await prisma.program.findFirst({
-    where: { title: data.title },
+    where: { title: data.title, deletedAt: null },
   });
 
   if (titleExists) throw badRequest("Program title already exists");
 
-  const slug = await generateUniqueSlug(data.title, "program");
+  const slug = data.slug ?? (await generateUniqueSlug(data.title, "program"));
+  // const slug = await generateUniqueSlug(data.title, "program");
 
   const program = await prisma.program.create({
     data: {
       title: data.title,
       description: data.description,
       slug,
-      // image: data.image ?? null,
+      image: data.image ?? null,
     },
   });
   return program;
@@ -43,77 +43,83 @@ export async function createCourseFromProgramId(params: {
 
   if (!program) throw notFound("Program not found");
 
-  if (params.type === "physical") {
-    return createPhysicalCourse(
-      program.slug,
-      params.payload,
-      params.adminId,
-      params.fileBuffer,
-      params.fileMime
-    );
+  switch (params.type) {
+    case "online":
+      return createOnlineCourse(
+        // program.slug,
+        params.payload,
+        params.adminId,
+        params.fileBuffer,
+        params.fileMime,
+      );
+    default:
+      throw badRequest("Invalid course type");
   }
 
-  if (params.type === "online") {
-    return createOnlineCourse(
-      program.slug,
-      params.payload,
-      params.adminId,
-      params.fileBuffer,
-      params.fileMime
-    );
-  }
+  // if (params.type === "physical") {
+  //   return createPhysicalCourse(
+  //     program.slug,
+  //     params.payload,
+  //     params.adminId,
+  //     params.fileBuffer,
+  //     params.fileMime
+  //   );
+  // }
 
-  throw new Error("Invalid course type");
+  // if (params.type === "online") {
+  //   return createOnlineCourse(
+  //     program.slug,
+  //     params.payload,
+  //     params.adminId,
+  //     params.fileBuffer,
+  //     params.fileMime
+  //   );
+  // }
+
+  // throw new Error("Invalid course type");
 }
 
-
 export const listPrograms = async () => {
-  return prisma.program.findMany({ include: { courses: true } });
-};
-
-export const getProgram = async (id: string) => {
-  return prisma.program.findUnique({
-    where: { id },
+  return prisma.program.findMany({
+    where: { deletedAt: null },
     include: { courses: true },
+    orderBy: { createdAt: "desc" },
   });
 };
 
-export const getProgramBySlug = async (programSlug: string) => {
-  try {
-    const program = await prisma.program.findUnique({
-      where: { slug: programSlug },
-      include: { courses: true },
-    });
-    if (!program) throw new AppError("Program not found", 404);
-    return program;
-  } catch (error) {
-    console.error(`Error fetching program with slug ${programSlug}:`, error);
-    throw new AppError("Internal server error", 500);
-  }
+export const getProgram = async (id: string) => {
+  const program = await prisma.program.findUnique({
+    where: { id },
+    include: { courses: true },
+  });
+  if (!program || program.deletedAt) throw notFound("Program not found");
+  return program;
 };
 
-export const updateProgram = async (
-  id: string,
-  data: {
-    title?: string;
-    description?: string;
-    image?: string;
-    slug?: string;
-  }
-) => {
-  let updatedSlug = data.slug;
+export const getProgramBySlug = async (slug: string) => {
+  const program = await prisma.program.findUnique({
+    where: { slug },
+    include: { courses: true },
+  });
+  if (!program || program.deletedAt) throw notFound("Program not found");
+  return program;
+};
 
-  if (data.title) {
+export const updateProgram = async (id: string, data: UpdateProgramDTO) => {
+  const program = await prisma.program.findUnique({ where: { id } });
+  if (!program || program.deletedAt) throw notFound("Program not found");
+
+  let updatedSlug = data.slug ?? program.slug;
+  if (data.title && data.title !== program.title) {
     const titleExists = await prisma.program.findFirst({
-      where: { title: data.title, NOT: { id } },
+      where: { title: data.title, NOT: { id }, deletedAt: null },
     });
-
     if (titleExists) throw badRequest("Program title already exists");
 
     updatedSlug = await generateUniqueSlug(data.title, "program", id);
   }
 
-  const program = await prisma.program.update({
+  const updated = await prisma.program.update({
     where: { id },
     data: {
       ...data,
@@ -121,9 +127,16 @@ export const updateProgram = async (
     },
   });
 
-  return program;
+  return updated;
 };
 
 export const deleteProgram = async (id: string) => {
-  return prisma.program.delete({ where: { id } });
+  const program = await prisma.program.findUnique({ where: { id } });
+  if (!program || program.deletedAt) throw notFound("Program not found");
+
+  // Soft-delete
+  return prisma.program.update({
+    where: { id },
+    data: { deletedAt: new Date() },
+  });
 };

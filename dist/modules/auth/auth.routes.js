@@ -35,15 +35,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const ctrl = __importStar(require("./auth.controller"));
-// {
-//   registerController,
-//   loginController,
-//   verifyEmailController,
-//   forgotPasswordController,
-//   resetPasswordController,
-//   refreshTokenController,
-//   logoutController,
-// }
+const authGuard_1 = require("../../middleware/authGuard");
+const roleGuard_1 = require("../../middleware/roleGuard");
 const r = (0, express_1.Router)();
 r.post("/register", ctrl.registerController);
 r.post("/login", ctrl.loginController);
@@ -51,5 +44,13 @@ r.post("/verify-email", ctrl.verifyEmailController);
 r.post("/forgot-password", ctrl.forgotPasswordController);
 r.post("/reset-password", ctrl.resetPasswordController);
 r.post("/refresh", ctrl.refreshTokenController);
-r.post("/logout", ctrl.logoutController);
+// Authenticated
+r.post("/logout", authGuard_1.authGuard, ctrl.logoutController);
+r.get("/sessions", authGuard_1.authGuard, ctrl.getSessionsController);
+r.delete("/sessions/:id", authGuard_1.authGuard, ctrl.revokeSessionController);
+r.delete("/sessions", authGuard_1.authGuard, ctrl.logoutAllController);
+// Protected test route with role
+r.get("/admin-only", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin"), (_req, res) => {
+    res.json({ success: true, message: "Welcome admin!" });
+});
 exports.default = r;

@@ -1,20 +1,22 @@
-import Redis from "ioredis";
 import dotenv from "dotenv";
+import Redis from "ioredis";
 import logger from "./logger";
 
 dotenv.config();
 
+// if (!process.env.REDIS_URL!) throw Error("Redis env missing");
+
 const redis = new Redis(process.env.REDIS_URL!, {
-  maxRetriesPerRequest: null,
-  enableReadyCheck: false,
+  maxRetriesPerRequest: 3,
+  enableReadyCheck: true,
   retryStrategy: (times) => {
-    if (times > 10) return null;
-    return Math.min(times * 100, 3000);
+    if (times > 5) return null;
+    return Math.min(times * 50, 2000);
   },
 });
 
 redis.on("connect", () => logger.info("✅ Connected to Redis"));
-redis.on("error", (err) => logger   .error("❌ Redis Error:", err.message));
+redis.on("error", (err) => logger.error("❌ Redis Error:", err.message));
 
 // 🔹 Set cache with optional expiration (default: 1 hour)
 export const setCache = async (

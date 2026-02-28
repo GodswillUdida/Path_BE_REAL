@@ -3,7 +3,15 @@ import { unauthorized } from "../utils/errors";
 import { verifyAccessToken } from "../lib/jwt";
 import logger from "../utils/logger";
 
-export function authGuard(req: Request, _res: Response, next: NextFunction) {
+// Extend Express Request type for TS
+export interface AuthRequest extends Request {
+  user?: {
+    id: string;
+    role: string;
+  };
+}
+
+export function authGuard(req: AuthRequest, _res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header || !header.startsWith("Bearer "))
     throw unauthorized("Missing or invalid Authorization header");
@@ -14,7 +22,7 @@ export function authGuard(req: Request, _res: Response, next: NextFunction) {
     const payload = verifyAccessToken(token);
     req.user = {
       id: payload.userId,
-      role: payload.role,
+      role: payload.role!,
     };
     next();
   } catch (error) {

@@ -33,31 +33,71 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteModuleController = exports.updateModuleController = exports.listModulesController = exports.createModuleController = void 0;
+exports.completeModuleController = exports.deleteModuleController = exports.updateModuleController = exports.listModulesController = exports.createModuleController = void 0;
 const svc = __importStar(require("./module.service"));
 const module_schema_1 = require("./module.schema");
-const createModuleController = async (req, res) => {
+const asyncHandler_1 = require("../../utils/asyncHandler");
+// export const createModuleController = async (req: Request, res: Response) => {
+//   const { courseId } = req.params;
+//   if (!courseId) throw badRequest("courseId is required");
+//   const body = createModuleSchema.parse(req.body);
+//   const mod = await svc.createModule({
+//     ...body,
+//     description: body.description ?? undefined,
+//     courseId
+//   });
+//   res.status(201).json({ success: true, module: mod });
+// };
+exports.createModuleController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const { courseId } = module_schema_1.moduleParamsSchema.parse(req.params);
     const body = module_schema_1.createModuleSchema.parse(req.body);
-    const mod = await svc.createModule({ ...body, description: body.description ?? undefined });
-    res.status(201).json({ success: true, module: mod });
-};
-exports.createModuleController = createModuleController;
-const listModulesController = async (req, res) => {
-    const courseId = req.params.courseId;
-    const list = await svc.listModulesForCourse(courseId);
-    res.json({ success: true, modules: list });
-};
-exports.listModulesController = listModulesController;
-const updateModuleController = async (req, res) => {
-    const body = module_schema_1.updateModuleSchema.parse(req.body);
-    const updated = await svc.updateModule(req.params.id, {
-        description: body.description ?? undefined,
+    const module = await svc.createModule({
+        ...body,
+        courseId,
     });
-    res.json({ success: true, module: updated });
-};
-exports.updateModuleController = updateModuleController;
-const deleteModuleController = async (req, res) => {
+    // const moduleInput = {
+    //   ...req.body,
+    //   courseId: req.params.courseId,
+    // };
+    // const parsed = createModuleSchema.parse(module);
+    // Attach courseId from URL params
+    // const courseId = req.params.courseId;
+    // const module = await svc.createModule(parsed);
+    res.status(201).json({
+        success: true,
+        message: "Module created successfully",
+        data: module,
+    });
+});
+exports.listModulesController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const query = module_schema_1.listModulesQuerySchema.parse(req.query);
+    const courseId = req.params.courseId;
+    const modules = await svc.listModulesForCourse(courseId, query);
+    res.json({ success: true, ...modules });
+});
+// export const getModuleController = asyncHandler(
+//   async (req: Request, res: Response) => {
+//     const module = await svc.getModule(req.params.id);
+//     // Increment views for analytics
+//     await svc.incrementModuleView(module.id);
+//     res.json({ success: true, data: module });
+//   },
+// );
+exports.updateModuleController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    // const body = updateModuleSchema.parse(req.body);
+    // const updated = await svc.updateModule(req.params.id, {
+    //   description: body.description ?? undefined,
+    // });
+    // res.json({ success: true, module: updated });
+    const parsed = module_schema_1.updateModuleSchema.parse(req.body);
+    const updated = await svc.updateModule(req.params.id, parsed);
+    res.json({ success: true, data: updated });
+});
+exports.deleteModuleController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     await svc.deleteModule(req.params.id);
-    res.json({ success: true, message: "Module removed" });
-};
-exports.deleteModuleController = deleteModuleController;
+    res.json({ success: true, message: "Module deleted (soft)" });
+});
+exports.completeModuleController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const completions = await svc.incrementModuleCompletion(req.params.id);
+    res.json({ success: true, completions });
+});

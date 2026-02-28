@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.logoutController = exports.refreshTokenController = exports.resetPasswordController = exports.forgotPasswordController = exports.verifyEmailController = exports.loginController = exports.registerController = void 0;
+exports.revokeSessionController = exports.getSessionsController = exports.logoutAllController = exports.logoutController = exports.refreshTokenController = exports.resetPasswordController = exports.forgotPasswordController = exports.verifyEmailController = exports.loginController = exports.registerController = void 0;
 const asyncHandler_1 = require("../../utils/asyncHandler");
 const auth_schema_1 = require("./auth.schema");
 const authService = __importStar(require("./auth.service"));
@@ -61,20 +61,23 @@ exports.registerController = (0, asyncHandler_1.asyncHandler)(async (req, res) =
 });
 exports.loginController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const payload = auth_schema_1.loginSchema.parse(req.body);
-    const result = await authService.authenticate(payload.email, payload.password);
+    const result = await authService.authenticate(payload.email, payload.password, {
+        userAgent: req.headers["user-agent"],
+        ipAddress: req.ip,
+        fingerprint: req.headers["x-device-fingerprint"],
+    });
     // set refresh token as httpOnly cookie
     res.cookie(REFRESH_COOKIE_NAME, result.tokens.refreshToken, COOKIE_OPTIONS);
     return res.status(200).json({
         success: true,
         message: "Login Successful",
-        ...result,
-        // accessToken: result.tokens.accessToken,
-        // user: {
-        //   id: result.userId,
-        //   role: result.role,
-        //   name: result.name,
-        //   emailVerified: result.emailVerified,
-        // },
+        accessToken: result.tokens.accessToken,
+        user: {
+            id: result.userId,
+            role: result.role,
+            name: result.name,
+            emailVerified: result.emailVerified,
+        },
     });
 });
 exports.verifyEmailController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
@@ -97,32 +100,74 @@ exports.resetPasswordController = (0, asyncHandler_1.asyncHandler)(async (req, r
     return res.status(200).json({ success: true, message: "Password updated" });
 });
 exports.refreshTokenController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const cookie = req.cookies?.[process.env.REFRESH_COOKIE_NAME ?? "refresh_token"];
-    if (!cookie)
+    const token = req.cookies?.[REFRESH_COOKIE_NAME];
+    if (!token)
         throw (0, errors_1.badRequest)("No refresh token provided");
-    const rotated = await authService.rotateRefreshToken(cookie);
-    // set new refresh cookie
+    const rotated = await authService.rotateRefreshToken(token);
     res.cookie(REFRESH_COOKIE_NAME, rotated.refreshToken, COOKIE_OPTIONS);
-    res.status(200).json({ success: true, accessToken: rotated.accessToken });
+    return res.status(200).json({
+        success: true,
+        accessToken: rotated.accessToken,
+    });
 });
 exports.logoutController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    try {
-        const cookie = req.cookies?.[process.env.REFRESH_COOKIE_NAME ?? "refresh_token"];
-        if (cookie) {
+    const token = req.cookies?.[REFRESH_COOKIE_NAME];
+    if (token) {
+        try {
             const { verifyRefreshToken } = await Promise.resolve().then(() => __importStar(require("../../lib/jwt")));
-            const payload = verifyRefreshToken(cookie);
-            if (payload?.userId) {
-                await authService.logout(payload.userId);
+            const payload = verifyRefreshToken(token);
+            if (payload?.tokenId) {
+                await authService.logout(payload.tokenId);
             }
         }
+        catch (err) {
+            logger_1.default.warn("Logout: invalid refresh token", {
+                error: err.message,
+            });
+        }
     }
-    catch (err) {
-        logger_1.default.warn("Logout: refresh token invalid", {
-            error: err.message,
-        });
-    }
-    finally {
-        res.clearCookie(REFRESH_COOKIE_NAME, { path: "/api/auth" });
-        res.status(200).json({ success: true, message: "Logged out" });
-    }
+    res.clearCookie(REFRESH_COOKIE_NAME, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/api/auth",
+    });
+    return res.status(200).json({
+        success: true,
+        message: "Logged out",
+    });
+});
+exports.logoutAllController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const userId = req.user?.id; // from auth middleware
+    if (!userId)
+        throw (0, errors_1.badRequest)("Unauthorized");
+    await authService.logoutAll(userId);
+    res.clearCookie(REFRESH_COOKIE_NAME, {
+        path: "/api/auth",
+    });
+    return res.status(200).json({
+        success: true,
+        message: "Logged out from all devices",
+    });
+});
+exports.getSessionsController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const userId = req.user?.id;
+    if (!userId)
+        throw (0, errors_1.badRequest)("Unauthorized");
+    const sessions = await authService.getUserSessions(userId);
+    return res.status(200).json({
+        success: true,
+        sessions,
+    });
+});
+exports.revokeSessionController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const userId = req.user?.id;
+    const { id } = req.params;
+    if (!userId)
+        throw (0, errors_1.badRequest)("Unauthorized");
+    await authService.revokeSession(userId, id);
+    return res.status(200).json({
+        success: true,
+        message: "Session revoked",
+    });
 });

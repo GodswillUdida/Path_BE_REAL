@@ -13,6 +13,8 @@ const generateUniqueSlug = async (base, model, existingId) => {
     const modelMap = {
         program: prisma_1.default.program,
         course: prisma_1.default.course,
+        module: prisma_1.default.module,
+        topic: prisma_1.default.topic,
     };
     while (true) {
         const exists = await modelMap[model].findFirst({

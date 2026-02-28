@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { raw, Router } from "express";
 import * as ctrl from "./topic.controller";
 import { authGuard } from "../../middleware/authGuard";
 import { roleGuard } from "../../middleware/roleGuard";
@@ -10,10 +10,10 @@ r.get("/module/:moduleId", ctrl.listTopicsController);
 
 // Admin / instructor
 r.post(
-  "/",
+  "/:moduleId",
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
-  ctrl.createTopicController
+  ctrl.createTopicController,
 );
 r.patch(
   "/:id",
@@ -27,5 +27,15 @@ r.delete(
   roleGuard("admin", "superadmin", "instructor"),
   ctrl.deleteTopicController
 );
+
+/* Get Secure Playback */
+r.get(
+  "/:id/play",
+  authGuard,
+  ctrl.getPlaybackController
+);
+
+/* Bunny Webhook */
+r.post("/webhooks/bunny", raw({ type: "application/json" }), ctrl.bunnyWebhookController);
 
 export default r;

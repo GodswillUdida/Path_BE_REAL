@@ -1,20 +1,17 @@
-// src/modules/order/order.schema.ts
+// order.schema.ts
+// Zod validation — February 2026
+// Supports single item or array (same pattern as CreateEnrollmentSchema)
+
 import { z } from "zod";
 
-export const createOrderSchema = z.object({
-  enrollmentIds: z.array(z.uuid()).min(1),
-  currency: z.string().default("NGN").optional(),
+export const CreateOrderItemSchema = z.object({
+  pricingId: z.string().uuid("Invalid pricing ID"),
+  quantity: z.number().int().positive().default(1).optional(),
 });
 
-export type CreateOrderDTO = z.infer<typeof createOrderSchema>;
+export const CreateOrderSchema = z
+  .union([CreateOrderItemSchema, z.array(CreateOrderItemSchema).min(1)])
+  .transform((val): CreateOrderItemDTO[] => (Array.isArray(val) ? val : [val]));
 
-// export const orderResponseSchema = z.object({
-//   id: z.string().uuid(),
-//     userId: z.string().uuid(),
-//     totalAmount: z.number(),
-//     currency: z.string(),
-//     status: z.enum(["PENDING", "COMPLETED", "FAILED"]),
-//     createdAt: z.string(),
-//     updatedAt: z.string(),
-// });
-// export type OrderResponseDTO = z.infer<typeof orderResponseSchema>;
+export type CreateOrderItemDTO = z.infer<typeof CreateOrderItemSchema>;
+export type CreateOrderDTO = CreateOrderItemDTO[]; // for service

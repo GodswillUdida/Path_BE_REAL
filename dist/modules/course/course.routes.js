@@ -42,12 +42,28 @@ const authGuard_1 = require("../../middleware/authGuard");
 const roleGuard_1 = require("../../middleware/roleGuard");
 const multer_1 = __importDefault(require("../../config/multer"));
 const r = (0, express_1.Router)();
-// Public
+/**
+ * --------------------------------
+ * Public Routes
+ * --------------------------------
+ */
+// List courses (cached)
 r.get("/", ctrl.listCoursesController);
+// Get single course by ID
 r.get("/:id", ctrl.getCourseController);
+// Get by slug (program + course)
 r.get("/:programSlug/:courseSlug", ctrl.getCourseBySlugController);
-r.post("/:programSlug/courses/online", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), multer_1.default.single("thumbnail"), ctrl.createOnlineCourseController);
-r.post("/:programSlug/courses/physical", multer_1.default.single("thumbnail"), authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), ctrl.createPhysicalCourseController);
-r.patch("/:id", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), ctrl.updateCourseController);
+/**
+ * --------------------------------
+ * Protected Routes
+ * --------------------------------
+ */
+// Create course (unified)
+r.post("/:programId", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), multer_1.default.single("thumbnail"), ctrl.createCourseController);
+// Update
+r.patch("/:id", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), multer_1.default.single("thumbnail"), ctrl.updateCourseController);
+// Soft delete
 r.delete("/:id", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), ctrl.deleteCourseController);
+// Course analytics
+r.get("/:id/analytics", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), ctrl.courseAnalyticsController);
 exports.default = r;

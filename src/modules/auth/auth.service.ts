@@ -31,7 +31,7 @@ export type AuthTokens = {
 export const createUser = async (
   name: string,
   email: string,
-  password: string
+  password: string,
 ) => {
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) throw badRequest("Email already registered");
@@ -65,7 +65,12 @@ export const createUser = async (
 
 export const authenticate = async (
   email: string,
-  password: string
+  password: string,
+  meta?: {
+    userAgent?: string;
+    ipAddress?: string;
+    fingerprint?: string;
+  },
 ): Promise<{
   tokens: AuthTokens;
   userId: string;
@@ -80,17 +85,31 @@ export const authenticate = async (
   const matches = await comparePassword(password, user.password);
   if (!matches) throw unauthorized("Invalid credentials");
 
-  const accessToken = signAccessToken({ userId: user.id, role: user.role });
+  const accessToken = signAccessToken({
+    userId: user.id,
+    role: user.role,
+  });
+
   const tokenId = crypto.randomBytes(16).toString("hex");
-  const refreshPayload: RefreshTokenPayload = { userId: user.id, tokenId };
+
+  const refreshPayload: RefreshTokenPayload = {
+    userId: user.id,
+    tokenId,
+  };
+
   const refreshToken = signRefreshToken(refreshPayload);
+  const tokenHash = await hashToken(refreshToken);
 
-  const hashedRefresh = await hashToken(refreshToken);
-  const refreshExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { refreshToken: hashedRefresh, refreshTokenExpires: refreshExpires },
+  await prisma.session.create({
+    data: {
+      userId: user.id,
+      tokenId,
+      tokenHash,
+      userAgent: meta?.userAgent,
+      ipAddress: meta?.ipAddress,
+      fingerprint: meta?.fingerprint,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
   });
 
   return {
@@ -124,10 +143,7 @@ export const verifyEmail = async (token: string): Promise<void> => {
 
 export const requestPasswordReset = async (email: string): Promise<void> => {
   const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) {
-    // Avoid user enumeration — return early
-    return;
-  }
+  if (!user) return; // Avoid user enumeration — return early
 
   const token = crypto.randomBytes(32).toString("hex");
   const expires = new Date(Date.now() + RESET_TOKEN_TTL_MS);
@@ -149,12 +165,12 @@ export const requestPasswordReset = async (email: string): Promise<void> => {
     //   },
     //   { attempts: 3, backoff: { type: "exponential", delay: 3000 } }
     // );
-    await sendPasswordResetEmail(user.email, user.name, token);
+    // await sendPasswordResetEmail(user.email, user.name, token);
 
     logger.info("Password Reset Mail Sent");
-  } catch (qErr) {
-    logger.error("Direct password reset email failed", {
-      error: (qErr as Error).message,
+  } catch (err) {
+    logger.error("Password reset email failed", {
+      error: (err as Error).message,
     });
     // logger.warn(
     //   "Failed to enqueue password reset email, attempting direct send",
@@ -173,7 +189,7 @@ export const requestPasswordReset = async (email: string): Promise<void> => {
 
 export const resetPassword = async (
   token: string,
-  newPassword: string
+  newPassword: string,
 ): Promise<void> => {
   const user = await prisma.user.findFirst({
     where: { resetToken: token, resetTokenExpires: { gt: new Date() } },
@@ -186,15 +202,16 @@ export const resetPassword = async (
     data: { password: hashed, resetToken: null, resetTokenExpires: null },
   });
 
-  // Invalidate any existing refresh tokens
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { refreshToken: null, refreshTokenExpires: null },
+  await prisma.session.updateMany({
+    where: { userId: user.id },
+    data: { revokedAt: new Date() },
   });
+
+  // await logoutAll(user.id);
 };
 
 export const rotateRefreshToken = async (
-  currentRefreshToken: string
+  currentRefreshToken: string,
 ): Promise<{
   accessToken: string;
   refreshToken: string;
@@ -202,45 +219,129 @@ export const rotateRefreshToken = async (
   role: string;
 }> => {
   let payload: RefreshTokenPayload;
+
   try {
     payload = verifyRefreshToken(currentRefreshToken) as RefreshTokenPayload;
-  } catch (err) {
+  } catch {
     throw unauthorized("Invalid refresh token");
   }
 
-  const user = await prisma.user.findUnique({ where: { id: payload.userId } });
-  if (!user || !user.refreshToken) throw unauthorized("Invalid refresh token");
+  const session = await prisma.session.findUnique({
+    where: { tokenId: payload.tokenId },
+    include: { user: true },
+  });
 
-  const valid = await compareTokenHash(currentRefreshToken, user.refreshToken);
-  if (!valid) throw unauthorized("Refresh token mismatch");
+  if (!session || session.revokedAt) {
+    throw unauthorized("Invalid refresh token");
+  }
 
+  if (session.expiresAt < new Date()) {
+    throw unauthorized("Refresh token expired");
+  }
+
+  const valid = await compareTokenHash(currentRefreshToken, session.tokenHash);
+
+  // 🔥 REUSE DETECTION
+  if (!valid) {
+    // revoke all sessions for user
+    await prisma.session.updateMany({
+      where: { userId: session.userId },
+      data: { revokedAt: new Date() },
+    });
+
+    throw unauthorized("Refresh token reuse detected");
+  }
+
+  // Revoke current session
+  await prisma.session.update({
+    where: { id: session.id },
+    data: { revokedAt: new Date() },
+  });
+
+  // Create new session
   const newTokenId = crypto.randomBytes(16).toString("hex");
+
   const newRefreshPayload: RefreshTokenPayload = {
-    userId: user.id,
+    userId: session.userId,
     tokenId: newTokenId,
   };
+
   const newRefreshToken = signRefreshToken(newRefreshPayload);
-  const newAccessToken = signAccessToken({ userId: user.id, role: user.role });
+  const newAccessToken = signAccessToken({
+    userId: session.userId,
+    role: session.user.role,
+  });
 
-  const hashedNew = await hashToken(newRefreshToken);
-  const newExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const newTokenHash = await hashToken(newRefreshToken);
 
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { refreshToken: hashedNew, refreshTokenExpires: newExpires },
+  await prisma.session.create({
+    data: {
+      userId: session.userId,
+      tokenId: newTokenId,
+      tokenHash: newTokenHash,
+      userAgent: session.userAgent,
+      ipAddress: session.ipAddress,
+      fingerprint: session.fingerprint,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
   });
 
   return {
     accessToken: newAccessToken,
     refreshToken: newRefreshToken,
-    userId: user.id,
-    role: user.role,
+    userId: session.userId,
+    role: session.user.role,
   };
 };
 
-export const logout = async (userId: string): Promise<void> => {
-  await prisma.user.update({
-    where: { id: userId },
-    data: { refreshToken: null, refreshTokenExpires: null },
+export const logout = async (tokenId: string): Promise<void> => {
+  await prisma.session.update({
+    where: { tokenId },
+    data: { revokedAt: new Date() },
+  });
+};
+
+export const logoutAll = async (userId: string): Promise<void> => {
+  await prisma.session.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+};
+
+export const getUserSessions = async (userId: string) => {
+  const sessions = await prisma.session.findMany({
+    where: {
+      userId,
+      revokedAt: null,
+      expiresAt: { gt: new Date() },
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      userAgent: true,
+      ipAddress: true,
+      createdAt: true,
+      expiresAt: true,
+    },
+  });
+
+  return sessions;
+};
+
+export const revokeSession = async (userId: string, sessionId: string) => {
+  const session = await prisma.session.findFirst({
+    where: {
+      id: sessionId,
+      userId,
+    },
+  });
+
+  if (!session) {
+    throw badRequest("Session not found");
+  }
+
+  await prisma.session.update({
+    where: { id: sessionId },
+    data: { revokedAt: new Date() },
   });
 };

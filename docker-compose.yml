@@ -66,25 +66,31 @@ services:
         npm start
       "
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/health')"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:5000/health')",
+        ]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 40s
 
-  nginx:
-    image: nginx:stable-alpine
-    container_name: nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    depends_on:
-      pathfinder-api:
-        condition: service_healthy
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    networks:
-      - backend
+  # nginx:
+  #   image: nginx:stable-alpine
+  #   container_name: nginx
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #   depends_on:
+  #     pathfinder-api:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+  #   networks:
+  #     - backend
 
 volumes:
   redis_data:

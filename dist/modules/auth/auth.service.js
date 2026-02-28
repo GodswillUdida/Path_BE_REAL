@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.logout = exports.rotateRefreshToken = exports.resetPassword = exports.requestPasswordReset = exports.verifyEmail = exports.authenticate = exports.createUser = void 0;
+exports.revokeSession = exports.getUserSessions = exports.logoutAll = exports.logout = exports.rotateRefreshToken = exports.resetPassword = exports.requestPasswordReset = exports.verifyEmail = exports.authenticate = exports.createUser = void 0;
 const db_1 = __importDefault(require("../../config/db"));
 const crypto_1 = __importDefault(require("crypto"));
 const hash_1 = require("../../utils/hash");
@@ -43,22 +43,34 @@ const createUser = async (name, email, password) => {
     return user;
 };
 exports.createUser = createUser;
-const authenticate = async (email, password) => {
+const authenticate = async (email, password, meta) => {
     const user = await db_1.default.user.findUnique({ where: { email } });
     if (!user)
         throw (0, errors_1.unauthorized)("Invalid credentials");
     const matches = await (0, hash_1.comparePassword)(password, user.password);
     if (!matches)
         throw (0, errors_1.unauthorized)("Invalid credentials");
-    const accessToken = (0, jwt_1.signAccessToken)({ userId: user.id, role: user.role });
+    const accessToken = (0, jwt_1.signAccessToken)({
+        userId: user.id,
+        role: user.role,
+    });
     const tokenId = crypto_1.default.randomBytes(16).toString("hex");
-    const refreshPayload = { userId: user.id, tokenId };
+    const refreshPayload = {
+        userId: user.id,
+        tokenId,
+    };
     const refreshToken = (0, jwt_1.signRefreshToken)(refreshPayload);
-    const hashedRefresh = await (0, hash_1.hashToken)(refreshToken);
-    const refreshExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    await db_1.default.user.update({
-        where: { id: user.id },
-        data: { refreshToken: hashedRefresh, refreshTokenExpires: refreshExpires },
+    const tokenHash = await (0, hash_1.hashToken)(refreshToken);
+    await db_1.default.session.create({
+        data: {
+            userId: user.id,
+            tokenId,
+            tokenHash,
+            userAgent: meta?.userAgent,
+            ipAddress: meta?.ipAddress,
+            fingerprint: meta?.fingerprint,
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
     });
     return {
         tokens: { accessToken, refreshToken },
@@ -91,10 +103,8 @@ const verifyEmail = async (token) => {
 exports.verifyEmail = verifyEmail;
 const requestPasswordReset = async (email) => {
     const user = await db_1.default.user.findUnique({ where: { email } });
-    if (!user) {
-        // Avoid user enumeration — return early
-        return;
-    }
+    if (!user)
+        return; // Avoid user enumeration — return early
     const token = crypto_1.default.randomBytes(32).toString("hex");
     const expires = new Date(Date.now() + RESET_TOKEN_TTL_MS);
     await db_1.default.user.update({
@@ -113,12 +123,12 @@ const requestPasswordReset = async (email) => {
         //   },
         //   { attempts: 3, backoff: { type: "exponential", delay: 3000 } }
         // );
-        await (0, emailService_1.sendPasswordResetEmail)(user.email, user.name, token);
+        // await sendPasswordResetEmail(user.email, user.name, token);
         logger_1.default.info("Password Reset Mail Sent");
     }
-    catch (qErr) {
-        logger_1.default.error("Direct password reset email failed", {
-            error: qErr.message,
+    catch (err) {
+        logger_1.default.error("Password reset email failed", {
+            error: err.message,
         });
         // logger.warn(
         //   "Failed to enqueue password reset email, attempting direct send",
@@ -145,11 +155,11 @@ const resetPassword = async (token, newPassword) => {
         where: { id: user.id },
         data: { password: hashed, resetToken: null, resetTokenExpires: null },
     });
-    // Invalidate any existing refresh tokens
-    await db_1.default.user.update({
-        where: { id: user.id },
-        data: { refreshToken: null, refreshTokenExpires: null },
+    await db_1.default.session.updateMany({
+        where: { userId: user.id },
+        data: { revokedAt: new Date() },
     });
+    // await logoutAll(user.id);
 };
 exports.resetPassword = resetPassword;
 const rotateRefreshToken = async (currentRefreshToken) => {
@@ -157,40 +167,111 @@ const rotateRefreshToken = async (currentRefreshToken) => {
     try {
         payload = (0, jwt_1.verifyRefreshToken)(currentRefreshToken);
     }
-    catch (err) {
+    catch {
         throw (0, errors_1.unauthorized)("Invalid refresh token");
     }
-    const user = await db_1.default.user.findUnique({ where: { id: payload.userId } });
-    if (!user || !user.refreshToken)
+    const session = await db_1.default.session.findUnique({
+        where: { tokenId: payload.tokenId },
+        include: { user: true },
+    });
+    if (!session || session.revokedAt) {
         throw (0, errors_1.unauthorized)("Invalid refresh token");
-    const valid = await (0, hash_1.compareTokenHash)(currentRefreshToken, user.refreshToken);
-    if (!valid)
-        throw (0, errors_1.unauthorized)("Refresh token mismatch");
+    }
+    if (session.expiresAt < new Date()) {
+        throw (0, errors_1.unauthorized)("Refresh token expired");
+    }
+    const valid = await (0, hash_1.compareTokenHash)(currentRefreshToken, session.tokenHash);
+    // 🔥 REUSE DETECTION
+    if (!valid) {
+        // revoke all sessions for user
+        await db_1.default.session.updateMany({
+            where: { userId: session.userId },
+            data: { revokedAt: new Date() },
+        });
+        throw (0, errors_1.unauthorized)("Refresh token reuse detected");
+    }
+    // Revoke current session
+    await db_1.default.session.update({
+        where: { id: session.id },
+        data: { revokedAt: new Date() },
+    });
+    // Create new session
     const newTokenId = crypto_1.default.randomBytes(16).toString("hex");
     const newRefreshPayload = {
-        userId: user.id,
+        userId: session.userId,
         tokenId: newTokenId,
     };
     const newRefreshToken = (0, jwt_1.signRefreshToken)(newRefreshPayload);
-    const newAccessToken = (0, jwt_1.signAccessToken)({ userId: user.id, role: user.role });
-    const hashedNew = await (0, hash_1.hashToken)(newRefreshToken);
-    const newExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    await db_1.default.user.update({
-        where: { id: user.id },
-        data: { refreshToken: hashedNew, refreshTokenExpires: newExpires },
+    const newAccessToken = (0, jwt_1.signAccessToken)({
+        userId: session.userId,
+        role: session.user.role,
+    });
+    const newTokenHash = await (0, hash_1.hashToken)(newRefreshToken);
+    await db_1.default.session.create({
+        data: {
+            userId: session.userId,
+            tokenId: newTokenId,
+            tokenHash: newTokenHash,
+            userAgent: session.userAgent,
+            ipAddress: session.ipAddress,
+            fingerprint: session.fingerprint,
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
     });
     return {
         accessToken: newAccessToken,
         refreshToken: newRefreshToken,
-        userId: user.id,
-        role: user.role,
+        userId: session.userId,
+        role: session.user.role,
     };
 };
 exports.rotateRefreshToken = rotateRefreshToken;
-const logout = async (userId) => {
-    await db_1.default.user.update({
-        where: { id: userId },
-        data: { refreshToken: null, refreshTokenExpires: null },
+const logout = async (tokenId) => {
+    await db_1.default.session.update({
+        where: { tokenId },
+        data: { revokedAt: new Date() },
     });
 };
 exports.logout = logout;
+const logoutAll = async (userId) => {
+    await db_1.default.session.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+    });
+};
+exports.logoutAll = logoutAll;
+const getUserSessions = async (userId) => {
+    const sessions = await db_1.default.session.findMany({
+        where: {
+            userId,
+            revokedAt: null,
+            expiresAt: { gt: new Date() },
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+            id: true,
+            userAgent: true,
+            ipAddress: true,
+            createdAt: true,
+            expiresAt: true,
+        },
+    });
+    return sessions;
+};
+exports.getUserSessions = getUserSessions;
+const revokeSession = async (userId, sessionId) => {
+    const session = await db_1.default.session.findFirst({
+        where: {
+            id: sessionId,
+            userId,
+        },
+    });
+    if (!session) {
+        throw (0, errors_1.badRequest)("Session not found");
+    }
+    await db_1.default.session.update({
+        where: { id: sessionId },
+        data: { revokedAt: new Date() },
+    });
+};
+exports.revokeSession = revokeSession;

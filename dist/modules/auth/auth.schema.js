@@ -15,7 +15,7 @@ exports.verifyEmailSchema = zod_1.z.object({
     token: zod_1.z.string().min(8),
 });
 exports.forgotPasswordSchema = zod_1.z.object({
-    email: zod_1.z.email(),
+    email: zod_1.z.string().email(),
 });
 exports.resetPasswordSchema = zod_1.z.object({
     token: zod_1.z.string(),

@@ -50,16 +50,16 @@ const r = (0, express_1.Router)();
 // List courses (cached)
 r.get("/", ctrl.listCoursesController);
 // Get single course by ID
-r.get("/id/:id", ctrl.getCourseController);
+r.get("/:id", ctrl.getCourseController);
 // Get by slug (program + course)
-r.get("/slug/:programSlug/:courseSlug", ctrl.getCourseBySlugController);
+r.get("/:programSlug/:courseSlug", ctrl.getCourseBySlugController);
 /**
  * --------------------------------
  * Protected Routes
  * --------------------------------
  */
 // Create course (unified)
-r.post("/", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), multer_1.default.single("thumbnail"), ctrl.createCourseController);
+r.post("/:programId", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), multer_1.default.single("thumbnail"), ctrl.createCourseController);
 // Update
 r.patch("/:id", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), multer_1.default.single("thumbnail"), ctrl.updateCourseController);
 // Soft delete

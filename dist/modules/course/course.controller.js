@@ -40,6 +40,9 @@ const errors_1 = require("../../utils/errors");
 const asyncHandler_1 = require("../../utils/asyncHandler");
 /* -------------------- CREATE COURSE -------------------- */
 exports.createCourseController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const { programId } = req.params;
+    if (!programId)
+        throw (0, errors_1.badRequest)("programId is required");
     // Handle pricing JSON if multipart/form-data
     let pricings = req.body.pricings;
     if (typeof pricings === "string") {
@@ -52,12 +55,14 @@ exports.createCourseController = (0, asyncHandler_1.asyncHandler)(async (req, re
     }
     const parsed = course_schema_1.createCourseSchema.parse({
         ...req.body,
-        pricings,
+        programId,
+        pricings: req.body.pricings ? JSON.parse(req.body.pricings) : undefined,
     });
+    const file = req.file;
     const instructorId = req.user?.id;
     if (!instructorId)
         throw (0, errors_1.badRequest)("Unauthorized");
-    const course = await svc.createOnlineCourse(parsed, instructorId, req.file?.buffer, req.file?.mimetype);
+    const course = await svc.createOnlineCourse(parsed, instructorId, file?.buffer, file?.mimetype);
     return res.status(201).json({
         success: true,
         message: "Course created successfully",

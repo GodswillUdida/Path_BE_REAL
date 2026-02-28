@@ -41,7 +41,11 @@ const r = (0, express_1.Router)({ mergeParams: true });
 // Public: list topics for a module
 r.get("/module/:moduleId", ctrl.listTopicsController);
 // Admin / instructor
-r.post("/", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), ctrl.createTopicController);
+r.post("/:moduleId", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), ctrl.createTopicController);
 r.patch("/:id", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), ctrl.updateTopicController);
 r.delete("/:id", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), ctrl.deleteTopicController);
+/* Get Secure Playback */
+r.get("/:id/play", authGuard_1.authGuard, ctrl.getPlaybackController);
+/* Bunny Webhook */
+r.post("/webhooks/bunny", (0, express_1.raw)({ type: "application/json" }), ctrl.bunnyWebhookController);
 exports.default = r;

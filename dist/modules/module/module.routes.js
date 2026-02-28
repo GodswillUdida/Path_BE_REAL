@@ -39,9 +39,10 @@ const authGuard_1 = require("../../middleware/authGuard");
 const roleGuard_1 = require("../../middleware/roleGuard");
 const r = (0, express_1.Router)({ mergeParams: true });
 // Public: list modules for a course
-r.get("/course/:courseId", ctrl.listModulesController);
+r.get("/:courseId", ctrl.listModulesController);
 // Admin / instructor
-r.post("/", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), ctrl.createModuleController);
+r.post("/:courseId", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), ctrl.createModuleController);
 r.patch("/:id", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), ctrl.updateModuleController);
 r.delete("/:id", authGuard_1.authGuard, (0, roleGuard_1.roleGuard)("admin", "superadmin", "instructor"), ctrl.deleteModuleController);
+// r.post("/complete/:id", authGuard, );
 exports.default = r;

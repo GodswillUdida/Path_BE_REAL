@@ -16,6 +16,7 @@ const slugify_1 = require("../../utils/slugify");
 const stream_1 = require("../../config/stream");
 const logger_1 = __importDefault(require("../../utils/logger"));
 // import redis from "../../utils/redisClient";
+const redisClient_1 = __importDefault(require("../../utils/redisClient"));
 /* -------------------- CREATE ONLINE COURSE -------------------- */
 async function createOnlineCourse(data, adminId, fileBuffer, fileMime) {
     if (data.type !== "online")
@@ -81,8 +82,9 @@ async function getCourse(courseId) {
         include: {
             pricings: true,
             program: true,
-            modules: { include: { topics: true } },
+            modules: true,
             enrollments: true,
+            // modules: { include: { topics: true } },
         },
     });
     if (!course)
@@ -142,8 +144,9 @@ async function listCourses(q, tag, limit = 20, offset = 0) {
     if (tag)
         where.tags = { has: tag };
     const cacheKey = `courses:${q ?? ""}:${tag ?? ""}:${limit}:${offset}`;
-    // const cached = await redis.get(cacheKey);
-    // if (cached) return JSON.parse(cached);
+    const cached = await redisClient_1.default.get(cacheKey);
+    if (cached)
+        return JSON.parse(cached);
     const [total, courses] = await prisma_1.default.$transaction([
         prisma_1.default.course.count({ where }),
         prisma_1.default.course.findMany({
@@ -163,7 +166,7 @@ async function listCourses(q, tag, limit = 20, offset = 0) {
             pages: Math.ceil(total / limit),
         },
     };
-    // await redis.set(cacheKey, JSON.stringify(result), "EX", 60);
+    await redisClient_1.default.set(cacheKey, JSON.stringify(result), "EX", 60);
     return result;
 }
 /* -------------------- UPDATE COURSE -------------------- */

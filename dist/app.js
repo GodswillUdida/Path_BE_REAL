@@ -52,8 +52,8 @@ const module_routes_1 = __importDefault(require("./modules/module/module.routes"
 const topic_routes_1 = __importDefault(require("./modules/topic/topic.routes"));
 const enrollment_routes_1 = __importDefault(require("./modules/enrollment/enrollment.routes"));
 // import enrollmentRequestRoutes from "./modules/enrollmentRequest/enrollmentRequest.route";
-// import orderRoutes from "./modules/order/order.routes";
-// import paymentRoutes from "./modules/payment/payment.routes";
+const order_routes_1 = __importDefault(require("./modules/order/order.routes"));
+const payment_routes_1 = __importDefault(require("./modules/payment/payment.routes"));
 // Middleware & utils
 const cors_2 = require("./middleware/cors");
 const error_1 = require("./middleware/error");
@@ -104,8 +104,8 @@ app.use("/api", (0, express_rate_limit_1.default)({
 /* -------------------------------------------------------------------------- */
 // Webhooks MUST come before JSON
 // app.use(
-//   "/api/paystack/webhook",
-//   express.raw({ type: "*/*", limit: BODY_LIMIT })
+//   "/api/v1/payments/paystack/webhook",
+//   express.raw({ type: "application/json", limit:BODY_LIMIT }),
 // );
 // Standard parsers
 app.use((0, express_1.json)({ limit: BODY_LIMIT }));
@@ -146,8 +146,8 @@ app.use(`${API}/modules`, module_routes_1.default);
 app.use(`${API}/topics`, topic_routes_1.default);
 app.use(`${API}/enrollments`, enrollment_routes_1.default);
 // app.use(`${API}/enrollment-requests`, enrollmentRequestRoutes);
-// app.use(`${API}/orders`, orderRoutes);
-// app.use(`${API}/payments`, paymentRoutes);
+app.use(`${API}/orders`, order_routes_1.default);
+app.use(`${API}/payments`, payment_routes_1.default);
 app.use(`${API}/docs`, swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swagger_1.swaggerSpec));
 // app.use(`${API}/docs`, async (_req, _res, next) => {
 //   try {

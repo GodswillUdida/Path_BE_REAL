@@ -257,13 +257,13 @@ async function getCourseAnalytics(courseId) {
             where: { courseId, isActive: true },
         }),
         prisma_1.default.orderItem.aggregate({
-            _sum: { price: true },
+            _sum: { unitPrice: true },
             // where: { courseId },
         }),
     ]);
     return {
         totalEnrollments,
         activePricings,
-        totalRevenue: revenue._sum.price ?? 0,
+        totalRevenue: revenue._sum.unitPrice ?? 0,
     };
 }

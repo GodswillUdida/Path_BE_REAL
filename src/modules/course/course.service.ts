@@ -295,7 +295,7 @@ export async function getCourseAnalytics(courseId: string) {
         where: { courseId, isActive: true },
       }),
       prisma.orderItem.aggregate({
-        _sum: { price: true },
+        _sum: { unitPrice: true },
         // where: { courseId },
       }),
     ],
@@ -304,6 +304,6 @@ export async function getCourseAnalytics(courseId: string) {
   return {
     totalEnrollments,
     activePricings,
-    totalRevenue: revenue._sum.price ?? 0,
+    totalRevenue: revenue._sum!.unitPrice ?? 0,
   };
 }

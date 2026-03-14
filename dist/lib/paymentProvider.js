@@ -4,7 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createCheckout = createCheckout;
-exports.verifyWebhookSignature = verifyWebhookSignature;
+exports.verifyPaystackSignature = verifyPaystackSignature;
 // src/lib/paymentProvider.ts
 const crypto_1 = __importDefault(require("crypto"));
 const logger_1 = __importDefault(require("../utils/logger"));
@@ -16,21 +16,38 @@ async function createCheckout({ amount, currency, callbackUrl, metadata, }) {
     const paymentUrl = `${process.env.PAYMENT_REDIRECT_BASE || "https://payment.example.com"}/pay/${reference}`;
     return { reference, paymentUrl };
 }
-function verifyWebhookSignature(rawBody, signature) {
-    // TODO: implement provider-specific signature verification
-    // For Paystack: compute HMAC-SHA512 with PAYSTACK_SECRET and compare to signature
-    const secret = process.env.PAYSTACK_SECRET_KEY || "";
+// export function verifyWebhookSignature(
+//   rawBody: string,
+//   signature: string | undefined
+// ): boolean {
+//   // TODO: implement provider-specific signature verification
+//   // For Paystack: compute HMAC-SHA512 with PAYSTACK_SECRET and compare to signature
+//   const secret = process.env.PAYSTACK_SECRET_KEY || "";
+//   if (!secret || !signature) return false;
+//   const hmac = crypto
+//     .createHmac("sha512", secret)
+//     .update(rawBody)
+//     .digest("hex");
+//   console.log("Computed HMAC:", hmac);
+//   console.log("Signature:", signature);
+//   if (hmac !== signature) {
+//     logger.warn("⚠️ Invalid Paystack signature");
+//     throw unauthorized("Unauthorized webhook");
+//   }
+//   return hmac === signature;
+// }
+function verifyPaystackSignature(rawBody, signature) {
+    const secret = process.env.PAYSTACK_SECRET_KEY;
     if (!secret || !signature)
         return false;
-    const hmac = crypto_1.default
+    const hash = crypto_1.default
         .createHmac("sha512", secret)
         .update(rawBody)
         .digest("hex");
-    console.log("Computed HMAC:", hmac);
-    console.log("Signature:", signature);
-    if (hmac !== signature) {
+    if (hash !== signature) {
         logger_1.default.warn("⚠️ Invalid Paystack signature");
         throw (0, errors_1.unauthorized)("Unauthorized webhook");
     }
-    return hmac === signature;
+    // return hash === signature;
+    return crypto_1.default.timingSafeEqual(Buffer.from(hash), Buffer.from(signature));
 }

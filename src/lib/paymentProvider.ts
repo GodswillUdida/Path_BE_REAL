@@ -28,25 +28,47 @@ export async function createCheckout({
   return { reference, paymentUrl };
 }
 
-export function verifyWebhookSignature(
-  rawBody: string,
-  signature: string | undefined
+// export function verifyWebhookSignature(
+//   rawBody: string,
+//   signature: string | undefined
+// ): boolean {
+//   // TODO: implement provider-specific signature verification
+//   // For Paystack: compute HMAC-SHA512 with PAYSTACK_SECRET and compare to signature
+//   const secret = process.env.PAYSTACK_SECRET_KEY || "";
+//   if (!secret || !signature) return false;
+//   const hmac = crypto
+//     .createHmac("sha512", secret)
+//     .update(rawBody)
+//     .digest("hex");
+//   console.log("Computed HMAC:", hmac);
+//   console.log("Signature:", signature);
+
+//   if (hmac !== signature) {
+//     logger.warn("⚠️ Invalid Paystack signature");
+//     throw unauthorized("Unauthorized webhook");
+//   }
+
+//   return hmac === signature;
+// }
+
+export function verifyPaystackSignature(
+  rawBody: Buffer | string,
+  signature?: string,
 ): boolean {
-  // TODO: implement provider-specific signature verification
-  // For Paystack: compute HMAC-SHA512 with PAYSTACK_SECRET and compare to signature
-  const secret = process.env.PAYSTACK_SECRET_KEY || "";
+  const secret = process.env.PAYSTACK_SECRET_KEY;
+
   if (!secret || !signature) return false;
-  const hmac = crypto
+
+  const hash = crypto
     .createHmac("sha512", secret)
     .update(rawBody)
     .digest("hex");
-  console.log("Computed HMAC:", hmac);
-  console.log("Signature:", signature);
 
-  if (hmac !== signature) {
-    logger.warn("⚠️ Invalid Paystack signature");
-    throw unauthorized("Unauthorized webhook");
-  }
+  if (hash !== signature) {
+     logger.warn("⚠️ Invalid Paystack signature");
+     throw unauthorized("Unauthorized webhook");
+   }
 
-  return hmac === signature;
+  // return hash === signature;
+  return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(signature));
 }

@@ -32,13 +32,9 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteProgramController = exports.updateProgramController = exports.getProgramBySlugController = exports.getProgramController = exports.listProgramsController = exports.createCourseFromProgramController = exports.createProgramController = void 0;
 const program_schema_1 = require("./program.schema");
-const zod_1 = __importDefault(require("zod"));
 const svc = __importStar(require("./program.service"));
 const asyncHandler_1 = require("../../utils/asyncHandler");
 exports.createProgramController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
@@ -83,14 +79,14 @@ exports.getProgramController = (0, asyncHandler_1.asyncHandler)(async (req, res)
     });
 });
 exports.getProgramBySlugController = (0, asyncHandler_1.asyncHandler)(async (req, res) => {
-    const slugSchema = zod_1.default.object({
-        slug: zod_1.default
-            .string()
-            .min(1)
-            .max(255)
-            .regex(/^[a-z0-9-]+$/i, "Invalid slug format"),
-    });
-    const { slug } = slugSchema.parse(req.params);
+    // const slugSchema = z.object({
+    //   slug: z
+    //     .string()
+    //     .min(1)
+    //     .max(255)
+    //     .regex(/^[a-z0-9-]+$/i, "Invalid slug format"),
+    // });
+    const { slug } = req.params;
     const program = await svc.getProgramBySlug(slug);
     res.status(200).json({
         success: true,

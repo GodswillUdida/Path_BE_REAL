@@ -2,220 +2,304 @@ import axios from "axios";
 import prisma from "../../lib/prisma";
 import logger from "../../utils/logger";
 import { AppError } from "../../middleware/error";
-import { verifyWebhookSignature } from "../../lib/paymentProvider";
+import { verifyPaystackSignature } from "../../lib/paymentProvider";
 import {
   sendConfirmationEmail,
   sendAdminNotification,
 } from "../../services/emailService";
+import { badRequest, notFound, unauthorized } from "../../utils/errors";
+import { Prisma } from "@prisma/client";
 
 interface PaystackInitResponse {
-  data: {
-    authorization_url: string;
-    reference: string;
-  };
+  status: boolean;
+  message: string;
+  data: { authorization_url: string; access_code: string; reference: string };
 }
 
-// -------------------------------------------------------------
-// 1. INITIATE PAYMENT (Paystack)
-// -------------------------------------------------------------
+interface VerifyResponse {
+  success: boolean;
+  status: string;
+  data?: any;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 1. Initiate Payment (updated callback for new success page)
+// ─────────────────────────────────────────────────────────────
 export const initiatePaystackPayment = async (orderId: string) => {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { user: true },
-  });
-
-  if (!order) throw new AppError("Order not found", 404);
-
-  try {
-    const response = await axios.post<PaystackInitResponse>(
-      "https://api.paystack.co/transaction/initialize",
-      {
-        reference: order.id,
-        email: order.user.email,
-        currency: order.currency,
-        amount: order.totalAmount * 100,
-        callback_url: `${process.env.FRONTEND_URL}/payment/processing?reference=${order.id}`,
-        metadata: {
-          orderId: order.id,
+    include: {
+      user: { select: { email: true } },
+      items: {
+        include: {
+          pricing: { include: { course: { select: { title: true } } } },
         },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    const { authorization_url, reference } = response.data.data;
-
-    return {
-      paymentLink: authorization_url,
-      reference,
-    };
-  } catch (err: any) {
-    logger.error(
-      `❌ Paystack payment initiation failed → ${
-        err.response?.data?.message || err.message
-      }`
-    );
-    throw new AppError("Failed to initiate payment", 500);
-  }
-};
-
-// -------------------------------------------------------------
-// 2. PROCESS WEBHOOK
-// -------------------------------------------------------------
-export const processPaymentWebhook = async (
-  rawBody: string,
-  headers: Record<string, string | undefined>
-) => {
-  const signature =
-    headers["x-paystack-signature"] ||
-    headers["x-flw-signature"] ||
-    headers["paystack-signature"];
-
-  if (!verifyWebhookSignature(rawBody, signature)) {
-    throw new Error("Invalid webhook signature");
-  }
-
-  const payload = JSON.parse(rawBody);
-  const event = payload.event || payload.type;
-  const data = payload.data || payload;
-
-  const reference = data.reference;
-  if (!reference) throw new Error("No reference in webhook");
-
-  // Fetch Payment
-  const payment = await prisma.payment.findUnique({ where: { reference } });
-  if (!payment) {
-    logger.warn("Payment not found for webhook reference →", { reference });
-    return { ok: true };
-  }
-
-  const orderId = (payment.metadata as any)?.orderId;
-
-  const succeeded =
-    event === "charge.success" ||
-    data.status === "success" ||
-    data.paid === true ||
-    event === "transaction.success";
-
-  // -----------------------------------------------------------
-  // FAILED PAYMENT
-  // -----------------------------------------------------------
-  if (!succeeded) {
-    const updates: any[] = [
-      prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: "FAILED",
-          metadata: {
-            ...(typeof payment.metadata === "object" &&
-            payment.metadata !== null
-              ? payment.metadata
-              : {}),
-            providerPayload: data,
-          },
-        },
-      }),
-    ];
-
-    if (orderId) {
-      updates.push(
-        prisma.order.update({
-          where: { id: orderId },
-          data: { status: "FAILED" },
-        })
-      );
-    }
-
-    await prisma.$transaction(updates);
-
-    return { ok: true };
-  }
-  // -----------------------------------------------------------
-  // SUCCESSFUL PAYMENT
-  // -----------------------------------------------------------
-  await prisma.payment.update({
-    where: { id: payment.id },
-    data: {
-      status: "PAID",
-      metadata: {
-        ...(typeof payment.metadata === "object" && payment.metadata !== null
-          ? payment.metadata
-          : {}),
-        providerPayload: data,
       },
     },
   });
 
-  // Mark Order as PAID
-  // const orderId = (payment.metadata as any)?.orderId;
-  // if (orderId) {
+  if (!order) throw notFound("Order not found");
+  if (order.status !== "PENDING") throw badRequest("Order is not pending");
 
-  await prisma.order.update({
-    where: { id: orderId },
-    data: { status: "PAID" },
+  const email = order.user?.email || order.email;
+  const reference = `order_${order.id}_${Date.now()}`;
+
+  const payload = {
+    reference,
+    email,
+    amount: Math.round(order.totalAmount * 100),
+    currency: order.currency,
+    callback_url: `${process.env.FRONTEND_URL}/checkout/success?reference=${reference}`,
+    metadata: {
+      orderId: order.id,
+      courses: order.items.map((i) => ({
+        courseId: i.pricing.courseId,
+        title: i.pricing.course.title,
+      })),
+    },
+  };
+
+  const { data: response } = await axios.post<PaystackInitResponse>(
+    "https://api.paystack.co/transaction/initialize",
+    payload,
+    {
+      headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
+      timeout: 10000,
+    },
+  );
+
+  if (!response.status)
+    throw new AppError(response.message || "Paystack init failed", 500);
+
+  await prisma.payment.upsert({
+    where: { reference },
+    update: {},
+    create: {
+      userId: order.userId ?? null,
+      orderId: order.id,
+      reference,
+      amount: order.totalAmount,
+      currency: order.currency,
+      gateway: "paystack",
+      status: "PENDING",
+      metadata: payload.metadata,
+    },
   });
 
-  // }
+  return { paymentLink: response.data.authorization_url, reference };
+};
 
-  // Update Enrollments linked to this Order
-  const enrollments = await prisma.enrollment.findMany({ where: { orderId } });
+// ─────────────────────────────────────────────────────────────
+// 2. Lightweight Verify (for frontend success page)
+// ─────────────────────────────────────────────────────────────
+export const verifyPayment = async (
+  reference: string,
+): Promise<VerifyResponse> => {
+  const { data } = await axios.get(
+    `https://api.paystack.co/transaction/verify/${reference}`,
+    {
+      headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
+    },
+  );
 
-  await prisma.$transaction(
-    enrollments.map((e) =>
-      prisma.enrollment.update({
-        where: { id: e.id },
+  const payment = await prisma.payment.findUnique({ where: { reference } });
+
+  return {
+    success: data.status && data.data.status === "success",
+    status: data.data.status,
+    data: { payment, paystack: data.data },
+  };
+};
+
+// ─────────────────────────────────────────────────────────────
+// 3. Webhook – SINGLE source of truth (fulfillment + guest user)
+// ─────────────────────────────────────────────────────────────
+export const processPaymentWebhook = async (
+  rawBody: string,
+  signature: string | undefined,
+) => {
+  if (!verifyPaystackSignature(rawBody, signature))
+    throw unauthorized("Invalid signature");
+
+  const payload = JSON.parse(rawBody);
+  if (payload.event !== "charge.success") return { received: true };
+
+  const { reference, amount } = payload.data;
+
+  const payment = await prisma.payment.findUnique({
+    where: { reference },
+    include: { order: true },
+  });
+
+  if (!payment || payment.status === "PAID") return { received: true };
+  if (amount !== Math.round(payment.amount * 100))
+    throw badRequest("Amount mismatch");
+
+  await prisma.$transaction(async (tx) => {
+    let userId = payment.userId;
+
+    // Create guest user if needed
+    if (!userId) {
+      const order = await tx.order.findUnique({
+        where: { id: payment.orderId! },
+      });
+      const newUser = await tx.user.create({
         data: {
+          email: order!.email,
+          name: order!.name || "Student",
+          phone: order!.phone,
+          password: generateRandomPassword(),
+        },
+      });
+
+      await tx.order.update({
+        where: { id: order!.id },
+        data: { userId: newUser.id },
+      });
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: { userId: newUser.id },
+      });
+      userId = newUser.id;
+    }
+
+    // Mark paid
+    await tx.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: "PAID",
+        metadata: {
+          ...(payment.metadata as any),
+          providerPayload: payload.data,
+        },
+      },
+    });
+    await tx.order.update({
+      where: { id: payment.orderId! },
+      data: { status: "PAID" },
+    });
+
+    // Fulfill (enrollments + progress)
+    await fulfillOrderAfterPayment(tx, payment.orderId!, userId, reference);
+  });
+
+  // Fire-and-forget notifications
+  sendPostPaymentNotifications(payment.orderId!, reference).catch((err) =>
+    logger.error("Notification failed", err),
+  );
+
+  logger.info("Payment fulfilled", { reference, orderId: payment.orderId });
+  return { received: true };
+};
+
+// ─────────────────────────────────────────────────────────────
+// Internal helpers (unchanged but cleaner)
+// ─────────────────────────────────────────────────────────────
+async function fulfillOrderAfterPayment(
+  tx: Prisma.TransactionClient,
+  orderId: string,
+  userId: string,
+  reference: string,
+) {
+  const items = await tx.orderItem.findMany({
+    where: { orderId },
+    include: { pricing: true },
+  });
+
+  const enrollments = await Promise.all(
+    items.map((item) =>
+      tx.enrollment.create({
+        data: {
+          userId,
+          courseId: item.pricing.courseId,
+          pricingId: item.pricingId,
+          orderItemId: item.id,
+          orderId,
           paymentStatus: "PAID",
           paymentRef: reference,
           startedAt: new Date(),
+          expiresAt: new Date(
+            Date.now() + item.pricing.durationDays * 86_400_000,
+          ),
         },
-      })
-    )
+      }),
+    ),
   );
 
-  // Send confirmation emails
-  for (const e of enrollments) {
-    const user = await prisma.user.findUnique({ where: { id: e.userId } });
-    const course = await prisma.course.findUnique({
-      where: { id: e.courseId },
-    });
+  await initializeProgressForEnrollments(tx, enrollments);
+}
 
-    if (user && course) {
-      try {
-        await sendConfirmationEmail(user.email, {
-          name: user.name,
-          email: user.email,
-          courseName: course.title,
-          courseDuration: String(course.duration ?? ""),
-          enrollmentId: e.id,
-          url: `${process.env.FRONTEND_URL}/dashboard`,
-        } as any);
-      } catch (err) {
-        logger.warn("Confirmation email failed →", err);
-      }
+async function initializeProgressForEnrollments(
+  tx: Prisma.TransactionClient,
+  enrollments: any[],
+) {
+  for (const e of enrollments) {
+    const firstTopic = await tx.course
+      .findUnique({
+        where: { id: e.courseId },
+        select: {
+          modules: {
+            take: 1,
+            orderBy: { position: "asc" },
+            include: { topics: { take: 1, orderBy: { position: "asc" } } },
+          },
+        },
+      })
+      .then((c) => c?.modules[0]?.topics[0]);
+
+    if (firstTopic) {
+      await tx.progress.create({
+        data: { enrollmentId: e.id, topicId: firstTopic.id, completed: false },
+      });
     }
   }
+}
 
-  // Admin notification
-  try {
-    // const userEmail = payment.userId
-    //   ? (await prisma.user.findUnique({ where: { id: payment.userId } }))?.email
-    //   : undefined;
+// ------------------- Email Notifications -------------------
+async function sendPostPaymentNotifications(
+  orderId: string,
+  reference: string,
+) {
+  const enrollments = await prisma.enrollment.findMany({
+    where: { orderId },
+    include: {
+      user: { select: { email: true, name: true } },
+      course: { select: { title: true } },
+      pricing: { select: { price: true } },
+    },
+  });
 
-    const usr = await prisma.user.findUnique({
-      where: { id: payment.userId },
-    });
+  await Promise.allSettled(
+    enrollments.map(async (enrollment) => {
+      if (!enrollment.user?.email) return;
 
-    await sendAdminNotification({
-      name: "Order Payment Received",
-      email: usr?.email,
-      enrollmentId: enrollments.map((x) => x.id).join(","),
-    } as any);
-  } catch {}
+      await Promise.allSettled([
+        sendConfirmationEmail(enrollment.user.email, {
+          name: enrollment.user.name ?? "Student",
+          courseName: enrollment.course.title,
+          enrollmentId: enrollment.id,
+          orderId,
+          amount: enrollment.pricing.price,
+          currency: "NGN",
+        }),
+        sendAdminNotification({
+          subject: "New Paid Order",
+          orderId,
+          amount: enrollment.pricing.price,
+          reference,
+          userId: enrollment.userId,
+        }),
+      ]);
+    }),
+  );
+}
 
-  return { ok: true };
-};
+// ------------------- Utilities -------------------
+function generateRandomPassword(length = 24) {
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()";
+  return Array.from(
+    { length },
+    () => chars[Math.floor(Math.random() * chars.length)],
+  ).join("");
+}

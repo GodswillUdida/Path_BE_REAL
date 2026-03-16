@@ -309,36 +309,30 @@ model Cart {
 }
 
 model Order {
-  // id          String        @id @default(uuid())
-  // user        User          @relation(fields: [userId], references: [id])
-  // userId      String
+  id String @id @default(uuid())
 
-  // amount      Float
-  // currency    String        @default("NGN")
+  // optional logged-in user
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
 
-  // status      PaymentStatus @default(PENDING)
-  // payments    Payment[]
-  // enrollments Enrollment[]
-
-  // createdAt   DateTime      @default(now())
-
-  id     String @id @default(uuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
+  // guest checkout identity
+  email String
+  name  String?
+  phone String?
 
   totalAmount Float
-  currency    String @default("NGN")
+  currency    String        @default("NGN")
+  status      PaymentStatus @default(PENDING)
 
-  status PaymentStatus @default(PENDING)
-
-  items    OrderItem[]
-  payments Payment[]
-
-  createdAt DateTime @default(now())
-
+  items       OrderItem[]
+  payments    Payment[]
   enrollments Enrollment[]
 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([userId])
+  @@index([email])
 }
 
 model OrderItem {
@@ -350,14 +344,15 @@ model OrderItem {
   pricingId String
   pricing   CoursePricing @relation(fields: [pricingId], references: [id])
 
-  price    Float
-  quantity Int
+  unitPrice Float
+  quantity  Int   @default(1)
 
   enrollment Enrollment?
 
   createdAt DateTime @default(now())
 
   @@index([orderId])
+  @@index([pricingId])
 }
 
 model Certificate {
@@ -372,8 +367,8 @@ model Certificate {
 
 model Payment {
   id     String @id @default(uuid())
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String?
 
   reference String @unique
 

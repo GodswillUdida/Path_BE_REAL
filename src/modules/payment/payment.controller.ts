@@ -1,34 +1,71 @@
-import { Request, Response, NextFunction } from "express";
+import { Request, Response } from "express";
 import logger from "../../utils/logger";
-import { processPaymentWebhook } from "./payment.service";
+import { asyncHandler } from "../../utils/asyncHandler";
 
-export const paymentWebhook = async (
+import {
+  initiatePaystackPayment,
+  processPaymentWebhook,
+  verifyPayment,
+} from "./payment.service";
+import { InitializePaymentSchema } from "./payment.schema";
+
+export const initializePaymentController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { orderId } = InitializePaymentSchema.parse(req.body);
+
+    const paymentData = await initiatePaystackPayment(orderId);
+
+    res.status(200).json({
+      success: true,
+      message: "Payment session initialized – redirect user to paymentLink",
+      data: paymentData, // { paymentLink, reference, accessCode }
+    });
+  },
+);
+
+export const verifyPaymentController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { reference } = req.query;
+
+    if (!reference || typeof reference !== "string") {
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing reference" });
+    }
+
+    const result = await verifyPayment(reference);
+
+    res.status(200).json(result);
+  },
+);
+
+export const paystackWebhookController = async (
   req: Request,
   res: Response,
 ) => {
   try {
-    // const raw =
-    //   req.body instanceof Buffer
-    //     ? req.body.toString("utf-8")
-    //     : JSON.stringify(req.body);
-    const result = await processPaymentWebhook(
-      req.body.toString("utf-8"),
-      req.headers as any
-    );
+    const rawBody = Buffer.isBuffer(req.body)
+      ? req.body.toString("utf-8")
+      : JSON.stringify(req.body);
 
-    // await processPaymentWebhook(raw, req.headers as any);
+    const signature = req.headers["x-paystack-signature"] as string | undefined;
 
-    return res.status(200).send({
+    const result = await processPaymentWebhook(rawBody, signature);
+
+    // Always return 200 to Paystack (prevents retries)
+    return res.status(200).json({
       success: true,
+      message: "Webhook received",
       ...result,
-
     });
   } catch (err: any) {
-    logger.error("Payment webhook error", err);
-
-    return res.status(400).json({
-      success: false,
-      message: err.message || "Webhook processing failed",
+    logger.error("Paystack webhook error", {
+      error: err.message,
+      reference: req.body?.data?.reference,
+      signature: req.headers["x-paystack-signature"],
     });
+
+    // Never send error status — Paystack must always get 200
+    return res.status(200).send("Webhook received");
   }
 };

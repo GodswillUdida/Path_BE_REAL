@@ -21,8 +21,8 @@ import moduleRoutes from "./modules/module/module.routes";
 import topicRoutes from "./modules/topic/topic.routes";
 import enrollmentRoutes from "./modules/enrollment/enrollment.routes";
 // import enrollmentRequestRoutes from "./modules/enrollmentRequest/enrollmentRequest.route";
-// import orderRoutes from "./modules/order/order.routes";
-// import paymentRoutes from "./modules/payment/payment.routes";
+import orderRoutes from "./modules/order/order.routes";
+import paymentRoutes from "./modules/payment/payment.routes";
 
 // Middleware & utils
 import { corsOptions } from "./middleware/cors";
@@ -88,9 +88,10 @@ app.use(
 /* -------------------------------------------------------------------------- */
 
 // Webhooks MUST come before JSON
+
 // app.use(
-//   "/api/paystack/webhook",
-//   express.raw({ type: "*/*", limit: BODY_LIMIT })
+//   "/api/v1/payments/paystack/webhook",
+//   express.raw({ type: "application/json", limit:BODY_LIMIT }),
 // );
 
 // Standard parsers
@@ -141,8 +142,8 @@ app.use(`${API}/modules`, moduleRoutes);
 app.use(`${API}/topics`, topicRoutes);
 app.use(`${API}/enrollments`, enrollmentRoutes);
 // app.use(`${API}/enrollment-requests`, enrollmentRequestRoutes);
-// app.use(`${API}/orders`, orderRoutes);
-// app.use(`${API}/payments`, paymentRoutes);
+app.use(`${API}/orders`, orderRoutes);
+app.use(`${API}/payments`, paymentRoutes);
 app.use(`${API}/docs`, swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // app.use(`${API}/docs`, async (_req, _res, next) => {

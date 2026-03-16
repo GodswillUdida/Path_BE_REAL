@@ -6,9 +6,9 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   verifyEmailSchema,
+  guestLoginSchema,
 } from "./auth.schema";
 import * as authService from "./auth.service";
-import logger from "../../utils/logger";
 import { badRequest } from "../../utils/errors";
 
 const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME ?? "refresh_token";
@@ -20,58 +20,74 @@ const COOKIE_OPTIONS = {
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
-export const registerController = asyncHandler(
-  async (req: Request, res: Response) => {
-    const payload = registerSchema.parse(req.body);
-    const user = await authService.createUser(
-      payload.name,
-      payload.email,
-      payload.password
-    );
+export const guestLoginController = asyncHandler(async (req: Request, res: Response) => {
+  const { email } = guestLoginSchema.parse(req.body);
+  const result = await authService.guestLoginService(email);
 
-    return res.status(201).json({
-      success: true,
-      message: "Account created. Check your email for a verification link.",
-      user,
-    });
-  }
-);
+  res.cookie(REFRESH_COOKIE_NAME, result.tokens.refreshToken, COOKIE_OPTIONS);
 
-export const loginController = asyncHandler(
-  async (req: Request, res: Response) => {
-    const payload = loginSchema.parse(req.body);
-    const result = await authService.authenticate(
-      payload.email,
-      payload.password,
-      {
-        userAgent: req.headers["user-agent"],
-        ipAddress: req.ip,
-        fingerprint: req.headers["x-device-fingerprint"] as string | undefined,
-      },
-    );
+  res.status(200).json({
+    success: true,
+    message: "Guest login successful",
+    accessToken: result.tokens.accessToken,
+    user: result.user,
+  });
+});
 
-    // set refresh token as httpOnly cookie
-    res.cookie(REFRESH_COOKIE_NAME, result.tokens.refreshToken, COOKIE_OPTIONS);
+export const registerController = asyncHandler(async (req: Request, res: Response) => {
+  const payload = registerSchema.parse(req.body);
+  const user = await authService.createUser(payload.name, payload.email, payload.password);
+  res.status(201).json({ success: true, message: "Account created. Check email.", user });
+});
 
-    return res.status(200).json({
-      success: true,
-      message: "Login Successful",
-      accessToken: result.tokens.accessToken,
-      user: {
-        id: result.userId,
-        role: result.role,
-        name: result.name,
-        emailVerified: result.emailVerified,
-      },
-    });
-  }
-);
+export const loginController = asyncHandler(async (req: Request, res: Response) => {
+  const payload = loginSchema.parse(req.body);
+  const result = await authService.authenticate(payload.email, payload.password, {
+    userAgent: req.headers["user-agent"],
+    ipAddress: req.ip,
+    fingerprint: req.headers["x-device-fingerprint"] as string | undefined,
+  });
+
+  res.cookie(REFRESH_COOKIE_NAME, result.tokens.refreshToken, COOKIE_OPTIONS);
+
+  res.status(200).json({
+    success: true,
+    accessToken: result.tokens.accessToken,
+    user: result.user,
+  });
+});
 
 export const verifyEmailController = asyncHandler(
   async (req: Request, res: Response) => {
     const { token } = verifyEmailSchema.parse(req.body);
     await authService.verifyEmail(token);
     return res.status(200).json({ success: true, message: "Email verified" });
+  }
+);
+
+export const getUserByIdController = asyncHandler(
+  async (req: Request, res: Response) => { 
+  const userId = req.user?.id;
+  if (!userId) throw badRequest("Unauthorized");
+
+  const user = await authService.getUserById(userId);
+    
+     return res.status(200).json({
+       success: true,
+       user,
+     });
+  }
+);
+
+export const getAllUsersController = asyncHandler(
+  async (req: Request, res: Response) => {
+
+  const user = await authService.getAllUsers();
+    
+     return res.status(200).json({
+       success: true,
+       user,
+     });
   }
 );
 
@@ -95,54 +111,22 @@ export const resetPasswordController = asyncHandler(
   }
 );
 
-export const refreshTokenController = asyncHandler(
-  async (req: Request, res: Response) => {
-    const token = req.cookies?.[REFRESH_COOKIE_NAME];
-    if (!token) throw badRequest("No refresh token provided");
+export const refreshTokenController = asyncHandler(async (req: Request, res: Response) => {
+  const token = req.cookies[REFRESH_COOKIE_NAME];
+  if (!token) throw badRequest("No refresh token");
 
-    const rotated = await authService.rotateRefreshToken(token);
+  const result = await authService.rotateRefreshToken(token);
+  res.cookie(REFRESH_COOKIE_NAME, result.tokens.refreshToken, COOKIE_OPTIONS);
 
-    res.cookie(REFRESH_COOKIE_NAME, rotated.refreshToken, COOKIE_OPTIONS);
+  res.status(200).json({ success: true, accessToken: result.tokens.accessToken });
+});
 
-    return res.status(200).json({
-      success: true,
-      accessToken: rotated.accessToken,
-    });
-  }
-);
-
-export const logoutController = asyncHandler(
-  async (req: Request, res: Response) => {
-    const token = req.cookies?.[REFRESH_COOKIE_NAME];
-
-    if (token) {
-      try {
-        const { verifyRefreshToken } = await import("../../lib/jwt");
-        const payload = verifyRefreshToken(token) as { tokenId?: string };
-
-        if (payload?.tokenId) {
-          await authService.logout(payload.tokenId);
-        }
-      } catch (err) {
-        logger.warn("Logout: invalid refresh token", {
-          error: (err as Error).message,
-        });
-      }
-    }
-
-    res.clearCookie(REFRESH_COOKIE_NAME, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      path: "/api/auth",
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Logged out",
-    });
-  },
-);
+export const logoutController = asyncHandler(async (req: Request, res: Response) => {
+  const token = req.cookies[REFRESH_COOKIE_NAME];
+  if (token) await authService.logout(token).catch(() => {});
+  res.clearCookie(REFRESH_COOKIE_NAME, { path: "/api/auth" });
+  res.status(200).json({ success: true, message: "Logged out" });
+});
 
 export const logoutAllController = asyncHandler(
   async (req: Request, res: Response) => {

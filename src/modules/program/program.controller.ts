@@ -61,14 +61,14 @@ export const getProgramController = asyncHandler(async (req: Request, res: Respo
 
 export const getProgramBySlugController = asyncHandler(
   async (req: Request, res: Response) => {
-    const slugSchema = z.object({
-      slug: z
-        .string()
-        .min(1)
-        .max(255)
-        .regex(/^[a-z0-9-]+$/i, "Invalid slug format"),
-    });
-    const { slug } = slugSchema.parse(req.params);
+    // const slugSchema = z.object({
+    //   slug: z
+    //     .string()
+    //     .min(1)
+    //     .max(255)
+    //     .regex(/^[a-z0-9-]+$/i, "Invalid slug format"),
+    // });
+    const { slug } = req.params;
 
     const program = await svc.getProgramBySlug(slug);
 

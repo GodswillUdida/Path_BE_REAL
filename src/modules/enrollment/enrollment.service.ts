@@ -24,9 +24,7 @@ const enrollmentIncludes = {
   order: true,
 } as const;
 
-/**
- * Get all active/completed enrollments for a user (most recent first)
- */
+
 export async function getUserEnrollmentsService(userId: string) {
   return prisma.enrollment.findMany({
     where: { userId },
@@ -35,9 +33,6 @@ export async function getUserEnrollmentsService(userId: string) {
   });
 }
 
-/**
- * Get single enrollment with strict ownership check
- */
 export async function getOneEnrollmentService(id: string, userId: string) {
   const enrollment = await prisma.enrollment.findUnique({
     where: { id },

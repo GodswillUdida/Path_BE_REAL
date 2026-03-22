@@ -73,7 +73,7 @@ const resolveViewPath = (template: string) => {
   const rootDir = path.resolve(
     __dirname,
     "..",
-    NODE_ENV === "production" ? "../views" : "views"
+    NODE_ENV === "production" ? "../views" : "views",
   );
   return path.join(rootDir, `${template}.ejs`);
 };
@@ -116,18 +116,25 @@ export const generateEmailToken = () => crypto.randomBytes(32).toString("hex");
 export const sendVerificationEmail = async (
   to: string,
   name: string,
-  token: string
+  token: string,
 ) => {
   const url = `${FRONTEND_URL}/verify-email?token=${token}`;
   const html = await renderEmailTemplate("verifyEmail", { name, url });
   await sendCoreEmail(to, "Verify your email - Pathfinder College", html);
 };
 
+export const sendOtpEmail = async (to: string, email: string, code: string) => {
+  const html = await renderEmailTemplate("otpEmail", { email, code });
+
+  // Use your existing email sender (nodemailer, Resend, etc.)
+  await sendCoreEmail(to, "Your Pathfinder Verification Code", html);
+};
+
 // Password Reset Email
 export const sendPasswordResetEmail = async (
   to: string,
   name: string,
-  token: string
+  token: string,
 ) => {
   const url = `${FRONTEND_URL}/reset-password?token=${token}`;
   const html = await renderEmailTemplate("resetPassword", { name, url });
@@ -143,48 +150,4 @@ export const sendConfirmationEmail = async (to: string, data: any) => {
 export const sendAdminNotification = async (data: any) => {
   const html = await renderEmailTemplate("adminNotification", data);
   await sendCoreEmail(ADMIN_EMAIL!, `New Enrollment - ${data.name}`, html);
-};
-
-//Physical Enrollment Request Notification
-export const sendPhysicalEnrollmentRequestNotification = async (
-  to: string,
-  data: {
-    name: string;
-    course: string;
-    requestId: string;
-  }
-) => {
-  const html = await renderEmailTemplate("physicalEnrollmentRequest", {
-    name: data.name,
-    courseTitle: data.course,
-    requestId: data.requestId,
-  });
-  await sendCoreEmail(
-    to,
-    "Physical Enrollment Request Received - Pathfinder College",
-    html
-  );
-};
-
-export const sendPhysicalEnrollmentRequestAdminNotification = async (data: {
-  name: string;
-  email: string;
-  phone: string;
-  notes: string;
-  course: string;
-  requestId: string;
-}) => {
-  const html = await renderEmailTemplate("physicalEnrollmentRequestAdmin", {
-    name: data.name,
-    email: data.email,
-    phone: data.phone,
-    notes: data.notes,
-    courseTitle: data.course,
-    requestId: data.requestId,
-  });
-  await sendCoreEmail(
-    ADMIN_EMAIL!,
-    `New Physical Enrollment Request - ${data.name}`,
-    html
-  );
 };

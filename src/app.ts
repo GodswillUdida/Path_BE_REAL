@@ -73,15 +73,15 @@ app.use(
 
 app.use(cors(corsOptions));
 
-app.use(
-  "/api",
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
-    standardHeaders: true,
-    legacyHeaders: false,
-  }),
-);
+// app.use(
+//   "/api",
+//   rateLimit({
+//     windowMs: 15 * 60 * 1000,
+//     max: 100,
+//     standardHeaders: true,
+//     legacyHeaders: false,
+//   }),
+// );
 
 /* -------------------------------------------------------------------------- */
 /*                               BODY PARSERS                                 */

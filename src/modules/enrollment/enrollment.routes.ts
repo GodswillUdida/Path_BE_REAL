@@ -9,8 +9,8 @@ import { authGuard } from "../../middleware/authGuard";
 
 const router = Router();
 
-router.get("/enrollments", authGuard, getMyEnrollments);
+router.get("/", authGuard, getMyEnrollments);
 
-router.get("/enrollments/:id", authGuard, getOneEnrollment);
+router.get("/:id", authGuard, getOneEnrollment);
 
 export default router;

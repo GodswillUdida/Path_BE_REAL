@@ -5,7 +5,8 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
   "https://accountant-pathfinder.vercel.app",
-  "https://lq8gym-3000.csb.app",
+  "https://jckxpr-3000.csb.app",
+  "https://jckxpr-3001.csb.app",
   "https://path-be-real.onrender.com",
   "https://sturdy-spoon-x5px4xv6v6x53465-3000.app.github.dev",
 ];

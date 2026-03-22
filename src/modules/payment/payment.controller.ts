@@ -3,7 +3,8 @@ import logger from "../../utils/logger";
 import { asyncHandler } from "../../utils/asyncHandler";
 
 import {
-  initiatePaystackPayment,
+  createOrderAndInitiatePayment,
+  // initiatePaystackPayment,
   processPaymentWebhook,
   verifyPayment,
 } from "./payment.service";
@@ -11,21 +12,27 @@ import { InitializePaymentSchema } from "./payment.schema";
 
 export const initializePaymentController = asyncHandler(
   async (req: Request, res: Response) => {
-    const { orderId } = InitializePaymentSchema.parse(req.body);
+    const dto = InitializePaymentSchema.parse(req.body);
 
-    const paymentData = await initiatePaystackPayment(orderId);
+    // Attach userId if the request came from an authenticated user.
+    // authGuard is optional on this route — guests and logged-in users both hit it.
+    const userId = (req as any).user?.userId ?? null;
+
+    const result = await createOrderAndInitiatePayment(dto, userId);
+
+    // const paymentData = await initiatePaystackPayment(orderId);
 
     res.status(200).json({
       success: true,
       message: "Payment session initialized – redirect user to paymentLink",
-      data: paymentData, // { paymentLink, reference, accessCode }
+      data: result.data,
     });
   },
 );
 
 export const verifyPaymentController = asyncHandler(
   async (req: Request, res: Response) => {
-    const { reference } = req.query;
+    const { reference } = req.query || (req.query as string);
 
     if (!reference || typeof reference !== "string") {
       return res

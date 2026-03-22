@@ -12,6 +12,15 @@ export const loginSchema = z.object({
   password: z.string().min(8).max(128),
 });
 
+export const guestOtpSendSchema = z.object({
+  email: z.string().email("Valid email required"),
+});
+
+export const guestOtpVerifySchema = z.object({
+  email: z.string().email(),
+  code: z.string().length(6, "OTP must be 6 digits"),
+});
+
 export const guestLoginSchema = z.object({
   email: z.string().email("Invalid email"),
 });
@@ -37,3 +46,5 @@ export type GuestLoginDTO = z.infer<typeof guestLoginSchema>;
 export type VerifyEmailDTO = z.infer<typeof verifyEmailSchema>;
 export type ForgotPasswordDTO = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordDTO = z.infer<typeof resetPasswordSchema>;
+export type GuestOtpSendDTO = z.infer<typeof guestOtpSendSchema>;
+export type GuestOtpVerifyDTO = z.infer<typeof guestOtpVerifySchema>;

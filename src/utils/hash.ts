@@ -9,26 +9,25 @@ export async function hashPassword(password: string): Promise<string> {
 
 export async function comparePassword(
   password: string,
-  hashedPassword: string
+  hashedPassword: string,
 ): Promise<boolean> {
   return await compare(password, hashedPassword);
 }
 
-export const hashToken = async (token: string): Promise<string> => {
-  return hash(token, SALT_ROUNDS);
-  // return crypto.createHash("sha256").update(token).digest("hex");
+export const hashToken = (token: string): string => {
+  return crypto.createHash("sha256").update(token).digest("hex");
 };
 
-export const compareTokenHash = async (
-  token: string,
-  hash: string
-): Promise<boolean> => {
-  return compare(token, hash);
-  // hashToken(token) === hashed;
+export const compareTokenHash = (token: string, stored: string): boolean => {
+  // Constant-time comparison prevents timing attacks
+  const incoming = crypto.createHash("sha256").update(token).digest("hex");
+  return crypto.timingSafeEqual(
+    Buffer.from(incoming, "hex"),
+    Buffer.from(stored, "hex"),
+  );
 };
 
 // refresh token
 export async function hashRefreshToken(token: string): Promise<string> {
-  const saltRounds = 10;
-  return await hash(token, saltRounds);
+  return crypto.createHash("sha256").update(token).digest("hex");
 }

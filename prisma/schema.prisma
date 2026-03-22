@@ -16,11 +16,13 @@ datasource db {
 
 model User {
   id           String  @id @default(uuid())
-  name         String
+  name         String?
   email        String  @unique
-  password     String
+  password     String?
   profileImage String?
   phone        String?
+  googleId     String? @unique
+  provider  String   @default("credentials") // "credentials" or "google"
   role         Role    @default(student)
 
   verificationToken   String?   @unique
@@ -46,6 +48,30 @@ model User {
   @@index([verificationToken])
   @@index([deletedAt])
   @@map("users")
+}
+
+model Otp {
+  id        String   @id @default(cuid())
+  email     String
+  code      String   // 6-digit
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([email, code])
+  @@index([email, expiresAt])
+}
+
+model MagicLoginToken {
+  id        String   @id @default(cuid())
+  email     String
+  tokenHash String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([email])
 }
 
 //////////////////////////////////////////////////////

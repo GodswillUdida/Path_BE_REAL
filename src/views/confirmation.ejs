@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Enrollment Confirmed - Accountant Pathfinder</title>
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #edf3fa;
+      color: #1a1a1a;
+      line-height: 1.5;
+    "
+  >
+    <table
+      width="100%"
+      cellpadding="0"
+      cellspacing="0"
+      style="background: #edf3fa"
+    >
+      <tr>
+        <td align="center" style="padding: 50px 15px">
+          <table
+            width="100%"
+            cellpadding="0"
+            cellspacing="0"
+            style="
+              max-width: 700px;
+              background: #fff;
+              border-radius: 36px;
+              box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
+              overflow: hidden;
+            "
+          >
+            <!-- HEADER -->
+            <tr>
+              <td
+                align="center"
+                style="
+                  padding: 80px 20px 60px;
+                  background: linear-gradient(135deg, #1a3b7a, #4a6db5);
+                "
+              >
+                <img
+                  src="https://res.cloudinary.com/dirrncimm/image/upload/v1753320281/pathfinder/images/AP_Logo_4_1_sjtvxu.jpg"
+                  alt="Accountant Pathfinder Logo"
+                  width="120"
+                  style="
+                    margin: 0 auto 30px;
+                    border-radius: 50%;
+                    border: 6px solid rgba(255, 255, 255, 0.98);
+                    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.2);
+                  "
+                />
+                <h1
+                  style="
+                    font-size: 30px;
+                    color: #fff;
+                    font-weight: 700;
+                    margin: 0;
+                  "
+                >
+                  Enrollment Confirmed!
+                </h1>
+                <p style="font-size: 17px; color: #f0f4ff; margin: 12px 0 0">
+                  Accountant Pathfinder
+                </p>
+              </td>
+            </tr>
+
+            <!-- BODY -->
+            <tr>
+              <td style="padding: 60px 40px">
+                <p style="font-size: 18px; margin: 0 0 25px">Hi <%= name %>,</p>
+                <p style="font-size: 16px; margin: 0 0 35px">
+                  Thank you for enrolling in <strong><%= courseName %></strong>.
+                  Your payment has been successfully received and your courses
+                  are ready.
+                </p>
+
+                <table
+                  width="100%"
+                  cellpadding="0"
+                  cellspacing="0"
+                  style="
+                    background: #fafcff;
+                    border-radius: 16px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+                    padding: 25px;
+                  "
+                >
+                  <tr>
+                    <td
+                      style="
+                        padding: 12px 15px;
+                        font-size: 16px;
+                        border-bottom: 1px solid #e8edf3;
+                      "
+                    >
+                      <strong>Course:</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 12px 15px;
+                        font-size: 16px;
+                        border-bottom: 1px solid #e8edf3;
+                        text-align: right;
+                      "
+                    >
+                      <%= courseName %>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style="
+                        padding: 12px 15px;
+                        font-size: 16px;
+                        border-bottom: 1px solid #e8edf3;
+                      "
+                    >
+                      <strong>Enrollment ID:</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 12px 15px;
+                        font-size: 16px;
+                        border-bottom: 1px solid #e8edf3;
+                        text-align: right;
+                      "
+                    >
+                      <%= enrollmentId %>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td
+                      style="
+                        padding: 12px 15px;
+                        font-size: 16px;
+                        border-bottom: 1px solid #e8edf3;
+                      "
+                    >
+                      <strong>Order ID:</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 12px 15px;
+                        font-size: 16px;
+                        border-bottom: 1px solid #e8edf3;
+                        text-align: right;
+                      "
+                    >
+                      <%= orderId %>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 12px 15px; font-size: 16px">
+                      <strong>Amount Paid:</strong>
+                    </td>
+                    <td
+                      style="
+                        padding: 12px 15px;
+                        font-size: 16px;
+                        text-align: right;
+                      "
+                    >
+                      <%= currency %> <%= Number(amount).toLocaleString('en-NG')
+                      %>
+                    </td>
+                  </tr>
+                </table>
+
+                <p
+                  style="font-size: 16px; margin: 35px 0 0; text-align: center"
+                >
+                  You can now log in to your dashboard to access course
+                  materials.<br />
+                  We’ll send you the welcome kit and login credentials shortly.
+                </p>
+              </td>
+            </tr>
+
+            <!-- FOOTER (identical to admin) -->
+            <tr>
+              <td
+                align="center"
+                style="padding: 40px 20px; background: #f0f4f9"
+              >
+                <p style="font-size: 14px; color: #555; margin: 0">
+                  Accountant Pathfinder © <%= new Date().getFullYear() %>. All
+                  rights reserved.
+                </p>
+                <p style="margin: 10px 0 0; font-size: 14px">
+                  Need help?
+                  <a
+                    href="mailto:support@pathfinderofficialteam@gmail.com"
+                    style="color: #1a3b7a"
+                    >Contact Support</a
+                  >
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

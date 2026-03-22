@@ -48,6 +48,90 @@ type SessionUser = {
   emailVerified: boolean;
 };
 
+
+// authService.ts — add this function
+
+export const handleGoogleCallback = async (code: string) => {
+  // 1. Exchange code for Google access token
+  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: process.env.GOOGLE_CLIENT_ID!,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+      redirect_uri: `${process.env.BACKEND_URL}/auth/google/callback`,
+      grant_type: "authorization_code",
+    }),
+  });
+
+  if (!tokenRes.ok) throw new Error("Failed to exchange Google code");
+
+  const { access_token } = await tokenRes.json();
+
+  // 2. Get user profile from Google
+  const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+    headers: { Authorization: `Bearer ${access_token}` },
+  });
+
+  const googleUser = await userInfoRes.json();
+  const { sub: googleId, email, name, email_verified } = googleUser;
+
+  if (!email || !email_verified) {
+    throw new Error("Google email not verified");
+  }
+
+  // 3. Prisma: Find or Create + link existing email
+  let user = await prisma.user.findUnique({ where: { email } });
+
+  if (user) {
+    if (!user.googleId) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { googleId, provider: "google", emailVerified: true },
+      });
+    }
+  } else {
+    user = await prisma.user.create({
+      data: {
+        email,
+        name: name || email.split("@")[0],
+        googleId,
+        provider: "google",
+        emailVerified: true,
+      },
+    });
+  }
+
+  // 4. Generate tokens — reuse your existing logic if you have it
+  // (If you have a generateTokens(user) or loginUser function, call it here instead)
+  const accessToken = jwt.sign(
+    { userId: user.id, email: user.email, role: (user as any).role || "user" },
+    process.env.JWT_ACCESS_SECRET!,
+    { expiresIn: "15m" } // match your other endpoints
+  );
+
+  const refreshToken = jwt.sign(
+    { userId: user.id },
+    process.env.JWT_REFRESH_SECRET!,
+    { expiresIn: "7d" }
+  );
+
+  return {
+    tokens: { accessToken, refreshToken },
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      emailVerified: true,
+      // role: user.role, // add if you have it
+    },
+  };
+};
+
+
+
+
 export async function createSessionAndTokens(
   user: SessionUser,
   meta?: { userAgent?: string; ipAddress?: string; fingerprint?: string },
@@ -56,7 +140,7 @@ export async function createSessionAndTokens(
  
   const tokenId = crypto.randomBytes(16).toString("hex");
   const refreshToken = signRefreshToken({ userId: user.id, tokenId });
-  const tokenHash = await hashToken(refreshToken);
+  const tokenHash = hashToken(refreshToken);
  
   await prisma.session.create({
     data: {
@@ -86,7 +170,7 @@ export const verifyMagicLogin = async (
   email: string,
   token: string,
 ): Promise<AuthResult> => {
-  const tokenHash = await hashToken(token);
+  const tokenHash = hashToken(token);
 
   const magicToken = await prisma.magicLoginToken.findFirst({
     where: {

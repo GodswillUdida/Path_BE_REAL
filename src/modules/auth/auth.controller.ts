@@ -24,6 +24,46 @@ const COOKIE_OPTIONS = {
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
+/* ==========================
+   GOOGLE OAUTH (Redirect Flow) — Production Ready
+========================== */
+
+export const startGoogleOAuthController = (req: Request, res: Response) => {
+  const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
+    client_id: process.env.GOOGLE_CLIENT_ID!,
+    redirect_uri: `${process.env.BACKEND_URL}/auth/google/callback`,
+    response_type: "code",
+    scope: "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
+    access_type: "offline",
+    prompt: "select_account",
+  }).toString()}`;
+
+  res.redirect(googleAuthUrl);
+};
+
+export const googleCallbackController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const code = req.query.code as string | undefined;
+
+    if (!code) {
+      return res.redirect(`${process.env.FRONTEND_URL}/auth/login?error=no_code`);
+    }
+
+    try {
+      const result = await authService.handleGoogleCallback(code);
+
+      // 🔥 Exactly like your magic-login + guest-login
+      res.cookie(REFRESH_COOKIE_NAME, result.tokens.refreshToken, COOKIE_OPTIONS);
+
+      // Redirect to your existing frontend callback page
+      res.redirect(`${process.env.FRONTEND_URL}/auth/callback`);
+    } catch (error: any) {
+      console.error("Google OAuth Error:", error);
+      res.redirect(`${process.env.FRONTEND_URL}/auth/login?error=google_failed`);
+    }
+  }
+);
+
 
 export const googleAuthController = async (req: Request, res: Response) => {
   try {

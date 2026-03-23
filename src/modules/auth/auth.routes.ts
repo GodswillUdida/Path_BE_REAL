@@ -22,7 +22,9 @@ r.post("/refresh", authController.refreshTokenController);
    GOOGLE OAUTH
 ---------------------------*/
 
-r.post("/google", authController.googleAuthController);
+r.get("/google", authController.googleAuthController);
+// router.get('/auth/google/callback',
+
 
 /* --------------------------
    MAGIC LOGIN

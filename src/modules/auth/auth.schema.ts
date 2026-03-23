@@ -1,41 +1,69 @@
 // src/modules/auth/auth.schema.ts
 import { z } from "zod";
 
+const email = z
+  .string("Email is required")
+  .email("Invalid email address")
+  .toLowerCase()
+  .trim();
+
+const password = z
+  .string("Password is required")
+  .min(8, "Password must be at least 8 characters")
+  .max(128, "Password too long");
+
+const token = z.string("Token is required").min(8, "Token cannot be empty");
+
 export const registerSchema = z.object({
   name: z.string().min(3).max(128, "Name too long"),
-  email: z.string().email("Invalid email"),
-  password: z.string().min(8).max(128, "Password too long"),
+  email,
+  password,
 });
 
 export const loginSchema = z.object({
-  email: z.string().email("Invalid email"),
-  password: z.string().min(8).max(128),
-});
-
-export const guestOtpSendSchema = z.object({
-  email: z.string().email("Valid email required"),
-});
-
-export const guestOtpVerifySchema = z.object({
-  email: z.string().email(),
-  code: z.string().length(6, "OTP must be 6 digits"),
-});
-
-export const guestLoginSchema = z.object({
-  email: z.string().email("Invalid email"),
+  email,
+  password,
 });
 
 export const verifyEmailSchema = z.object({
-  token: z.string().min(8, "Invalid verification token"),
+  token,
 });
 
 export const forgotPasswordSchema = z.object({
-  email: z.string().email(),
+  email,
 });
 
 export const resetPasswordSchema = z.object({
-  token: z.string().min(8),
-  newPassword: z.string().min(8).max(128),
+  token,
+  newPassword: password,
+});
+
+// ─── Magic Link ───────────────────────────────────────────────────────────────
+
+export const magicLoginVerifySchema = z.object({
+  email,
+  token,
+});
+
+export const guestOtpSendSchema = z.object({
+  email,
+});
+
+export const guestOtpVerifySchema = z.object({
+  email,
+  code: z
+    .string("OTP code is required")
+    .length(6, "OTP must be exactly 6 digits")
+    .regex(/^\d+$/, "OTP must contain digits only"),
+});
+
+export const guestLoginSchema = z.object({
+  email,
+});
+
+export const paginationSchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
 });
 
 export const refreshTokenSchema = z.object({}).strict(); // empty for cookie-based

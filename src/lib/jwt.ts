@@ -7,6 +7,7 @@ export type AccessTokenPayload = {
 
 export type RefreshTokenPayload = {
   userId: string;
+  role?: string;
   tokenId: string; // for rotation tracking (optional)
 };
 
@@ -29,7 +30,7 @@ export const verifyAccessToken = (token: string): AccessTokenPayload => {
   return verify(token, ACCESS_SECRET) as AccessTokenPayload;
 };
 
-export const signRefreshToken = (payload: object) => {
+export const signRefreshToken = (payload: RefreshTokenPayload) => {
   return sign(payload, REFRESH_SECRET, {
     expiresIn: "7d",
   });

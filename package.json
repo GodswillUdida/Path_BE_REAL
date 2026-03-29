@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "npm run migrate:deploy && tsnd --poll --respawn --transpile-only src/server.ts",
+    "dev": "npm run migrate:deploy && tsx watch src/server.ts",
     "migrate:deploy": "prisma migrate deploy",
     "build": "tsc",
     "start": "node dist/server.js",
@@ -22,8 +22,9 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@prisma/client": "^6.19.1",
+    "@prisma/client": "~6.19.1",
     "@types/multer": "^2.0.0",
+    "@types/passport-google-oauth20": "~2.0.17",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.8.0",
@@ -42,10 +43,14 @@
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
     "nodemailer": "^7.0.10",
+    "passport": "~0.7.0",
+    "passport-google-oauth20": "~2.0.0",
     "slugify": "^1.6.6",
+    "source-map": "~0.7.4",
     "streamifier": "^0.1.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
+    "typescript": "~6.0.2",
     "winston": "^3.18.3",
     "zod": "^4.1.12"
   },
@@ -60,8 +65,8 @@
     "@types/streamifier": "^0.1.2",
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
-    "prisma": "^6.19.1",
-    "ts-node-dev": "~2.0.0",
+    "prisma": "~6.19.1",
+    "tsx": "~4.21.0",
     "wait-port": "^1.1.0"
   }
 }

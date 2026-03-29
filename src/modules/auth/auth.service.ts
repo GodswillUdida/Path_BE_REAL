@@ -43,19 +43,37 @@ import {
   sendVerificationEmail,
 } from "../../services/emailService";
 import { sendMagicLogin } from "./magicLogin.service";
+import { Profile } from "passport-google-oauth20";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TTL = {
-  VERIFICATION_TOKEN: 24 * 60 * 60 * 1000, // 24 h
-  RESET_TOKEN: 1 * 60 * 60 * 1000, //  1 h
-  REFRESH_SESSION: 7 * 24 * 60 * 60 * 1000, //  7 d
-  OTP: 10 * 60 * 1000, // 10 min
+  VERIFICATION_TOKEN: 24 * 60 * 60 * 1000, //  24 h
+  RESET_TOKEN: 1 * 60 * 60 * 1000,  //   1 h
+  REFRESH_SESSION: 7 * 24 * 60 * 60 * 1000, // 7 d
+  OTP: 15 * 60 * 1000,        //  15 min
 } as const;
 
 /** Dummy bcrypt hash used for constant-time login path when user is not found. */
-const DUMMY_HASH =
-  "$2b$12$invalidsaltthatisexactly22chars.invalidhashpadding123456";
+const DUMMY_HASH = "$2b$12$invalidsaltthatisexactly22chars.invalidhashpadding123456";
+
+// Helper to generate 6-digit code
+const generateOTP = (): string => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+/**
+ * One-way hash of a short OTP code (SHA-256).
+ * We never store the plaintext — only this digest hits the database.
+ */
+const hashOTP = (code: string): string =>
+  crypto.createHash("sha256").update(code).digest("hex");
+
+const VERIFICATION_TTL = 15 * 60 * 1000;
+
+// function hashOTP(code: string) {
+//   return crypto.createHash("sha256").update(code).digest("hex");
+// }
 
 // ─── Shared Types ─────────────────────────────────────────────────────────────
 
@@ -147,6 +165,50 @@ export async function createSessionAndTokens(
   };
 }
 
+/**
+ * Full refresh token rotation with reuse detection.
+ * Called from /refresh endpoint.
+ */
+
+
+// export async function rotateRefreshToken(
+//   oldRefreshToken: string,
+//   meta?: RequestMeta,
+// ): Promise<AuthResult> {
+//   const payload = verifyRefreshToken(oldRefreshToken);
+//   const tokenHash = hashToken(oldRefreshToken);
+
+//   // 1. Find current session
+//   const session = await prisma.session.findUnique({
+//     where: { tokenId: payload.tokenId },
+//     include: { user: { select: { id: true, name: true, email: true, role: true, emailVerified: true } } },
+//   });
+
+//   if (!session || session.expiresAt < new Date()) {
+//     throw unauthorized("Session expired or not found");
+//   }
+
+//   // 2. Hash mismatch = stolen token → nuke everything
+//   if (!compareTokenHash(oldRefreshToken, session.tokenHash)) {
+//     await prisma.session.deleteMany({ where: { userId: session.userId } });
+//     throw unauthorized("Session compromised. Please log in again.");
+//   }
+
+//   // 3. Rotation: delete old session
+//   await prisma.session.delete({ where: { tokenId: payload.tokenId } });
+
+//   // 4. Create brand-new session + tokens
+//   const sessionUser: SessionUser = {
+//     id: session.user.id,
+//     name: session.user.name,
+//     email: session.user.email,
+//     role: session.user.role,
+//     emailVerified: session.user.emailVerified,
+//   };
+
+//   return createSessionAndTokens(sessionUser, meta);
+// }
+
 // ─── Registration ─────────────────────────────────────────────────────────────
 
 /**
@@ -158,52 +220,62 @@ export async function createUser(
   email: string,
   password: string,
 ): Promise<Pick<SessionUser, "id" | "name" | "email">> {
+  // 1. Check existing user
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) throw badRequest("Email already registered");
 
-  const [hashedPassword, verificationToken] = await Promise.all([
+  // 2. Hash password and generate OTP in parallel
+  const [hashedPassword, otp] = await Promise.all([
     hashPassword(password),
-    Promise.resolve(generateToken()),
+    Promise.resolve(generateOTP()),
   ]);
+  // 3. Generate fresh 6-digit OTP
+  const otpHash = hashOTP(otp);
+  const verificationExpires = new Date(Date.now() + TTL.OTP);
 
   const user = await prisma.user.create({
     data: {
       name,
       email,
       password: hashedPassword,
-      verificationToken,
-      verificationExpires: new Date(Date.now() + TTL.VERIFICATION_TOKEN),
+      emailVerified: false,
+      verificationToken: otpHash,
+      verificationExpires,
     },
     select: { id: true, name: true, email: true },
   });
-
-  sendVerificationEmail(
-    user.email,
-    user.name ?? "Student",
-    verificationToken,
-  ).catch((err) =>
-    logger.warn(
-      // { err, email: user.email },
-      "Verification email failed",
-    ),
-  );
+  // 5. Send OTP (async, non-blocking)
+  sendOtpEmail(
+    email,
+    name ?? "User",
+    otp
+  ).catch(() => {
+    // logger.warn({ email }, "Verification OTP email failed"),
+    logger.warn("Verification OTP email failed");
+  });
 
   return user;
 }
 
 // ─── Email Verification ───────────────────────────────────────────────────────
 
-export async function verifyEmail(token: string): Promise<void> {
+export async function verifyEmail(
+  email: string,
+  code: string,
+  meta?: RequestMeta,
+): Promise<AuthResult> {
+  const otpHash = hashOTP(code);
+ 
   const user = await prisma.user.findFirst({
     where: {
-      verificationToken: token,
+      email,
+      verificationToken: otpHash,
       verificationExpires: { gt: new Date() },
     },
-    select: { id: true },
   });
-
-  if (!user) throw badRequest("Invalid or expired verification token");
-
+ 
+  if (!user) throw badRequest("Invalid or expired verification code");
+ 
   await prisma.user.update({
     where: { id: user.id },
     data: {
@@ -212,7 +284,40 @@ export async function verifyEmail(token: string): Promise<void> {
       verificationExpires: null,
     },
   });
+ 
+  return createSessionAndTokens(
+    {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      emailVerified: true,
+    },
+    meta,
+  );
 }
+
+export async function resendVerificationEmail(email: string): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { emailVerified: true, name: true },
+  });
+ 
+  if (!user) throw badRequest("User not found");
+  if (user.emailVerified) throw badRequest("Email is already verified");
+ 
+  const otp = generateOTP();
+  const otpHash = hashOTP(otp);
+  const verificationExpires = new Date(Date.now() + TTL.OTP);
+ 
+  await prisma.user.update({
+    where: { email },
+    data: { verificationToken: otpHash, verificationExpires },
+  });
+ 
+  await sendOtpEmail(email, user.name ?? "User", otp);
+}
+
 
 // ─── Credential Login ─────────────────────────────────────────────────────────
 
@@ -220,8 +325,10 @@ export async function verifyEmail(token: string): Promise<void> {
  * Authenticates a user by email + password.
  *
  * Always runs a bcrypt comparison, even when the user doesn't exist, to prevent
- * user-enumeration via response-timing side channels.
+ * user-enumeration via response-timing side channels.The unverified
+ * check is placed *after* the password comparison for the same reason.
  */
+
 export async function authenticate(
   email: string,
   password: string,
@@ -238,16 +345,104 @@ export async function authenticate(
       password: true,
     },
   });
-
-  // Constant-time guard: always await a comparison regardless of lookup result.
-  const isMatch = user
-    ? await comparePassword(password, user.password ?? DUMMY_HASH)
-    : await comparePassword(password, DUMMY_HASH).then(() => false);
-
+ 
+  // Always run a bcrypt comparison regardless of whether the user exists.
+  const isMatch = await comparePassword(
+    password,
+    user?.password ?? DUMMY_HASH,
+  );
+ 
+  // Surface a generic error for both "user not found" and "wrong password" to
+  // avoid leaking account existence.
   if (!user || !isMatch) throw unauthorized("Invalid credentials");
-
+ 
+  // Only surface the unverified state after the password check so timing
+  // remains consistent with a successful login.
+  if (!user.emailVerified) throw unauthorized("Email not verified");
+ 
   const { password: _omit, ...sessionUser } = user;
   return createSessionAndTokens(sessionUser, meta);
+}
+
+/**
+ * Resolves a Passport Google profile to an application user.
+ *
+ * Account-linking policy:
+ *   - New email  → create account, mark email as verified (Google vouches for it)
+ *   - Existing Google account → refresh name in case it changed on Google's side
+ *   - Existing password account with same email → BLOCK and surface a clear error.
+ *     Silently merging a password account into an OAuth login is a security risk:
+ *     an attacker who controls a Google account with the target email could
+ *     hijack the application account. Force the user to log in with their
+ *     password and explicitly link OAuth from their account settings instead.
+ *
+ * Returns a `SessionUser` — the same shape used by every other auth flow —
+ * so `googleCallbackController` can pass it straight to `createSessionAndTokens`.
+ */
+export async function handleGoogleUser(profile: Profile): Promise<SessionUser> {
+  const email = profile.emails?.[0]?.value;
+ 
+  if (!email) {
+    throw badRequest("Google account did not provide an email address");
+  }
+ 
+  const existing = await prisma.user.findUnique({
+    where: { email },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      emailVerified: true,
+      provider: true,
+    },
+  });
+ 
+  // Existing account registered via email/password — refuse silent merge.
+  if (existing && existing.provider !== "google") {
+    throw badRequest(
+      "An account with this email already exists. Please log in with your password.",
+    );
+  }
+ 
+  // Returning Google user — refresh display name if it changed.
+  if (existing) {
+    const freshName = profile.displayName ?? existing.name;
+ 
+    if (freshName !== existing.name) {
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: { name: freshName },
+      });
+    }
+ 
+    return {
+      id: existing.id,
+      name: freshName,
+      email: existing.email,
+      role: existing.role,
+      emailVerified: true,
+    };
+  }
+ 
+  // New user — provision account. Google has already verified the email.
+  const user = await prisma.user.create({
+    data: {
+      email,
+      name: profile.displayName,
+      emailVerified: true,
+      provider: "google",
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      emailVerified: true,
+    },
+  });
+ 
+  return user;
 }
 
 // ─── Google OAuth ─────────────────────────────────────────────────────────────
@@ -287,11 +482,11 @@ export async function handleGoogleCallback(
       JSON.stringify(errBody, null, 2),
     );
     throw badRequest("Failed to exchange Google authorization code");
-    logger.error(
-      // { status: tokenRes.status },
-      "Google token exchange failed",
-    );
-    throw badRequest("Failed to exchange Google authorization code");
+    // logger.error(
+    //   // { status: tokenRes.status },
+    //   "Google token exchange failed",
+    // );
+    // throw badRequest("Failed to exchange Google authorization code");
   }
 
   const { access_token: googleAccessToken } = (await tokenRes.json()) as {
@@ -601,6 +796,7 @@ export async function resetPassword(
  */
 export async function rotateRefreshToken(
   refreshToken: string,
+  meta?: RequestMeta,
 ): Promise<AuthResult> {
   let payload: RefreshTokenPayload;
 
@@ -653,6 +849,12 @@ export async function rotateRefreshToken(
   });
   const newHash = hashToken(newRefreshToken);
 
+  const updatedMeta = meta ?? {
+    userAgent: session.userAgent,
+    ipAddress: session.ipAddress,
+    fingerprint: session.fingerprint,
+  };
+
   await prisma.$transaction([
     prisma.session.update({
       where: { id: session.id },
@@ -663,9 +865,9 @@ export async function rotateRefreshToken(
         userId: session.userId,
         tokenId: newTokenId,
         tokenHash: newHash,
-        userAgent: session.userAgent,
-        ipAddress: session.ipAddress,
-        fingerprint: session.fingerprint,
+        userAgent: updatedMeta.userAgent,
+        ipAddress: updatedMeta.ipAddress,
+        fingerprint: updatedMeta.fingerprint,
         expiresAt: new Date(Date.now() + TTL.REFRESH_SESSION),
       },
     }),

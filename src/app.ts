@@ -42,6 +42,8 @@ const BODY_LIMIT = "1mb";
 app.use(cors(corsOptions));
 app.use(cookieParser());
 
+// passport.initialize();
+
 app.get("/health", async (_req, res) => {
   try {
     const { default: prisma } = await import("./lib/prisma");

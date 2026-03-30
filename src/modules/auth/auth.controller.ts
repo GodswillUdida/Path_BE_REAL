@@ -213,7 +213,18 @@ export const googleCallbackController = asyncHandler(
     // Use the shared token creator (do NOT call handleGoogleCallback here)
     const result = await authService.createSessionAndTokens(user, extractMeta(req));
 
-    issueTokenResponse(res, result, 200);
+    res.cookie(
+      ACCESS_COOKIE_NAME,
+      result.tokens.accessToken,
+      ACCESS_COOKIE_OPTIONS,
+    );
+    res.cookie(
+      REFRESH_COOKIE_NAME,
+      result.tokens.refreshToken,
+      REFRESH_COOKIE_OPTIONS,
+    );
+
+    // issueTokenResponse(res, result, 200);
 
     return res.redirect(`${process.env.FRONTEND_URL}/auth/callback`);
 

@@ -38,8 +38,11 @@ function requireEnv(key: string): string {
 
 const G_ID     = requireEnv("G_ID");
 const G_SECRET = requireEnv("G_SECRET");
-const GOOGLE_CALLBACK_URL  = `${requireEnv("BACKEND_URL")}/api/v1/auth/google/callback`;
+const BACKEND_URL = requireEnv("BACKEND_URL").replace(/\/$/, ""); // strip trailing slash
 
+const GOOGLE_CALLBACK_URL = `${BACKEND_URL}/api/v1/auth/google/callback`;
+
+console.log("✅ Google OAuth configured with callback:", GOOGLE_CALLBACK_URL); // debugging
 // ─── Strategy ─────────────────────────────────────────────────────────────────
 
 passport.use(
@@ -56,9 +59,9 @@ passport.use(
       done: VerifyCallback,
     ): Promise<void> => {
       try {
-        // const user = await handleGoogleUser(profile);
+        const user = await handleGoogleUser(profile);
          console.log(profile)
-        // done(null, user);
+        done(null, user);
       } catch (err) {
         logger.error("Google OAuth strategy error");
         done(err as Error, undefined);

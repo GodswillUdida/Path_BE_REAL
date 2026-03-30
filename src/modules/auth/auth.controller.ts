@@ -29,6 +29,7 @@ import {
   resendVerificationEmailSchema,
 } from "./auth.schema";
 import { RefreshTokenPayload, verifyRefreshToken } from "../../lib/jwt";
+import { is } from "zod/v4/locales";
 
 // ─── Cookie Config ────────────────────────────────────────────────────────────
 const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME ?? "access_token";
@@ -168,27 +169,27 @@ export const loginController = asyncHandler(
  * GET /auth/google
  * Redirects the browser to Google's consent screen.
  */
-export const startGoogleOAuthController = (
-  _req: Request,
-  res: Response,
-): void => {
-  const params = new URLSearchParams({
-    client_id: process.env.G_ID!,
-    redirect_uri: process.env.GOOGLE_REDIRECT_URI!,
-    response_type: "code",
-    scope: [
-      "openid",
-      "profile",
-      "email",
-    ].join(" "),
-    access_type: "offline",
-    prompt: "select_account",
-  });
-  // const redirectUri = `${process.env.BACKEND_URL}/api/v1/auth/google/callback`;
-  // console.log("redirect_uri sent to Google:", redirectUri);
+// export const startGoogleOAuthController = (
+//   _req: Request,
+//   res: Response,
+// ): void => {
+//   const params = new URLSearchParams({
+//     client_id: process.env.G_ID!,
+//     redirect_uri: process.env.GOOGLE_REDIRECT_URI!,
+//     response_type: "code",
+//     scope: [
+//       "openid",
+//       "profile",
+//       "email",
+//     ].join(" "),
+//     access_type: "offline",
+//     prompt: "select_account",
+//   });
+//   // const redirectUri = `${process.env.BACKEND_URL}/api/v1/auth/google/callback`;
+//   // console.log("redirect_uri sent to Google:", redirectUri);
 
-  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
-};
+//   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+// };
 
 /**
  * GET /auth/google/callback
@@ -203,34 +204,34 @@ export const startGoogleOAuthController = (
  */
 export const googleCallbackController = asyncHandler(
   async (req: Request, res: Response) => {
-    const user = req.user as any; // User returned from handleGoogleUser()
+    const user = req.user as unknown as authService.SessionUser;   // ← this is what handleGoogleUser returns
 
     if (!user) {
       return res.redirect(`${process.env.FRONTEND_URL}/auth/login?error=auth_failed`);
     }
 
-    const result = await authService.handleGoogleCallback(
-      user.profile.code,
-      extractMeta(req),
-    );
+    // Use the shared token creator (do NOT call handleGoogleCallback here)
+    const result = await authService.createSessionAndTokens(user, extractMeta(req));
 
-    if (!result) {
-      return res.redirect(`${process.env.FRONTEND_URL}/auth/login?error=auth_failed`);
-    }
-    // Set cookies and redirect to frontend callback page
-    res.cookie(
-      ACCESS_COOKIE_NAME,
-      result.tokens.accessToken,
-      ACCESS_COOKIE_OPTIONS,
-    );
-    res.cookie(
-      REFRESH_COOKIE_NAME,
-      result.tokens.refreshToken,
-      REFRESH_COOKIE_OPTIONS,
-    );
+    issueTokenResponse(res, result, 200);
 
     return res.redirect(`${process.env.FRONTEND_URL}/auth/callback`);
-  }
+
+    // Set secure cookies
+    // res.cookie(
+    //   ACCESS_COOKIE_NAME,
+    //   result.tokens.accessToken,
+    //   ACCESS_COOKIE_OPTIONS,
+    // );
+    // res.cookie(
+    //   REFRESH_COOKIE_NAME,
+    //   result.tokens.refreshToken,
+    //   REFRESH_COOKIE_OPTIONS,
+    // );
+
+    // Redirect to frontend callback page (your SPA will read cookies or the hash)
+    // return res.redirect(`${process.env.FRONTEND_URL}/auth/callback`);
+  },
 );
 
 // ─── Magic Link ───────────────────────────────────────────────────────────────
@@ -305,7 +306,7 @@ export const guestLoginController = asyncHandler(
  */
 export const refreshTokenController = asyncHandler(
   async (req: Request, res: Response) => {
-   const oldRefreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+    const oldRefreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
     if (!oldRefreshToken) throw unauthorized("No refresh token");
 
     const meta = extractMeta(req);

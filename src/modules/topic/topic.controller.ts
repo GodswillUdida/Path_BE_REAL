@@ -22,7 +22,7 @@ export const getPlaybackController = asyncHandler(
   async (req: Request, res: Response) => {
     const { id } = topicParamsSchema.parse(req.params);
 
-    const url = await svc.generateSignedPlaybackUrl(id, req.user.id);
+    const url = await svc.generateSignedPlaybackUrl(id, req.user!.id);
 
     res.json({
       success: true,
@@ -69,14 +69,14 @@ export const listTopicsController = asyncHandler(
 export const updateTopicController = asyncHandler(
   async (req: Request, res: Response) => {
     const body = updateTopicSchema.parse(req.body);
-    const updated = await svc.updateTopic(req.params.id, body);
+    const updated = await svc.updateTopic(req.params.id as string, body);
     res.json({ success: true, topic: updated });
   },
 );
 
 export const deleteTopicController = asyncHandler(
   async (req: Request, res: Response) => {
-    await svc.deleteTopic(req.params.id);
+    await svc.deleteTopic(req.params.id as string);
     res.json({ success: true, message: "Topic deleted" });
   },
 );

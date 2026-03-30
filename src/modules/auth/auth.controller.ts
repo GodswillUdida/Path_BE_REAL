@@ -16,7 +16,7 @@ import type { Request, Response, CookieOptions } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { unauthorized } from "../../utils/errors";
 import * as authService from "./auth.service";
-import { sendMagicLogin } from "./magicLogin.service";
+// import { sendMagicLogin } from "./magicLogin.service";
 import {
   registerSchema,
   loginSchema,
@@ -269,7 +269,7 @@ export const googleCallbackController = asyncHandler(
 export const sendMagicLoginController = asyncHandler(
   async (req: Request, res: Response) => {
     const { email } = guestOtpSendSchema.parse(req.body); // { email: z.string().email() }
-    await sendMagicLogin(email);
+    // await sendMagicLogin(email);
 
     res
       .status(200)

@@ -25,7 +25,6 @@
     "module": "commonjs", /* Specify what module code is generated. */
     "rootDir": "src", /* Specify the root folder within your source files. */
     // "moduleResolution": "node10",                     /* Specify how TypeScript looks up a file from a given module specifier. */
-    "baseUrl": "src", /* Specify the base directory to resolve non-relative module names. */
     // "paths": {},                                      /* Specify a set of entries that re-map imports to additional lookup locations. */
     // "rootDirs": [],                                   /* Allow multiple folders to be treated as one when resolving modules. */
     // "typeRoots": [],                                  /* Specify multiple folders that act like './node_modules/@types'. */
@@ -99,10 +98,48 @@
     "allowSyntheticDefaultImports": true,
     /* Completeness */
     // "skipDefaultLibCheck": true,                      /* Skip type checking .d.ts files that are included with TypeScript. */
-    "skipLibCheck": true /* Skip type checking all .d.ts files. */
+    "skipLibCheck": true, /* Skip type checking all .d.ts files. */
+    // "baseUrl": ".",
+    "paths": {
+      "*": [
+        "./src/*"
+      ],
+      // "@modules/*": [
+      //   "src/modules/*"
+      // ],
+      // "@utils/*": [
+      //   "src/utils/*"
+      // ],
+      // "@config/*": [
+      //   "src/config/*"
+      // ],
+      // "@types/*": [
+      //   "src/types/*"
+      // ],
+      // "@lib/*": [
+      //   "src/lib/*"
+      // ],
+      // "@schemas/*": [
+      //   "src/schemas/*"
+      // ],
+      // "@validation/*": [
+      //   "src/validation/*"
+      // ],
+      // "@middleware/*": [
+      //   "src/middleware/*"
+      // ],
+      // "@services/*": [
+      //   "src/services/*"
+      // ],
+      // "@cron/*": [
+      //   "src/cron/*"
+      // ],
+      // "@queues/*": [
+      //   "src/queues/*"
+      // ]
+    }
   },
   "include": [
-    "src/**/*",
-    "src/modules/auth/.ts"
+    "src/**/*"
   ]
 }

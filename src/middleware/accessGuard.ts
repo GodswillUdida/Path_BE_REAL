@@ -15,6 +15,7 @@ export function accessGuard(req: Request, _res: Response, next: NextFunction) {
     const payload = verifyAccessToken(token);
 
     req.user = {
+      userId: payload.userId,
       id: payload.userId,
       role: payload.role!,
     };

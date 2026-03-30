@@ -90,6 +90,7 @@ export async function sessionGuard(
   }
 
   req.user = {
+    userId: session.userId,
     id: session.user.id,
     role: session.user.role,
   };

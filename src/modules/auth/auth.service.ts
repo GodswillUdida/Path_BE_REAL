@@ -42,7 +42,7 @@ import {
   sendPasswordResetEmail,
   sendVerificationEmail,
 } from "../../services/emailService";
-import { sendMagicLogin } from "./magicLogin.service";
+// import { sendMagicLogin } from "./magicLogin.service";
 import { Profile } from "passport-google-oauth20";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -692,12 +692,12 @@ export async function createCheckoutUser(
   });
 
   // Fire-and-forget — checkout UX must not block on email delivery.
-  sendMagicLogin(email).catch((err) =>
-    logger.warn(
-      // { err, email },
-      "Magic login dispatch failed during checkout",
-    ),
-  );
+  // sendMagicLogin(email).catch((err) =>
+  //   logger.warn(
+  //     // { err, email },
+  //     "Magic login dispatch failed during checkout",
+  //   ),
+  // );
 
   return user;
 }

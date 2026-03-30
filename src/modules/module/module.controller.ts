@@ -57,7 +57,7 @@ export const listModulesController = asyncHandler(
   async (req: Request, res: Response) => {
     const query = listModulesQuerySchema.parse(req.query);
     const courseId = req.params.courseId;
-    const modules = await svc.listModulesForCourse(courseId, query);
+    const modules = await svc.listModulesForCourse(courseId as string, query);
     res.json({ success: true, ...modules });
   },
 );
@@ -82,21 +82,21 @@ export const updateModuleController = asyncHandler(
     // res.json({ success: true, module: updated });
 
     const parsed = updateModuleSchema.parse(req.body);
-    const updated = await svc.updateModule(req.params.id, parsed);
+    const updated = await svc.updateModule(req.params.id as string, parsed);
     res.json({ success: true, data: updated });
   },
 );
 
 export const deleteModuleController = asyncHandler(
   async (req: Request, res: Response) => {
-    await svc.deleteModule(req.params.id);
+    await svc.deleteModule(req.params.id as string);
     res.json({ success: true, message: "Module deleted (soft)" });
   },
 );
 
 export const completeModuleController = asyncHandler(
   async (req: Request, res: Response) => {
-    const completions = await svc.incrementModuleCompletion(req.params.id);
+    const completions = await svc.incrementModuleCompletion(req.params.id as string);
     res.json({ success: true, completions });
   },
 );

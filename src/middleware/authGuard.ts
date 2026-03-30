@@ -7,8 +7,10 @@ import logger from "../utils/logger";
 
 export interface AuthRequest extends Request {
   user?: {
+    userId: string;
     id: string;
     role: string;
+    tokenId?: string;
   };
 }
 
@@ -40,7 +42,7 @@ export function authGuard(
 
   try {
     const payload = verifyAccessToken(token);
-    req.user = { id: payload.userId, role: payload.role! };
+    req.user = { userId: payload.userId, id: payload.userId, role: payload.role! };
     next();
   } catch (err) {
     logger.warn("authGuard: invalid or expired access token");

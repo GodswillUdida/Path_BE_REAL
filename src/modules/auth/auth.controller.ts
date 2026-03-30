@@ -30,6 +30,7 @@ import {
   resendVerificationEmailSchema,
 } from "./auth.schema";
 import { RefreshTokenPayload, verifyRefreshToken } from "../../lib/jwt";
+import { issue } from "zod/v4/core/util.cjs";
 
 // ─── Cookie Config ────────────────────────────────────────────────────────────
 const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME ?? "access_token";
@@ -204,64 +205,34 @@ export const startGoogleOAuthController = (
  */
 export const googleCallbackController = asyncHandler(
   async (req: Request, res: Response) => {
-    const code = req.query.code as string | undefined;
+    const user = req.user as any; // User returned from handleGoogleUser()
 
-    if (!code) {
-      res.redirect(`${process.env.FRONTEND_URL}/auth/login?error=no_code`);
-      return;
+    if (!user) {
+      return res.redirect(`${process.env.FRONTEND_URL}/auth/login?error=auth_failed`);
     }
 
-    console.log("F_URL:", `${process.env.FRONTEND_URL}`);
-
-
     const result = await authService.handleGoogleCallback(
-      code,
+      user.profile.code,
       extractMeta(req),
     );
 
+    if (!result) {
+      return res.redirect(`${process.env.FRONTEND_URL}/auth/login?error=auth_failed`);
+    }
+    // Set cookies and redirect to frontend callback page
+    res.cookie(
+      ACCESS_COOKIE_NAME,
+      result.tokens.accessToken,
+      ACCESS_COOKIE_OPTIONS,
+    );
     res.cookie(
       REFRESH_COOKIE_NAME,
       result.tokens.refreshToken,
       REFRESH_COOKIE_OPTIONS,
     );
 
-    console.log("Redirecting to:", `${process.env.FRONTEND_URL}/auth/callback`);
-
-    // Pass the access token via a secure redirect fragment so the SPA can
-    // bootstrap without an extra /me round-trip.
-    res.redirect(
-      `${process.env.FRONTEND_URL}/auth/callback#token=${result.tokens.accessToken}`,
-    );
-
-
-    //    try {
-    //   const user = req.user;
-
-    //   // Generate session / tokens
-    //   const { accessToken, refreshToken } = await authService.createSession(user);
-
-    //   // ✅ Set secure cookies
-    //   res.cookie("access_token", accessToken, {
-    //     httpOnly: true,
-    //     secure: process.env.NODE_ENV === "production",
-    //     sameSite: "lax",
-    //   });
-
-    //   res.cookie("refresh_token", refreshToken, {
-    //     httpOnly: true,
-    //     secure: process.env.NODE_ENV === "production",
-    //     sameSite: "lax",
-    //   });
-
-    //   // ✅ REDIRECT TO FRONTEND (NOT codespaces)
-    //   return res.redirect(`${process.env.CLIENT_URL}/auth/success`);
-
-    // } catch (err) {
-    //   return res.redirect(`${process.env.CLIENT_URL}/auth/login?error=oauth_failed`);
-    // }
-
-
-  },
+    return res.redirect(`${process.env.FRONTEND_URL}/auth/callback`);
+  }
 );
 
 // ─── Magic Link ───────────────────────────────────────────────────────────────

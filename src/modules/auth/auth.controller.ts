@@ -29,7 +29,7 @@ import {
   paginationSchema,
   resendVerificationEmailSchema,
 } from "./auth.schema";
-import { RefreshTokenPayload, verifyRefreshToken } from "lib/jwt";
+import { RefreshTokenPayload, verifyRefreshToken } from "../../lib/jwt";
 
 // ─── Cookie Config ────────────────────────────────────────────────────────────
 const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME ?? "access_token";

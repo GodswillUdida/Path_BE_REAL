@@ -25,8 +25,17 @@ export const loginSchema = z.object({
   password,
 });
 
+// export const verifyEmailSchema = z.object({
+//   token,
+// });
+
 export const verifyEmailSchema = z.object({
-  token,
+  email: z.string().email(),
+  code: z.string().length(6, "Code must be exactly 6 digits"),
+});
+
+export const resendVerificationEmailSchema = z.object({
+  email: z.string().email(),
 });
 
 export const forgotPasswordSchema = z.object({

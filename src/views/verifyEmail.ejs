@@ -1,8 +1,14 @@
 <!doctype html>
 <html>
 <body>
-  <p>Hi <%= name %>,</p>
-  <p>Please verify your email by clicking below:</p>
-  <p><a href="<%= url %>"><%= url %></a></p>
+  <!-- <p>Hi <%= name %>,</p> -->
+
+  <p>Thank you for signing up for Pathfinder College! Please verify your email address by entering the following code:</p>  
+  <h1 style="letter-spacing: 6px; font-size: 25px; color: #2563eb">
+        <%= code %>
+      </h1>
+
+  <p>If you did not sign up for Pathfinder College, please ignore this email.</p>
+  <p>Best regards,<br>Pathfinder College Team</p>
 </body>
 </html>

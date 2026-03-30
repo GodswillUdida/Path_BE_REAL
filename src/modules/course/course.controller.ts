@@ -73,7 +73,7 @@ export const listCoursesController = asyncHandler(
 /* -------------------- GET COURSE BY ID -------------------- */
 export const getCourseController = asyncHandler(
   async (req: Request, res: Response) => {
-    const course = await svc.getCourse(req.params.id);
+    const course = await svc.getCourse(req.params.id as string);
 
     return res.json({
       success: true,
@@ -87,7 +87,10 @@ export const getCourseBySlugController = asyncHandler(
   async (req: Request, res: Response) => {
     const { programSlug, courseSlug } = req.params;
 
-    const course = await svc.getCourseBySlug(programSlug, courseSlug);
+    const course = await svc.getCourseBySlug(
+      programSlug as string,
+      courseSlug as string,
+    );
 
     return res.json({
       success: true,
@@ -115,7 +118,7 @@ export const updateCourseController = asyncHandler(
     });
 
     const updated = await svc.updateCourse(
-      req.params.id,
+      req.params.id as string,
       parsed,
       req.file?.buffer,
       req.file?.mimetype,
@@ -131,7 +134,7 @@ export const updateCourseController = asyncHandler(
 
 export const courseAnalyticsController = asyncHandler(
   async (req: Request, res: Response) => {
-    const analytics = await svc.getCourseAnalytics(req.params.id);
+    const analytics = await svc.getCourseAnalytics(req.params.id as string);
 
     return res.json({
       success: true,
@@ -143,7 +146,7 @@ export const courseAnalyticsController = asyncHandler(
 /* -------------------- DELETE COURSE -------------------- */
 export const deleteCourseController = asyncHandler(
   async (req: Request, res: Response) => {
-    await svc.deleteCourse(req.params.id);
+    await svc.deleteCourse(req.params.id as string);
 
     return res.json({
       success: true,

@@ -12,11 +12,11 @@
  *   Access token is returned in the JSON body only (never in a cookie).
  */
 
-import type { Request, Response } from "express";
+import type { Request, Response, CookieOptions } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { unauthorized } from "../../utils/errors";
 import * as authService from "./auth.service";
-import { sendMagicLogin } from "./magicLogin.service";
+// import { sendMagicLogin } from "./magicLogin.service";
 import {
   registerSchema,
   loginSchema,
@@ -27,26 +27,41 @@ import {
   guestOtpSendSchema,
   guestOtpVerifySchema,
   paginationSchema,
+  resendVerificationEmailSchema,
 } from "./auth.schema";
+import { RefreshTokenPayload, verifyRefreshToken } from "lib/jwt";
 
 // ─── Cookie Config ────────────────────────────────────────────────────────────
-
+const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME ?? "access_token";
 const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME ?? "refresh_token";
+const isProd = process.env.NODE_ENV === "production";
 
-const REFRESH_COOKIE_OPTIONS = {
+const BASE_COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "strict" as const,
-  path: "/api/auth",
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days — matches session TTL
-} as const;
+  secure: isProd,                    // false in dev, true in prod
+  sameSite: isProd ? "lax" : "lax", // FIXED from "none" → much safer
+  path: "/",
+};
 
-const CLEAR_COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "strict" as const,
-  path: "/api/auth",
-} as const;
+const ACCESS_COOKIE_OPTIONS: CookieOptions = {
+  ...BASE_COOKIE_OPTIONS,
+  maxAge: 15 * 60 * 1000,            // 15 minutes (as requested)
+};
+
+const REFRESH_COOKIE_OPTIONS: CookieOptions = {
+  // httpOnly: true,
+  // secure: true,                 // ✅ only true in prod
+  // sameSite: isProd ? "none" : "none", // ✅ avoids local dev breakage
+  // path: "/",
+  ...BASE_COOKIE_OPTIONS,
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+};
+
+// Clearing cookie
+const CLEAR_COOKIE_OPTIONS: CookieOptions = {
+  ...BASE_COOKIE_OPTIONS,
+  maxAge: 0,
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -59,19 +74,35 @@ function extractMeta(req: Request): authService.RequestMeta {
   };
 }
 
-/** Sets the refresh-token cookie and returns the access token in the body. */
-function issueTokenResponse(
+/**
+ * Sets the httpOnly refresh-token cookie and returns the access token +
+ * public user payload in the response body.
+ *
+ * Keeping all cookie logic in one place ensures consistent behaviour across
+ * every auth flow that issues tokens.
+ */
+
+export function issueTokenResponse(
   res: Response,
   result: authService.AuthResult,
   statusCode = 200,
-): void {
+): Response {
+
+  res.cookie(
+    ACCESS_COOKIE_NAME,
+    result.tokens.accessToken,
+    ACCESS_COOKIE_OPTIONS,
+  );
+
+
   res.cookie(
     REFRESH_COOKIE_NAME,
     result.tokens.refreshToken,
     REFRESH_COOKIE_OPTIONS,
   );
 
-  res.status(statusCode).json({
+
+  return res.status(statusCode).json({
     success: true,
     accessToken: result.tokens.accessToken,
     user: result.user,
@@ -88,19 +119,30 @@ export const registerController = asyncHandler(
     res.status(201).json({
       success: true,
       message: "Account created. Please check your email to verify.",
-      user,
+      user
     });
   },
 );
 
 export const verifyEmailController = asyncHandler(
   async (req: Request, res: Response) => {
-    const { token } = verifyEmailSchema.parse(req.body);
-    await authService.verifyEmail(token);
+    const { email, code } = verifyEmailSchema.parse(req.body);
+    const verifiedUser = await authService.verifyEmail(email, code, extractMeta(req));
 
-    res
-      .status(200)
-      .json({ success: true, message: "Email verified successfully" });
+    issueTokenResponse(res, verifiedUser, 200);
+
+  },
+);
+
+export const resendVerificationEmailController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { email } = resendVerificationEmailSchema.parse(req.body);
+    await authService.resendVerificationEmail(email);
+
+    res.status(200).json({
+      success: true,
+      message: "A new verification code has been sent.",
+    });
   },
 );
 
@@ -109,13 +151,15 @@ export const verifyEmailController = asyncHandler(
 export const loginController = asyncHandler(
   async (req: Request, res: Response) => {
     const { email, password } = loginSchema.parse(req.body);
+
     const result = await authService.authenticate(
       email,
       password,
       extractMeta(req),
     );
 
-    issueTokenResponse(res, result);
+    return issueTokenResponse(res, result, 200);
+
   },
 );
 
@@ -134,8 +178,9 @@ export const startGoogleOAuthController = (
     redirect_uri: process.env.GOOGLE_REDIRECT_URI!,
     response_type: "code",
     scope: [
-      "https://www.googleapis.com/auth/userinfo.email",
-      "https://www.googleapis.com/auth/userinfo.profile openid",
+      "openid",
+      "profile",
+      "email",
     ].join(" "),
     access_type: "offline",
     prompt: "select_account",
@@ -166,6 +211,9 @@ export const googleCallbackController = asyncHandler(
       return;
     }
 
+    console.log("F_URL:", `${process.env.FRONTEND_URL}`);
+
+
     const result = await authService.handleGoogleCallback(
       code,
       extractMeta(req),
@@ -177,11 +225,42 @@ export const googleCallbackController = asyncHandler(
       REFRESH_COOKIE_OPTIONS,
     );
 
+    console.log("Redirecting to:", `${process.env.FRONTEND_URL}/auth/callback`);
+
     // Pass the access token via a secure redirect fragment so the SPA can
     // bootstrap without an extra /me round-trip.
     res.redirect(
       `${process.env.FRONTEND_URL}/auth/callback#token=${result.tokens.accessToken}`,
     );
+
+
+    //    try {
+    //   const user = req.user;
+
+    //   // Generate session / tokens
+    //   const { accessToken, refreshToken } = await authService.createSession(user);
+
+    //   // ✅ Set secure cookies
+    //   res.cookie("access_token", accessToken, {
+    //     httpOnly: true,
+    //     secure: process.env.NODE_ENV === "production",
+    //     sameSite: "lax",
+    //   });
+
+    //   res.cookie("refresh_token", refreshToken, {
+    //     httpOnly: true,
+    //     secure: process.env.NODE_ENV === "production",
+    //     sameSite: "lax",
+    //   });
+
+    //   // ✅ REDIRECT TO FRONTEND (NOT codespaces)
+    //   return res.redirect(`${process.env.CLIENT_URL}/auth/success`);
+
+    // } catch (err) {
+    //   return res.redirect(`${process.env.CLIENT_URL}/auth/login?error=oauth_failed`);
+    // }
+
+
   },
 );
 
@@ -190,7 +269,7 @@ export const googleCallbackController = asyncHandler(
 export const sendMagicLoginController = asyncHandler(
   async (req: Request, res: Response) => {
     const { email } = guestOtpSendSchema.parse(req.body); // { email: z.string().email() }
-    await sendMagicLogin(email);
+    // await sendMagicLogin(email);
 
     res
       .status(200)
@@ -257,23 +336,16 @@ export const guestLoginController = asyncHandler(
  */
 export const refreshTokenController = asyncHandler(
   async (req: Request, res: Response) => {
-    const token: string | undefined =
-      req.cookies?.[REFRESH_COOKIE_NAME] ?? req.body?.refreshToken;
+   const oldRefreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+    if (!oldRefreshToken) throw unauthorized("No refresh token");
 
-    if (!token) throw unauthorized("No refresh token provided");
+    const meta = extractMeta(req);
+    // const result = await rotateRefreshToken(refreshToken, meta);
 
-    const result = await authService.rotateRefreshToken(token);
+    const result = await authService.rotateRefreshToken(oldRefreshToken, meta);
 
-    res.cookie(
-      REFRESH_COOKIE_NAME,
-      result.tokens.refreshToken,
-      REFRESH_COOKIE_OPTIONS,
-    );
+    return issueTokenResponse(res, result, 200);
 
-    res.status(200).json({
-      success: true,
-      accessToken: result.tokens.accessToken,
-    });
   },
 );
 
@@ -283,14 +355,30 @@ export const logoutController = asyncHandler(
   async (req: Request, res: Response) => {
     // tokenId is attached to req by authGuard after verifying the access token.
     // We revoke by tokenId, not the raw refresh token string.
-    const tokenId = req.user?.tokenId;
-    if (tokenId) {
-      await authService.logout(tokenId).catch(() => {
-        // Non-fatal: session may have already expired; cookie is cleared regardless.
-      });
+
+    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+
+    if (refreshToken) {
+      try {
+        const payload = verifyRefreshToken(refreshToken) as RefreshTokenPayload;
+        await authService.logout(payload.tokenId).catch(() => {
+          // Non-fatal: session may already be gone
+        });
+      } catch {
+        // Invalid token → just clear cookies
+      }
     }
 
-    res.clearCookie(REFRESH_COOKIE_NAME, CLEAR_COOKIE_OPTIONS);
+    // const tokenId = req.user?.tokenId;
+    // if (tokenId) {
+    //   await authService.logout(tokenId).catch(() => {
+    //     // Non-fatal: session may have already expired; cookie is cleared regardless.
+    //   });
+    // }
+
+    // res.clearCookie(REFRESH_COOKIE_NAME, CLEAR_COOKIE_OPTIONS);
+    res.cookie(ACCESS_COOKIE_NAME, "", CLEAR_COOKIE_OPTIONS);
+    res.cookie(REFRESH_COOKIE_NAME, "", CLEAR_COOKIE_OPTIONS);
     res.status(200).json({ success: true, message: "Logged out successfully" });
   },
 );
@@ -302,10 +390,13 @@ export const logoutAllController = asyncHandler(
 
     await authService.logoutAll(userId);
 
+    res.cookie(ACCESS_COOKIE_NAME, "", CLEAR_COOKIE_OPTIONS);
     res.clearCookie(REFRESH_COOKIE_NAME, CLEAR_COOKIE_OPTIONS);
-    res
-      .status(200)
-      .json({ success: true, message: "Logged out from all devices" });
+
+    return res.status(200).json({
+      success: true,
+      message: "Logged out from all devices",
+    });
   },
 );
 
@@ -327,7 +418,7 @@ export const revokeSessionController = asyncHandler(
     const userId = req.user?.id;
     if (!userId) throw unauthorized("Unauthorized");
 
-    await authService.revokeSession(userId, req.params.id);
+    await authService.revokeSession(userId, req.params.id as string);
 
     res.status(200).json({ success: true, message: "Session revoked" });
   },
@@ -366,7 +457,7 @@ export const forgotPasswordController = asyncHandler(
     res.status(200).json({
       success: true,
       message:
-        "If that email is registered, reset instructions are on their way.",
+        "If that email exists, password reset instructions have been sent.",
     });
   },
 );

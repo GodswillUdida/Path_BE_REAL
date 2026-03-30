@@ -11,7 +11,7 @@ import {
 import { badRequest, notFound, unauthorized } from "../../utils/errors";
 import { Prisma } from "@prisma/client";
 import { hashPassword } from "../../utils/hash";
-import { createMagicLoginToken, sendMagicLogin } from "../auth/magicLogin.service";
+// import { createMagicLoginToken, sendMagicLogin } from "../auth/magicLogin.service";
 import { InitializePaymentDTO } from "./payment.schema";
 
 // ---------------------------------------------------------------------------
@@ -354,8 +354,8 @@ async function buildVerifyResult(
   // Only do this when: payment succeeded AND payer was a guest.
   if (isSuccess && !wasGuest && email) {
     try {
-      const { token } = await createMagicLoginToken(email);
-      return { success: true, status: "success", magicToken: token, email };
+      // const { token } = await createMagicLoginToken(email);
+      // return { success: true, status: "success", magicToken: token, email };
     } catch (err) {
       logger.warn("Failed to create magic token for guest auto-login: %o", err);
       // Non-fatal — return success without auto-login rather than erroring.

@@ -65,7 +65,7 @@ if (isProduction) {
 
 // Passport middleware
 app.use(passport.initialize());
-app.use(passport.session());
+// app.use(passport.session());
 
 // passport.initialize();
 
@@ -74,11 +74,12 @@ app.get("/health", async (_req, res) => {
     const { default: prisma } = await import("./lib/prisma");
     await prisma.$queryRaw`SELECT 1`;
 
-    res.status(200).json({
-      status: "ok",
-      uptime: process.uptime(),
-      timestamp: Date.now(),
-    });
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || "production",
+  });
   } catch {
     res.status(503).json({ status: "unhealthy" });
   }

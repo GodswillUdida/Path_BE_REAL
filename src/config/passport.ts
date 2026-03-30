@@ -56,8 +56,9 @@ passport.use(
       done: VerifyCallback,
     ): Promise<void> => {
       try {
-        const user = await handleGoogleUser(profile);
-        done(null, user);
+        // const user = await handleGoogleUser(profile);
+         console.log(profile)
+        // done(null, user);
       } catch (err) {
         logger.error("Google OAuth strategy error");
         done(err as Error, undefined);

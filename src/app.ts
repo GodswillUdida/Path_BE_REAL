@@ -30,6 +30,8 @@ import { errorHandler, AppError } from "./middleware/error";
 import logger from "./utils/logger";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
+import passport from "./config/passport";
+import session from "express-session";
 
 const app: Application = express();
 const isProduction = process.env.NODE_ENV === "production";
@@ -41,6 +43,35 @@ const BODY_LIMIT = "1mb";
 
 app.use(cors(corsOptions));
 app.use(cookieParser());
+
+app.use(session({
+  secret: 'your-secret-key', // Required: Used to sign the session ID cookie
+  resave: false,             // Prevents unnecessary session saves to the store
+  saveUninitialized: true,   // Saves a session even if it hasn't been modified
+  cookie: { secure: false }  // Set to true only if using HTTPS
+}));
+
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || 'keyboard cat',
+    resave: false,
+    saveUninitialized: true,
+    cookie: { 
+      secure: isProduction, // Set to true in production (requires HTTPS)
+      httpOnly: true,       // Mitigates XSS attacks by preventing client-side access
+      maxAge: 1000 * 60 * 60 * 24, // 1 day
+    },
+  })
+);
+
+if (isProduction) {
+  app.set('trust proxy', 1) // trust first proxy
+  // session.cookie.secure = true // serve secure cookies
+}
+
+// Passport middleware
+app.use(passport.initialize());
+app.use(passport.session());
 
 // passport.initialize();
 
@@ -68,7 +99,7 @@ app.get("/", (_req, res) => {
   // });
 });
 
-app.set("trust proxy", 1);
+// app.set("trust proxy", 1);
 
 app.use(
   helmet({

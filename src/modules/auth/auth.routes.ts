@@ -89,7 +89,7 @@ r.get(
     session: false,
     failureRedirect: `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
   }),
-  authController.googleCallbackController,
+  // authController.googleCallbackController,
 );
 
 // ─── Public: Magic Link ───────────────────────────────────────────────────────

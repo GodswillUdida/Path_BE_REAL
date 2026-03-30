@@ -39,6 +39,9 @@ const BODY_LIMIT = "1mb";
 /*                               SECURITY LAYER                               */
 /* -------------------------------------------------------------------------- */
 
+app.use(cors(corsOptions));
+app.use(cookieParser());
+
 app.get("/health", async (_req, res) => {
   try {
     const { default: prisma } = await import("./lib/prisma");
@@ -71,17 +74,17 @@ app.use(
   }),
 );
 
-app.use(cors(corsOptions));
 
-// app.use(
-//   "/api",
-//   rateLimit({
-//     windowMs: 15 * 60 * 1000,
-//     max: 100,
-//     standardHeaders: true,
-//     legacyHeaders: false,
-//   }),
-// );
+
+app.use(
+  "/api",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
+);
 
 /* -------------------------------------------------------------------------- */
 /*                               BODY PARSERS                                 */
@@ -97,7 +100,6 @@ app.use(cors(corsOptions));
 // Standard parsers
 app.use(json({ limit: BODY_LIMIT }));
 app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT }));
-app.use(cookieParser());
 app.use(compression());
 
 /* -------------------------------------------------------------------------- */

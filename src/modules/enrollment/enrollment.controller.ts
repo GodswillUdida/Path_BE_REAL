@@ -30,7 +30,7 @@ export const getOneEnrollment = asyncHandler(
     const userId = req.user!.userId || req.user!.id;
     const enrollmentId = req.params.id;
 
-    const enrollment = await getOneEnrollmentService(enrollmentId, userId);
+    const enrollment = await getOneEnrollmentService(enrollmentId as string, userId);
 
     res.json({
       success: true,

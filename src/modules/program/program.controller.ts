@@ -22,10 +22,10 @@ export const createCourseFromProgramController = asyncHandler(
     const { programId } = req.params;
 
     const course = await svc.createCourseFromProgramId({
-      programId,
+      programId: programId as string,
       type: req.body.type,
       payload: req.body,
-      adminId: req.user.id,
+      adminId: req.user!.id,
       fileBuffer: req.file?.buffer,
       fileMime: req.file?.mimetype,
     });
@@ -51,7 +51,7 @@ export const listProgramsController = asyncHandler(
 
 export const getProgramController = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const program = await svc.getProgram(id);
+  const program = await svc.getProgram(id as string);
 
   res.status(200).json({
     success: true,
@@ -70,7 +70,7 @@ export const getProgramBySlugController = asyncHandler(
     // });
     const { slug } = req.params;
 
-    const program = await svc.getProgramBySlug(slug);
+    const program = await svc.getProgramBySlug(slug as string);
 
     res.status(200).json({
       success: true,
@@ -83,7 +83,7 @@ export const updateProgramController = asyncHandler(async (req: Request, res: Re
   const { id } = req.params;
   const body = updateProgramSchema.parse(req.body);
 
-  const program = await svc.updateProgram(id, body);
+  const program = await svc.updateProgram(id as string, body);
 
   res.status(200).json({
     success: true,
@@ -96,7 +96,7 @@ export const deleteProgramController = asyncHandler(
   async (req: Request, res: Response) => {
     const { id } = req.params;
 
-    await svc.deleteProgram(id);
+    await svc.deleteProgram(id as string);
 
     res.status(200).json({
       success: true,

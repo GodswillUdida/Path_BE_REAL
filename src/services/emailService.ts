@@ -73,7 +73,8 @@ const resolveViewPath = (template: string) => {
   const rootDir = path.resolve(
     __dirname,
     "..",
-    NODE_ENV === "production" ? "../views" : "views",
+    // NODE_ENV === "production" ? "../views" : "views",
+    NODE_ENV === "production" ? "views" : "views",
   );
   return path.join(rootDir, `${template}.ejs`);
 };
@@ -115,20 +116,22 @@ export const generateEmailToken = () => crypto.randomBytes(32).toString("hex");
 // Verification Email
 export const sendVerificationEmail = async (
   to: string,
+  email: string,
   name: string,
-  token: string,
+  code: string,
 ) => {
-  const url = `${FRONTEND_URL}/verify-email?token=${token}`;
-  const html = await renderEmailTemplate("verifyEmail", { name, url });
+  // const url = `${FRONTEND_URL}/verify?token=${token}`;
+  const html = await renderEmailTemplate("verifyEmail", { email, name, code });
   await sendCoreEmail(to, "Verify your email - Pathfinder College", html);
 };
 
 export const sendOtpEmail = async (to: string, email: string, code: string) => {
-  const html = await renderEmailTemplate("otpEmail", { email, code });
+  const html = await renderEmailTemplate("otpEmail", { email, name: "", code });
 
   // Use your existing email sender (nodemailer, Resend, etc.)
   await sendCoreEmail(to, "Your Pathfinder Verification Code", html);
 };
+
 
 // Password Reset Email
 export const sendPasswordResetEmail = async (

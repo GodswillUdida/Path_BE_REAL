@@ -46,7 +46,7 @@ export const getOneOrder = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user!.userId || req.user!.id;
   const orderId = req.params.id;
 
-  const order = await getOneOrderService(orderId, userId);
+  const order = await getOneOrderService(orderId as string, userId);
 
   res.json({
     success: true,

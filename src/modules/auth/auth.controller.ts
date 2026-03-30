@@ -16,7 +16,6 @@ import type { Request, Response, CookieOptions } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { unauthorized } from "../../utils/errors";
 import * as authService from "./auth.service";
-// import { sendMagicLogin } from "./magicLogin.service";
 import {
   registerSchema,
   loginSchema,
@@ -30,7 +29,6 @@ import {
   resendVerificationEmailSchema,
 } from "./auth.schema";
 import { RefreshTokenPayload, verifyRefreshToken } from "../../lib/jwt";
-import { issue } from "zod/v4/core/util.cjs";
 
 // ─── Cookie Config ────────────────────────────────────────────────────────────
 const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME ?? "access_token";

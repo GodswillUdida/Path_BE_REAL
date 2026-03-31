@@ -29,17 +29,16 @@ import {
   resendVerificationEmailSchema,
 } from "./auth.schema";
 import { RefreshTokenPayload, verifyRefreshToken } from "../../lib/jwt";
-import { is } from "zod/v4/locales";
 
 // ─── Cookie Config ────────────────────────────────────────────────────────────
 const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME ?? "access_token";
 const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME ?? "refresh_token";
-const isProd = process.env.NODE_ENV === "production";
+// const isProd = process.env.NODE_ENV === "production";
 
 const BASE_COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
-  secure: true,                    // false in dev, true in prod
-  sameSite: isProd ? "none" : "none", // FIXED from "none" → much safer
+  secure: true,                   
+  sameSite: "none",
   path: "/",
 };
 

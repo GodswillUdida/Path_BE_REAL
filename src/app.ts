@@ -26,7 +26,7 @@ import paymentRoutes from "./modules/payment/payment.routes";
 
 // Middleware & utils
 import { corsOptions } from "./middleware/cors";
-import { errorHandler, AppError } from "./middleware/error";
+import { errorHandler } from "./middleware/error";
 import logger from "./utils/logger";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";

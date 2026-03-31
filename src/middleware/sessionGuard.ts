@@ -34,69 +34,71 @@ export async function sessionGuard(
   next: NextFunction,
 ): Promise<void> {
   try {
-  const refreshToken: string | undefined = req.cookies?.[REFRESH_COOKIE_NAME];
+    const refreshToken: string | undefined = await req.cookies?.[REFRESH_COOKIE_NAME];
 
-  if (!refreshToken) {
-    throw unauthorized("No active session");
-  }
 
-  let payload: ReturnType<typeof verifyRefreshToken>;
 
-  try {
-    payload = verifyRefreshToken(refreshToken);
-  } catch (err) {
-    logger.warn("sessionGuard: refresh token signature invalid");
-    throw unauthorized("Invalid or expired session");
-  }
+    if (!refreshToken) {
+      throw unauthorized("No active session");
+    }
 
-  const session = await prisma.session.findUnique({
-    where: { tokenId: payload.tokenId },
-    select: {
-      tokenHash: true,
-      expiresAt: true,
-      userId: true,
-      user: {
-        select: { id: true, role: true },
+    let payload: ReturnType<typeof verifyRefreshToken>;
+
+    try {
+      payload = verifyRefreshToken(refreshToken);
+    } catch (err) {
+      logger.warn("sessionGuard: refresh token signature invalid");
+      throw unauthorized("Invalid or expired session");
+    }
+
+    const session = await prisma.session.findUnique({
+      where: { tokenId: payload.tokenId },
+      select: {
+        tokenHash: true,
+        expiresAt: true,
+        userId: true,
+        user: {
+          select: { id: true, role: true },
+        },
       },
-    },
-  });
+    });
 
-  if (!session) {
-    throw unauthorized("Session not found");
-  }
+    if (!session) {
+      throw unauthorized("Session not found");
+    }
 
-  if (session.expiresAt < new Date()) {
-    throw unauthorized("Session expired");
-  }
+    if (session.expiresAt < new Date()) {
+      throw unauthorized("Session expired");
+    }
 
-  // const isValid = compareTokenHash(refreshToken, session.tokenHash);
+    // const isValid = compareTokenHash(refreshToken, session.tokenHash);
 
-  // if (!isValid) {
-  //   // Token exists in DB but hash doesn't match — indicates a stolen and
-  //   // rotated token. Revoke the entire user's session pool immediately.
-  //   logger.warn(
-  //     // { userId: session.userId },
-  //     "sessionGuard: token hash mismatch — revoking all sessions"
-  //   );
+    // if (!isValid) {
+    //   // Token exists in DB but hash doesn't match — indicates a stolen and
+    //   // rotated token. Revoke the entire user's session pool immediately.
+    //   logger.warn(
+    //     // { userId: session.userId },
+    //     "sessionGuard: token hash mismatch — revoking all sessions"
+    //   );
 
-  //   await prisma.session.deleteMany({ where: { userId: session.userId } });
+    //   await prisma.session.deleteMany({ where: { userId: session.userId } });
 
-  //   throw unauthorized("Session compromised. Please log in again.");
-  // }
+    //   throw unauthorized("Session compromised. Please log in again.");
+    // }
 
-  if (!compareTokenHash(refreshToken, session.tokenHash)) {
-    await prisma.session.deleteMany({ where: { userId: session.userId } });
-    logger.warn("sessionGuard: token hash mismatch — revoked all sessions");
-    throw unauthorized("Session compromised. Please log in again.");
-  }
+    if (!compareTokenHash(refreshToken, session.tokenHash)) {
+      await prisma.session.deleteMany({ where: { userId: session.userId } });
+      logger.warn("sessionGuard: token hash mismatch — revoked all sessions");
+      throw unauthorized("Session compromised. Please log in again.");
+    }
 
-  req.user = {
-    userId: session.userId,
-    id: session.user.id,
-    role: session.user.role,
-  };
+    req.user = {
+      userId: session.userId,
+      id: session.user.id,
+      role: session.user.role,
+    };
 
-  next();
+    next();
   } catch (err) {
     // ← This is the critical line
     next(err); // forwards ApiError (or any error) to your errorHandler

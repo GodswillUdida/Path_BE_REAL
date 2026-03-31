@@ -1,4 +1,3 @@
-import { AppError } from "../../middleware/error";
 import prisma from "../../lib/prisma";
 import { badRequest, notFound } from "../../utils/errors";
 import { generateUniqueSlug } from "../../utils/slugify";

@@ -13,11 +13,13 @@
  */
 
 import passport from "passport";
-import {
-  Strategy as GoogleStrategy,
-  type Profile,
-  type VerifyCallback,
-} from "passport-google-oauth20";
+// import {
+//   Strategy as GoogleStrategy,
+//   type Profile,
+//   type VerifyCallback,
+// } from "passport-google-oauth20";
+
+import GoogleStrategy from 'passport-google-oidc';
 import { handleGoogleUser } from "../modules/auth/auth.service";
 import logger from "../utils/logger";
 
@@ -36,7 +38,7 @@ function requireEnv(key: string): string {
   return value;
 }
 
-const G_ID     = requireEnv("G_ID");
+const G_ID = requireEnv("G_ID");
 const G_SECRET = requireEnv("G_SECRET");
 const BACKEND_URL = requireEnv("BACKEND_URL").replace(/\/$/, ""); // strip trailing slash
 
@@ -48,22 +50,22 @@ console.log("✅ Google OAuth configured with callback:", GOOGLE_CALLBACK_URL); 
 passport.use(
   new GoogleStrategy(
     {
-      clientID:     G_ID,
+      clientID: G_ID,
       clientSecret: G_SECRET,
-      callbackURL:  GOOGLE_CALLBACK_URL,
+      callbackURL: GOOGLE_CALLBACK_URL,
+      scope: ["profile", "email"],
     },
-    async (
-      _accessToken: string,
-      _refreshToken: string,
-      profile: Profile,
-      done: VerifyCallback,
+     async (
+      issuer: string,
+      profile: any,
+      done: (err: Error | null, user?: any) => void
     ): Promise<void> => {
       try {
         const user = await handleGoogleUser(profile);
-         console.log(profile)
+        console.log("Google profile:", profile); // debugging
         done(null, user);
       } catch (err) {
-        logger.error("Google OAuth strategy error");
+        logger.error("Google OAuth strategy error", { error: err });
         done(err as Error, undefined);
       }
     },

@@ -78,7 +78,7 @@ r.post("/reset-password",  otpLimiter, authController.resetPasswordController);
 r.get(
   "/google",
   passport.authenticate("google", {
-    scope: ["profile", "email"],
+    scope: ['openid',"profile", "email"],
     prompt: "select_account",
   }),
 );

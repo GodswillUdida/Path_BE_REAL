@@ -58,11 +58,6 @@ app.use(cookieParser());
 //   })
 // );
 
-if (isProduction) {
-  app.set('trust proxy', 1) // trust first proxy
-  // session.cookie.secure = true // serve secure cookies
-}
-
 // Passport middleware
 app.use(passport.initialize());
 // app.use(passport.session());
@@ -94,7 +89,7 @@ app.get("/", (_req, res) => {
   // });
 });
 
-// app.set("trust proxy", 1);
+app.set("trust proxy", 1);
 
 app.use(
   helmet({

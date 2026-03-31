@@ -2,7 +2,6 @@ import axios from "axios";
 import crypto from "crypto";
 import prisma from "../../lib/prisma";
 import logger from "../../utils/logger";
-import { AppError } from "../../middleware/error";
 import { verifyPaystackSignature } from "../../lib/paymentProvider";
 import {
   sendConfirmationEmail,
@@ -11,7 +10,6 @@ import {
 import { badRequest, notFound, unauthorized } from "../../utils/errors";
 import { Prisma } from "@prisma/client";
 import { hashPassword } from "../../utils/hash";
-// import { createMagicLoginToken, sendMagicLogin } from "../auth/magicLogin.service";
 import { InitializePaymentDTO } from "./payment.schema";
 
 // ---------------------------------------------------------------------------
@@ -171,7 +169,7 @@ const initiatePaystackPayment = async (
   );
 
   if (!response.status) {
-    throw new AppError(response.message || "Paystack init failed", 502);
+    throw new Error("Failed to initiate payment: " + response.message);
   }
 
   await prisma.payment.create({
@@ -194,88 +192,6 @@ const initiatePaystackPayment = async (
     },
   };
 };
-
-// export const initiatePaystackPayment = async (
-//   orderId: string,
-// ): Promise<InitiatePaymentResult> => {
-//   const order = await prisma.order.findUnique({
-//     where: { id: orderId },
-//     include: {
-//       user: { select: { email: true } },
-//       items: {
-//         include: {
-//           pricing: {
-//             include: { course: { select: { id: true, title: true } } },
-//           },
-//         },
-//       },
-//     },
-//   });
-
-//   if (!order) throw notFound("Order not found");
-//   if (order.status !== "PENDING") throw badRequest("Order is not pending");
-
-//   const email = order.user?.email ?? order.email;
-//   if (!email) throw badRequest("No email associated with this order");
-
-//   // FIX (design): use crypto.randomBytes for a collision-proof reference.
-//   // The previous `order_${id}_${Date.now()}` pattern can collide under
-//   // concurrent requests and leaks the orderId in the URL.
-//   const reference = `pay_${crypto.randomBytes(12).toString("hex")}`;
-
-//   const payload = {
-//     reference,
-//     email,
-//     amount: Math.round(Number(order.totalAmount) * 100), // kobo
-//     currency: order.currency,
-//     callback_url: `${process.env.FRONTEND_URL}/checkout/success?reference=${reference}`,
-//     metadata: {
-//       orderId: order.id,
-//       courses: order.items.map((i) => ({
-//         courseId: i.pricing.course.id,
-//         title: i.pricing.course.title,
-//       })),
-//     },
-//   };
-
-//   const { data: response } = await paystackHttp.post<PaystackInitResponse>(
-//     "/transaction/initialize",
-//     payload,
-//   );
-
-//   if (!response.status) {
-//     throw new AppError(response.message || "Paystack init failed", 502);
-//   }
-
-//   // FIX (design): use create, not upsert — if a reference already exists
-//   // something is wrong upstream and we should fail loudly, not silently merge.
-//   await prisma.payment.create({
-//     data: {
-//       userId: order.userId ?? null,
-//       orderId: order.id,
-//       reference,
-//       // Store in whole units (NGN), not kobo — consistent with rest of system.
-//       amount: order.totalAmount,
-//       currency: order.currency,
-//       gateway: "paystack",
-//       status: "PENDING",
-//       metadata: payload.metadata as Prisma.InputJsonValue,
-//     },
-//   });
-
-//   // FIX (frontend contract): wrap in { data: { ... } } to match what
-//   // the checkout page does: const res = await apiCall(...); res.data.paymentLink
-//   return {
-//     data: {
-//       paymentLink: response.data.authorization_url,
-//       reference,
-//     },
-//   };
-// };
-
-// ---------------------------------------------------------------------------
-// 2. Verify payment (called by the frontend success page)
-// ---------------------------------------------------------------------------
 
 export const verifyPayment = async (
   reference: string,
@@ -412,10 +328,7 @@ export const processPaymentWebhook = async (
       const order = payment.order!;
 
       if (!order.email) {
-        throw new AppError(
-          "Order has no email — cannot create guest user",
-          500,
-        );
+        throw new Error("Guest checkout without email is not supported");
       }
 
       // FIX (security + auth): guest users need a hashed random password

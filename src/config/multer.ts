@@ -43,7 +43,7 @@
 
 import multer, { FileFilterCallback } from "multer";
 import { Request } from "express";
-import { AppError } from "../middleware/error";
+
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
@@ -57,7 +57,7 @@ export const uploadImage = multer({
   ) => {
     if (!file.mimetype.startsWith("image/")) {
       return cb(
-        new AppError("Only image files (jpeg, png, webp, gif) are allowed", 400)
+        new Error("Only image files (jpeg, png, webp, gif) are allowed")
       );
     }
     cb(null, true);

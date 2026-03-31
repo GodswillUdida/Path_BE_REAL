@@ -1,7 +1,7 @@
 import path from "path";
 import crypto from "crypto";
 import logger from "../utils/logger";
-import { AppError } from "../middleware/error";
+import {  } from "../middleware/error";
 
 const {
   G_ID,
@@ -29,7 +29,7 @@ if (
   !FRONTEND_URL ||
   !RESEND_FROM
 ) {
-  throw new AppError("Missing required email environment variables", 500);
+  throw new Error("Missing required environment variables for email service");
 }
 
 let oAuth2Client: any;
@@ -52,7 +52,7 @@ export const getGmailTransporter = async (): Promise<any> => {
   const nodemailer = await import("nodemailer");
   const client = await getOAuth2Client();
   const { token } = await client.getAccessToken();
-  if (!token) throw new AppError("No Gmail access token", 500);
+  if (!token) throw new Error("Failed to obtain access token for Gmail");
 
   return nodemailer.createTransport({
     service: "gmail",
@@ -88,7 +88,7 @@ const renderEmailTemplate = async (template: string, data: any) => {
     return await ejs.renderFile(templateCache[template], data);
   } catch (err: any) {
     logger.error("Email template render failed: " + err.message);
-    throw new AppError("Email template rendering failed", 500);
+    throw new Error("Failed to render email template");
   }
 };
 

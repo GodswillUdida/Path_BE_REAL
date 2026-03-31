@@ -33,6 +33,7 @@ export async function sessionGuard(
   _res: Response,
   next: NextFunction,
 ): Promise<void> {
+  try {
   const refreshToken: string | undefined = req.cookies?.[REFRESH_COOKIE_NAME];
 
   if (!refreshToken) {
@@ -96,4 +97,8 @@ export async function sessionGuard(
   };
 
   next();
+  } catch (err) {
+    // ← This is the critical line
+    next(err); // forwards ApiError (or any error) to your errorHandler
+  }
 }

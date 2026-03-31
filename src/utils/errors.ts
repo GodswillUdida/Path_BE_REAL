@@ -3,45 +3,77 @@ export class ApiError extends Error {
   public readonly code?: string;
   public readonly details?: unknown;
 
-  constructor(message: string, status = 500, code?: string, details?: unknown) {
+  constructor(
+    message: string,
+    status = 500,
+    code?: string,
+    details?: unknown
+  ) {
     super(message);
+
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.details = details;
+
+    // ✅ Fix prototype chain (critical for instanceof)
+    Object.setPrototypeOf(this, new.target.prototype);
     Error.captureStackTrace(this, this.constructor);
+  }
+
+  toJSON() {
+    return {
+      success: false,
+      message: this.message,
+      ...(this.code ? { code: this.code } : {}),
+      ...(this.details ? { details: this.details } : {}),
+    };
   }
 }
 
+// ---
+
+// # ✅ Helper functions (UNCHANGED API, safer internals)
+
 export const notFound = (msg = "Not Found"): ApiError =>
   new ApiError(msg, 404, "NOT_FOUND");
+
 export const unauthorized = (msg = "Unauthorized"): ApiError =>
   new ApiError(msg, 401, "UNAUTHORIZED");
+
 export const forbidden = (msg = "Forbidden"): ApiError =>
   new ApiError(msg, 403, "FORBIDDEN");
+
 export const badRequest = (msg = "Bad Request"): ApiError =>
   new ApiError(msg, 400, "BAD_REQUEST");
 
-/**
- * A typed, serializable HTTP error.
- *
- * Throw this anywhere in the service/repository layer.
- * The global error handler catches it and converts it into the
- * correct HTTP response shape.
- */
+// ---
+
+// # ✅ HttpError (normalized to behave like ApiError)
+
 export class HttpError extends Error {
+  public readonly statusCode: number;
+  public readonly context?: Record<string, unknown>;
+  public readonly message: string;
+
   constructor(
-    public readonly statusCode: number,
+    statusCode: number,
     message: string,
-    public readonly context?: Record<string, unknown>,
+    context?: Record<string, unknown>
   ) {
     super(message);
+
     this.name = "HttpError";
-    // Maintains proper prototype chain in transpiled ES5
-    Object.setPrototypeOf(this, HttpError.prototype);
+    this.message = message;
+    this.statusCode = statusCode;
+    this.context = context;
+
+    // ✅ Fix prototype chain (same issue as ApiError)
+    Object.setPrototypeOf(this, new.target.prototype);
+    Error.captureStackTrace(this, this.constructor);
   }
 
-  // ─── Named constructors ────────────────────────────────────────────────────
+  // ─── Named constructors ─────────────────────────
 
   static badRequest(message: string, context?: Record<string, unknown>) {
     return new HttpError(400, message, context);
@@ -73,7 +105,7 @@ export class HttpError extends Error {
 
   toJSON() {
     return {
-      statusCode: this.statusCode,
+      success: false,
       message: this.message,
       ...(this.context ? { context: this.context } : {}),
     };

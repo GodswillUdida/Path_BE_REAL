@@ -409,7 +409,7 @@ export const revokeSessionController = asyncHandler(
 export const getMeController = asyncHandler(
   async (req: Request, res: Response) => {
     const userId = req.user?.id;
-    if (!userId) throw unauthorized("Unauthorized");
+    if (!userId) return res.status(200).json({ success: true, user: null }); // Not throwing unauthorized here since this endpoint is often used to check auth status.
 
     const user = await authService.getUserById(userId);
 

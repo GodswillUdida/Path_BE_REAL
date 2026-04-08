@@ -11,6 +11,7 @@ import { badRequest, notFound, unauthorized } from "../../utils/errors";
 import { Prisma } from "@prisma/client";
 import { hashPassword } from "../../utils/hash";
 import { InitializePaymentDTO } from "./payment.schema";
+import * as authService from "../auth/auth.service";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -265,20 +266,11 @@ async function buildVerifyResult(
   const wasGuest = !payment.order?.userId;
   const email = payment.order?.email ?? null;
 
-  // FIX (frontend contract): issue a magic token for guests so the success
-  // page can call /auth/magic-login/verify and get a full session.
-  // Only do this when: payment succeeded AND payer was a guest.
-  if (isSuccess && !wasGuest && email) {
-    try {
-      // const { token } = await createMagicLoginToken(email);
-      // return { success: true, status: "success", magicToken: token, email };
-    } catch (err) {
-      logger.warn("Failed to create magic token for guest auto-login: %o", err);
-      // Non-fatal — return success without auto-login rather than erroring.
-      return { success: true, status: "success", email };
-    }
-  }
+  if (isSuccess && wasGuest && email) {
+    const { token } = await authService.createMagicLoginToken(email);
 
+    return { success: true, status: "success", magicToken: token, email };
+  }
   return { success: isSuccess, status: paystackStatus };
 }
 
@@ -344,6 +336,7 @@ export const processPaymentWebhook = async (
           phone: order.phone ?? null,
           password: await hashPassword(crypto.randomBytes(32).toString("hex")),
           emailVerified: true, // verified via OTP during checkout
+          provider: "checkout"
         },
       });
 
@@ -546,29 +539,4 @@ async function sendPostPaymentNotifications(
       ]);
     }),
   );
-
-  // await Promise.allSettled(
-  //   notifiable.map((enrollment) =>
-
-  //     Promise.allSettled([
-  //       sendConfirmationEmail(enrollment.user!.email, {
-  //         name: enrollment.user!.name ?? "Student",
-  //         courseName: enrollment.course.title,
-  //         enrollmentId: enrollment.id,
-  //         orderId,
-  //         amount: Number(enrollment.pricing.price),
-  //         currency: "NGN",
-  //       }),
-  //       sendAdminNotification({
-  //         name: studentName,
-  //         email: studentEmail,
-  //         phone: studentPhone,
-  //         courseName,
-  //         courseDuration,
-  //         coursePrice,
-  //         enrollmentId: e.id,
-  //       }),
-  //     ]),
-  //   ),
-  // );
 }

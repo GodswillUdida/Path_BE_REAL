@@ -3,7 +3,7 @@ import { notFound } from "../../utils/errors";
 import crypto from "crypto";
 import { generateUniqueSlug } from "../../utils/slugify";
 import { bunnyFetch } from "../../utils/bunnyClient";
-import redis from "../../utils/redisClient";
+import redis from "../../config/redis";
 import logger from "../../utils/logger";
 
 const LIBRARY_ID = process.env.BUNNY_STREAM_LIBRARY_ID!;

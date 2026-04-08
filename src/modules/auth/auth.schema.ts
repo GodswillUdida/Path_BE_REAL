@@ -10,6 +10,9 @@ const email = z
 const password = z
   .string("Password is required")
   .min(8, "Password must be at least 8 characters")
+  .regex(/[A-Z]/, "Must include uppercase")
+  .regex(/[a-z]/, "Must include lowercase")
+  .regex(/[0-9]/, "Must include number")
   .max(128, "Password too long");
 
 const token = z.string("Token is required").min(8, "Token cannot be empty");
@@ -24,10 +27,6 @@ export const loginSchema = z.object({
   email,
   password,
 });
-
-// export const verifyEmailSchema = z.object({
-//   token,
-// });
 
 export const verifyEmailSchema = z.object({
   email: z.string().email(),
@@ -45,6 +44,10 @@ export const forgotPasswordSchema = z.object({
 export const resetPasswordSchema = z.object({
   token,
   newPassword: password,
+});
+
+export const resetPasswordVerifySchema = z.object({
+  token
 });
 
 // ─── Magic Link ───────────────────────────────────────────────────────────────
@@ -83,5 +86,6 @@ export type GuestLoginDTO = z.infer<typeof guestLoginSchema>;
 export type VerifyEmailDTO = z.infer<typeof verifyEmailSchema>;
 export type ForgotPasswordDTO = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordDTO = z.infer<typeof resetPasswordSchema>;
+export type ResetPasswordVerifyDTO = z.infer<typeof resetPasswordVerifySchema>;
 export type GuestOtpSendDTO = z.infer<typeof guestOtpSendSchema>;
 export type GuestOtpVerifyDTO = z.infer<typeof guestOtpVerifySchema>;

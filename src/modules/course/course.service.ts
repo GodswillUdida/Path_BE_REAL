@@ -9,7 +9,7 @@ import type {
   CoursePricingInput,
 } from "./course.schema";
 // import redis from "../../utils/redisClient";
-import redis from "../../utils/redisClient";
+import redis from "../../config/redis";
 
 /* -------------------- CREATE ONLINE COURSE -------------------- */
 export async function createOnlineCourse(

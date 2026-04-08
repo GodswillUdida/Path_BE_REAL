@@ -3,6 +3,8 @@ import crypto from "crypto";
 import logger from "../utils/logger";
 import {  } from "../middleware/error";
 
+const isProduction = process.env.NODE_ENV === "production";
+
 const {
   G_ID,
   G_SECRET,
@@ -73,8 +75,7 @@ const resolveViewPath = (template: string) => {
   const rootDir = path.resolve(
     __dirname,
     "..",
-    // NODE_ENV === "production" ? "../views" : "views",
-    NODE_ENV === "production" ? "views" : "views",
+    isProduction ? "views" : "../../views",
   );
   return path.join(rootDir, `${template}.ejs`);
 };
@@ -139,8 +140,8 @@ export const sendPasswordResetEmail = async (
   name: string,
   token: string,
 ) => {
-  const url = `${FRONTEND_URL}/reset-password?token=${token}`;
-  const html = await renderEmailTemplate("resetPassword", { name, url });
+  const url = `${FRONTEND_URL}/auth/reset-password/${token}`;
+  const html = await renderEmailTemplate("resetPassword", { name, url, expiresIn: "1 hour" });
   await sendCoreEmail(to, "Reset your password - Pathfinder College", html);
 };
 

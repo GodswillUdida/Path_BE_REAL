@@ -20,7 +20,7 @@ const redisStore = new RedisStore({
 export const sessionMiddleware = session({
   store: redisStore,
   name: process.env.SESSION_COOKIE_NAME || "sid",
-  secret: process.env.SESSION_SECRET!,   // ← Must be set in .env (strong secret)
+ secret: process.env.SESSION_SECRET || "fallback-secret-change-in-production",
   
   resave: false,                         // Don't save unchanged sessions
   saveUninitialized: false,              // Don't create session until something is stored

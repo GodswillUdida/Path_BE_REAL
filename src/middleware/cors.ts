@@ -1,57 +1,61 @@
 // config/cors.ts
 import { CorsOptions } from "cors";
 
-const allowedOrigins = [
-  process.env.FRONTEND_URL,                    // Production frontend
-  "http://localhost:3000",                     // Next.js dev
-  "http://localhost:5173",                     // Vite dev (if any)
-  "https://accountant-pathfinder.vercel.app",  // Vercel production
-  "https://dvcyq7-3000.csb.app",               // CodeSandbox
+
+if (process.env.NODE_ENV === "production" && !process.env.FRONTEND_URL) {
+  throw new Error(
+    "[CORS] FRONTEND_URL environment variable is not set. " +
+    "All cross-origin requests from the production frontend will be blocked."
+  );
+}
+
+// Explicit allowlist — never use a runtime-built array that could
+// include undefined if an env var is missing
+const ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
+  process.env.FRONTEND_URL,                              // Primary production URL
+  "https://accountant-pathfinder.vercel.app",
+  "https://dvcyq7-3000.csb.app",
   "https://jckxpr-3000.csb.app",
   "https://jckxpr-3001.csb.app",
   "https://sturdy-spoon-x5px4xv6v6x53465-3000.app.github.dev",
-].filter(Boolean); // Remove undefined/null
+].filter(Boolean) as string[]);
 
-// For development, be more permissive
-const isDevelopment = process.env.NODE_ENV === "development";
+const isDevelopment = process.env.NODE_ENV !== "production";
 
 export const corsOptions: CorsOptions = {
-  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-    // Allow requests with no origin (like mobile apps, Postman, curl)
-    if (!origin) {
+  origin: (origin, callback) => {
+    // No origin = server-to-server, Postman, curl — allow
+    if (!origin) return callback(null, true);
+
+    // Dev: allow all origins so localhost variants never block you
+    if (isDevelopment) return callback(null, true);
+
+    // Prod: strict allowlist only
+    if (ALLOWED_ORIGINS.has(origin)) {
       return callback(null, true);
     }
 
-    // In development, allow everything (including localhost variations)
-    if (isDevelopment) {
-      return callback(null, true);
-    }
-
-    // In production: strict check
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`CORS blocked: ${origin}`));
-    }
+    // Log blocked origins in prod so you can diagnose quickly
+    console.warn(`[CORS] Blocked origin: ${origin}`);
+    return callback(new Error(`CORS policy: origin ${origin} is not allowed`));
   },
 
-  credentials: true,                    // ← Critical for httpOnly cookies
-  optionsSuccessStatus: 204,
+  credentials: true,         // Required for HttpOnly cookie transport
 
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 
   allowedHeaders: [
-    "Origin",
-    "X-Requested-With",
-    "Content-Type",
-    "Accept",
-    "Authorization",
-    "Access-Control-Allow-Origin", // Important for CORS preflight
-    "X-CSRF-Token",                     // Good to have for future
+    "Content-Type",          // Required for JSON bodies
+    "Authorization",         // For any Bearer token flows
+    "X-Requested-With",      // Convention for AJAX identification
+    "X-CSRF-Token",          // Ready for CSRF protection
+    // ❌ Removed: "Access-Control-Allow-Origin" — response header, not request
+    // ❌ Removed: "Origin" — browsers set this automatically, never user-land
+    // ❌ Removed: "Accept" — standard header, no need to explicitly allow
   ],
 
-  // Optional: expose headers if needed
-  exposedHeaders: ["Set-Cookie"],       // Important when backend sets cookies
+  // ❌ Removed: exposedHeaders: ["Set-Cookie"] — forbidden header, causes issues
+  // ❌ Removed: optionsSuccessStatus: 204 — 200 is safer across all clients
 };
 
 export default corsOptions;

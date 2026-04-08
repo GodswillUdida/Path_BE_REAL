@@ -14,43 +14,6 @@ export interface AuthRequest extends Request {
   };
 }
 
-// ─── Guard ────────────────────────────────────────────────────────────────────
-
-/**
- * Stateless access-token guard.
- *
- * Verifies a signed Bearer JWT in the Authorization header and attaches the
- * decoded payload to `req.user`. No database round-trip — use `sessionGuard`
- * when you need DB-backed session validation.
- *
- * Rejects:
- *   - Missing or malformed Authorization header
- *   - Expired or tampered access tokens
- */
-// export function authGuard(
-//   req: AuthRequest,
-//   _res: Response,
-//   next: NextFunction,
-// ): void {
-//   const header = req.headers.authorization;
-
-//   if (!header?.startsWith("Bearer ")) {
-//     throw unauthorized("Missing or invalid Authorization header");
-//   }
-
-//   // let token: string | undefined;
-
-//   const token = header.slice(7); // "Bearer ".length === 7
-
-//   try {
-//     const payload = verifyAccessToken(token);
-//     req.user = { userId: payload.userId, id: payload.userId, role: payload.role! };
-//     next();
-//   } catch (err) {
-//     logger.warn("authGuard: invalid or expired access token");
-//     throw unauthorized("Invalid or expired token");
-//   }
-// }
 
 const ACCESS_COOKIE_NAME =
   process.env.ACCESS_COOKIE_NAME ?? "access_token";
@@ -87,7 +50,7 @@ export function authGuard(
 
     next();
   } catch (err) {
-    logger.warn("authGuard: invalid or expired access token");
-    throw unauthorized("Invalid or expired token");
+    logger.warn("authGuard: invalid/expired token");
+    next(unauthorized("Invalid or expired access token"));
   }
 }

@@ -54,18 +54,19 @@ const otpLimiter = rateLimit({
 // ─── Public: Credentials ──────────────────────────────────────────────────────
 
 r.post("/register", credentialLimiter, authController.registerController);
-r.post("/login",    credentialLimiter, authController.loginController);
-r.post("/refresh",  credentialLimiter, authController.refreshTokenController);
+r.post("/login", credentialLimiter, authController.loginController);
+r.post("/refresh", credentialLimiter, authController.refreshTokenController);
 
 // ─── Public: Email Verification ──────────────────────────────────────────────
 
-r.post("/verify-email",             otpLimiter, authController.verifyEmailController);
+r.post("/verify-email", otpLimiter, authController.verifyEmailController);
 r.post("/resend-verification-email", otpLimiter, authController.resendVerificationEmailController);
 
 // ─── Public: Password Reset ───────────────────────────────────────────────────
 
 r.post("/forgot-password", otpLimiter, authController.forgotPasswordController);
-r.post("/reset-password",  otpLimiter, authController.resetPasswordController);
+r.get("/reset-password/verify/:token", otpLimiter, authController.verifyPasswordResetTokenController);
+r.post("/reset-password", otpLimiter, authController.resetPasswordController);
 
 // ─── Public: Google OAuth (Redirect Flow) ─────────────────────────────────────
 //
@@ -78,7 +79,7 @@ r.post("/reset-password",  otpLimiter, authController.resetPasswordController);
 r.get(
   "/google",
   passport.authenticate("google", {
-    scope: ['openid',"profile", "email"],
+    scope: ['openid', "profile", "email"],
     prompt: "select_account",
   }),
 );
@@ -94,25 +95,25 @@ r.get(
 
 // ─── Public: Magic Link ───────────────────────────────────────────────────────
 
-r.post("/magic-login/send",   otpLimiter, authController.sendMagicLoginController);
+// r.post("/magic-login/send",   otpLimiter, authController.sendMagicLoginController);
 r.post("/magic-login/verify", otpLimiter, authController.verifyMagicLoginController);
 
 // ─── Public: Guest OTP & Login ────────────────────────────────────────────────
 
-r.post("/guest-otp/send",   otpLimiter,      authController.sendGuestOtpController);
-r.post("/guest-otp/verify", otpLimiter,      authController.verifyGuestOtpController);
-r.post("/guest-login",      credentialLimiter, authController.guestLoginController);
+r.post("/checkout/otp/send", otpLimiter, authController.sendCheckoutOtpController);
+r.post("/checkout/otp/verify", otpLimiter, authController.verifyCheckoutOtpController);
+r.post("/checkout/complete", credentialLimiter, authController.completeGuestProfileController);
 
 // ─── Authenticated: stateful session required ─────────────────────────────────
 //
 // sessionGuard validates the refresh cookie against the DB — suitable for
 // endpoints that directly modify or inspect the caller's session state.
 
-r.get(   "/me",              sessionGuard, authController.getMeController);
-r.post(  "/logout",          sessionGuard, authController.logoutController);
-r.post(  "/logout-all",      sessionGuard, authController.logoutAllController);
-r.get(   "/sessions",        sessionGuard, authController.getSessionsController);
-r.delete("/sessions/:id",    sessionGuard, authController.revokeSessionController);
+r.get("/me", sessionGuard, authController.getMeController);
+r.post("/logout", sessionGuard, authController.logoutController);
+r.post("/logout-all", sessionGuard, authController.logoutAllController);
+r.get("/sessions", sessionGuard, authController.getSessionsController);
+r.delete("/sessions/:id", sessionGuard, authController.revokeSessionController);
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
 //

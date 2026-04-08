@@ -7,10 +7,11 @@ import {
 } from "./enrollment.controller";
 import { authGuard } from "../../middleware/authGuard";
 
-const router = Router();
+const r = Router();
 
-router.get("/", authGuard, getMyEnrollments);
 
-router.get("/:id", authGuard, getOneEnrollment);
+r.get("/", authGuard, getMyEnrollments);
 
-export default router;
+r.get("/:id", authGuard, getOneEnrollment);
+
+export default r;

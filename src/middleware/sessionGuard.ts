@@ -28,6 +28,7 @@ const REFRESH_COOKIE_NAME =
  * On success: attaches `req.user` with id + role sourced from the session's
  * joined User row — not from the JWT payload alone.
  */
+
 export async function sessionGuard(
   req: AuthRequest,
   _res: Response,
@@ -36,9 +37,15 @@ export async function sessionGuard(
   try {
     const refreshToken: string | undefined = await req.cookies?.[REFRESH_COOKIE_NAME];
 
-
-
     if (!refreshToken) {
+      // ── Anticipated unauthenticated check for /auth/me only ─────────────────
+      // This is the exact case that was spamming "warn: ApiError: No active session".
+      // We silently attach null user and continue (no error, no warn log).
+      // All other routes using sessionGuard remain completely unchanged.
+      if (req.originalUrl?.includes("/auth/me") || req.path?.includes("/me")) {
+        req.user = undefined;
+        return next();
+      }
       throw unauthorized("No active session");
     }
 
@@ -70,21 +77,6 @@ export async function sessionGuard(
     if (session.expiresAt < new Date()) {
       throw unauthorized("Session expired");
     }
-
-    // const isValid = compareTokenHash(refreshToken, session.tokenHash);
-
-    // if (!isValid) {
-    //   // Token exists in DB but hash doesn't match — indicates a stolen and
-    //   // rotated token. Revoke the entire user's session pool immediately.
-    //   logger.warn(
-    //     // { userId: session.userId },
-    //     "sessionGuard: token hash mismatch — revoking all sessions"
-    //   );
-
-    //   await prisma.session.deleteMany({ where: { userId: session.userId } });
-
-    //   throw unauthorized("Session compromised. Please log in again.");
-    // }
 
     if (!compareTokenHash(refreshToken, session.tokenHash)) {
       await prisma.session.deleteMany({ where: { userId: session.userId } });

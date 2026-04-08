@@ -27,19 +27,22 @@ import {
   guestOtpVerifySchema,
   paginationSchema,
   resendVerificationEmailSchema,
+  resetPasswordVerifySchema,
 } from "./auth.schema";
 import { RefreshTokenPayload, verifyRefreshToken } from "../../lib/jwt";
+import { completeGuestProfileSchema, sendCheckoutOtpSchema, verifyCheckoutOtpSchema, verifyMagicLoginSchema } from "./checkout.schema";
 
 // ─── Cookie Config ────────────────────────────────────────────────────────────
 const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME ?? "access_token";
 const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME ?? "refresh_token";
-// const isProd = process.env.NODE_ENV === "production";
+const isProd = process.env.NODE_ENV === "production";
 
 const BASE_COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
   secure: true,                   
   sameSite: "none",
   path: "/",
+  ...(isProd && { domain: process.env.COOKIE_DOMAIN }),
 };
 
 const ACCESS_COOKIE_OPTIONS: CookieOptions = {
@@ -48,10 +51,6 @@ const ACCESS_COOKIE_OPTIONS: CookieOptions = {
 };
 
 const REFRESH_COOKIE_OPTIONS: CookieOptions = {
-  // httpOnly: true,
-  // secure: true,                 // ✅ only true in prod
-  // sameSite: isProd ? "none" : "none", // ✅ avoids local dev breakage
-  // path: "/",
   ...BASE_COOKIE_OPTIONS,
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
@@ -62,9 +61,23 @@ const CLEAR_COOKIE_OPTIONS: CookieOptions = {
   maxAge: 0,
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const sendAuthResponse = (
+  res: Response,
+  result: authService.AuthResult,
+  statusCode = 200
+) => {
+  res.cookie(REFRESH_COOKIE_NAME, result.tokens.refreshToken, {
+    ...BASE_COOKIE_OPTIONS,
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 Days
+  });
 
-/** Extracts validated RequestMeta from an Express request. */
+  return res.status(statusCode).json({
+    success: true,
+    accessToken: result.tokens.accessToken, // Access token stays in body
+    user: result.user,
+  });
+};
+
 function extractMeta(req: Request): authService.RequestMeta {
   return {
     userAgent: req.headers["user-agent"],
@@ -73,29 +86,23 @@ function extractMeta(req: Request): authService.RequestMeta {
   };
 }
 
-/**
- * Sets the httpOnly refresh-token cookie and returns the access token +
- * public user payload in the response body.
- *
- * Keeping all cookie logic in one place ensures consistent behaviour across
- * every auth flow that issues tokens.
- */
-
 export function issueTokenResponse(
   res: Response,
   result: authService.AuthResult,
   statusCode = 200,
 ): Response {
 
+  // REFRESH_COOKIE_NAME
+
   res.cookie(
-    ACCESS_COOKIE_NAME,
+    "access_token",
     result.tokens.accessToken,
     ACCESS_COOKIE_OPTIONS,
   );
 
 
   res.cookie(
-    REFRESH_COOKIE_NAME,
+    "refresh_token",
     result.tokens.refreshToken,
     REFRESH_COOKIE_OPTIONS,
   );
@@ -107,8 +114,6 @@ export function issueTokenResponse(
     user: result.user,
   });
 }
-
-// ─── Registration & Email Verification ───────────────────────────────────────
 
 export const registerController = asyncHandler(
   async (req: Request, res: Response) => {
@@ -145,8 +150,6 @@ export const resendVerificationEmailController = asyncHandler(
   },
 );
 
-// ─── Credential Login ─────────────────────────────────────────────────────────
-
 export const loginController = asyncHandler(
   async (req: Request, res: Response) => {
     const { email, password } = loginSchema.parse(req.body);
@@ -162,88 +165,32 @@ export const loginController = asyncHandler(
   },
 );
 
-// ─── Google OAuth (Redirect Flow) ─────────────────────────────────────────────
+export const googleCallbackController = asyncHandler(async (req, res) => {
+  // 1. Check if passport already populated req.user
+  const user = req.user as unknown as authService.SessionUser | undefined;
 
-/**
- * GET /auth/google
- * Redirects the browser to Google's consent screen.
- */
-// export const startGoogleOAuthController = (
-//   _req: Request,
-//   res: Response,
-// ): void => {
-//   const params = new URLSearchParams({
-//     client_id: process.env.G_ID!,
-//     redirect_uri: process.env.GOOGLE_REDIRECT_URI!,
-//     response_type: "code",
-//     scope: [
-//       "openid",
-//       "profile",
-//       "email",
-//     ].join(" "),
-//     access_type: "offline",
-//     prompt: "select_account",
-//   });
-//   // const redirectUri = `${process.env.BACKEND_URL}/api/v1/auth/google/callback`;
-//   // console.log("redirect_uri sent to Google:", redirectUri);
-
-//   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
-// };
-
-/**
- * GET /auth/google/callback
- * Receives the authorization code, exchanges it for tokens, and redirects
- * the browser to the frontend callback page.
- *
- * On success: sets the refresh-token cookie then redirects to /auth/callback.
- * On failure: redirects to /auth/login?error=google_failed.
- *
- * The frontend /auth/callback page reads the access token from the redirect
- * URL hash or calls GET /auth/me with the existing cookie.
- */
-export const googleCallbackController = asyncHandler(
-  async (req: Request, res: Response) => {
-    const user = req.user as unknown as authService.SessionUser;   // ← this is what handleGoogleUser returns
-
-    if (!user) {
-      return res.redirect(`${process.env.FRONTEND_URL}/auth/login?error=auth_failed`);
-    }
-
-    // Use the shared token creator (do NOT call handleGoogleCallback here)
-    const result = await authService.createSessionAndTokens(user, extractMeta(req));
-
-    res.cookie(
-      ACCESS_COOKIE_NAME,
-      result.tokens.accessToken,
-      ACCESS_COOKIE_OPTIONS,
+  // 2. Fallback: If no passport, handle via authorization code from query
+  if (!user && req.query.code) {
+    const result = await authService.handleGoogleCallback(
+      req.query.code as string,
+      extractMeta(req)
     );
-    res.cookie(
-      REFRESH_COOKIE_NAME,
-      result.tokens.refreshToken,
-      REFRESH_COOKIE_OPTIONS,
-    );
+    return sendAuthResponse(res, result);
+  }
 
-    // issueTokenResponse(res, result, 200);
+  if (!user) {
+    return res.redirect(`${process.env.FRONTEND_URL}/auth/login?error=unauthorized`);
+  }
 
-    return res.redirect(`${process.env.FRONTEND_URL}/auth/callback`);
-
-    // Set secure cookies
-    // res.cookie(
-    //   ACCESS_COOKIE_NAME,
-    //   result.tokens.accessToken,
-    //   ACCESS_COOKIE_OPTIONS,
-    // );
-    // res.cookie(
-    //   REFRESH_COOKIE_NAME,
-    //   result.tokens.refreshToken,
-    //   REFRESH_COOKIE_OPTIONS,
-    // );
-
-    // Redirect to frontend callback page (your SPA will read cookies or the hash)
-    // return res.redirect(`${process.env.FRONTEND_URL}/auth/callback`);
-  },
-);
-
+  const result = await authService.createSessionAndTokens(user, extractMeta(req));
+  
+  // For OAuth redirects, we MUST set the cookie and redirect
+  res.cookie(REFRESH_COOKIE_NAME, result.tokens.refreshToken, REFRESH_COOKIE_OPTIONS);
+  
+  // We append the access token as a short-lived query param or hash 
+  // so the frontend can grab it and clear the URL.
+  return res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${result.tokens.accessToken}`);
+});
 // ─── Magic Link ───────────────────────────────────────────────────────────────
 
 export const sendMagicLoginController = asyncHandler(
@@ -257,63 +204,65 @@ export const sendMagicLoginController = asyncHandler(
   },
 );
 
-export const verifyMagicLoginController = asyncHandler(
-  async (req: Request, res: Response) => {
-    const { email, token } = req.body as { email?: string; token?: string };
+// export const verifyMagicLoginController = asyncHandler(
+//   async (req: Request, res: Response) => {
+//     const { email, token } = req.body as { email?: string; token?: string };
 
-    // Manual guard: these two fields don't have a dedicated schema yet.
-    if (!email || !token) {
-      throw unauthorized("email and token are required");
-    }
+//     // Manual guard: these two fields don't have a dedicated schema yet.
+//     if (!email || !token) {
+//       throw unauthorized("email and token are required");
+//     }
 
-    const result = await authService.verifyMagicLogin(email, token);
+//     const result = await authService.verifyMagicLogin(email, token);
 
-    issueTokenResponse(res, result);
-  },
-);
+//     issueTokenResponse(res, result);
+//   },
+// );
 
 // ─── Guest OTP ────────────────────────────────────────────────────────────────
 
-export const sendGuestOtpController = asyncHandler(
-  async (req: Request, res: Response) => {
-    const { email } = guestOtpSendSchema.parse(req.body);
-    await authService.sendGuestOtp(email);
+export const sendCheckoutOtpController = asyncHandler(async (req: Request, res: Response) => {
+  const { email } = sendCheckoutOtpSchema.parse(req.body);
+  const result = await authService.sendCheckoutOtp(email);
+  res.status(200).json({ success: true, ...result });
+});
 
-    res.status(200).json({ success: true, message: "OTP sent to your email" });
-  },
-);
+export const verifyCheckoutOtpController = asyncHandler(async (req: Request, res: Response) => {
+  const { email, code } = verifyCheckoutOtpSchema.parse(req.body);
+  await authService.verifyCheckoutOtp(email, code);
+  // After OTP we just confirm — profile step comes next
+  res.status(200).json({ success: true, message: "OTP verified. Please complete your profile." });
+});
 
-export const verifyGuestOtpController = asyncHandler(
-  async (req: Request, res: Response) => {
-    const { email, code } = guestOtpVerifySchema.parse(req.body);
-    await authService.verifyGuestOtp(email, code);
+export const completeGuestProfileController = asyncHandler(async (req: Request, res: Response) => {
+  const dto = completeGuestProfileSchema.parse(req.body);
+  const user = await authService.completeGuestProfile(dto);
+  res.status(200).json({ success: true, user });
+});
 
-    res
-      .status(200)
-      .json({ success: true, message: "OTP verified successfully" });
-  },
-);
+export const verifyMagicLoginController = asyncHandler(async (req: Request, res: Response) => {
+  const { email, token } = verifyMagicLoginSchema.parse(req.body);
+  const result = await authService.verifyMagicLogin(email, token);
+  return issueTokenResponse(res, result, 200); // sets cookies + returns accessToken
+});
+
+// export const verifyMagicLoginController = asyncHandler(async (req: Request, res: Response) => {
+//   const { email, token } = verifyMagicLoginSchema.parse(req.body);
+//   const result = await authService.verifyMagicLogin(email, token);
+//   issueTokenResponse(res, result); // sets cookies + returns accessToken
+// });
 
 // ─── Guest Login ──────────────────────────────────────────────────────────────
 
-export const guestLoginController = asyncHandler(
-  async (req: Request, res: Response) => {
-    const { email } = guestLoginSchema.parse(req.body);
-    const result = await authService.guestLoginService(email, extractMeta(req));
+// export const guestLoginController = asyncHandler(
+//   async (req: Request, res: Response) => {
+//     const { email } = guestLoginSchema.parse(req.body);
+//     const result = await authService.guestLogin(email, extractMeta(req));
 
-    issueTokenResponse(res, result);
-  },
-);
+//     issueTokenResponse(res, result);
+//   },
+// );
 
-// ─── Token Refresh ────────────────────────────────────────────────────────────
-
-/**
- * Accepts the refresh token from:
- *   1. httpOnly cookie  (browser SPA)
- *   2. Request body     (mobile / server-to-server)
- *
- * Always writes the new refresh token back as a cookie so both paths stay in sync.
- */
 export const refreshTokenController = asyncHandler(
   async (req: Request, res: Response) => {
     const oldRefreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
@@ -442,13 +391,27 @@ export const forgotPasswordController = asyncHandler(
   },
 );
 
+export const verifyPasswordResetTokenController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { token } = resetPasswordVerifySchema.parse(req.params); // or use req.params directly with validation
+    const isValid = await authService.verifyPasswordResetToken(token);
+
+    res.status(200).json({ 
+      success: true, 
+      valid: isValid,
+      message: isValid ? "Token is valid" : "Token is invalid or expired" 
+    });
+  }
+);
+
 export const resetPasswordController = asyncHandler(
   async (req: Request, res: Response) => {
-    const { token, newPassword } = resetPasswordSchema.parse(req.body);
-    await authService.resetPassword(token, newPassword);
+    const dto = resetPasswordSchema.parse(req.body);
+    await authService.resetPassword(dto);
 
-    res
-      .status(200)
-      .json({ success: true, message: "Password updated successfully" });
-  },
+    res.status(200).json({ 
+      success: true, 
+      message: "Password updated successfully. Please log in with your new password." 
+    });
+  }
 );

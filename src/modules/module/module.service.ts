@@ -6,7 +6,7 @@ import {
   ListModulesQuery,
   UpdateModuleInput,
 } from "./module.schema";
-import redis from "../../utils/redisClient";
+import redis from "../../config/redis";
 
 interface CreateModuleInput {
   title: string;

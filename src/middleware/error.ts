@@ -38,19 +38,26 @@ export const errorHandler = (
     message = isProduction ? "Internal server error" : err.message;
   }
 
-  // ✅ Logging (structured)
-  logger[status >= 500 ? "error" : "warn"](
-    `${message} - ${req.method} ${req.url}`,
-    {
-      status,
-      method: req.method,
-      url: req.url,
-      ip: req.ip,
-      stack: isProduction ? undefined : err instanceof Error ? err.stack : undefined,
-    }
-  );
+  // ── CRITICAL FIX: Silence warn for anticipated unauthenticated /auth/me check ──
+  const isExpectedUnauthCheck =
+    status === 401 &&
+    (req.path?.includes("/auth/me") || req.originalUrl?.includes("/auth/me"));
 
-  // ✅ Response (consistent with frontend expectations)
+  if (!isExpectedUnauthCheck) {
+    // ✅ Logging (structured) — only for real issues
+    logger[status >= 500 ? "error" : "warn"](
+      `${message} - ${req.method} ${req.url}`,
+      {
+        status,
+        method: req.method,
+        url: req.url,
+        ip: req.ip,
+        stack: isProduction ? undefined : err instanceof Error ? err.stack : undefined,
+      }
+    );
+  }
+
+  // ✅ Response (consistent with frontend expectations) — unchanged
   res.status(status).json({
     success: false,
     message,

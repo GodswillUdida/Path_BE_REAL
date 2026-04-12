@@ -69,6 +69,7 @@ export const getGmailTransporter = async (): Promise<any> => {
   });
 };
 
+
 const templateCache: Record<string, string> = {};
 
 const resolveViewPath = (template: string) => {

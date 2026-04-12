@@ -49,7 +49,7 @@ export const corsOptions: CorsOptions = {
     "Authorization",         // For any Bearer token flows
     "X-Requested-With",      // Convention for AJAX identification
     "X-CSRF-Token",          // Ready for CSRF protection
-    // ❌ Removed: "Access-Control-Allow-Origin" — response header, not request
+    "Access-Control-Allow-Origin"
     // ❌ Removed: "Origin" — browsers set this automatically, never user-land
     // ❌ Removed: "Accept" — standard header, no need to explicitly allow
   ],

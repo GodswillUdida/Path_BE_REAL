@@ -1,17 +1,18 @@
+// src/modules/enrollment/enrollment.controller.ts
 import { Request, Response } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
-
 import {
   getUserEnrollmentsService,
   getOneEnrollmentService,
 } from "./enrollment.service";
 
-/**
- * GET /enrollments — My enrollments
- */
 export const getMyEnrollments = asyncHandler(
   async (req: Request, res: Response) => {
-    const userId = req.user!.userId || req.user!.id;
+    const userId = req.user?.id || req.user?.userId;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
 
     const enrollments = await getUserEnrollmentsService(userId);
 
@@ -19,16 +20,17 @@ export const getMyEnrollments = asyncHandler(
       success: true,
       data: enrollments,
     });
-  },
+  }
 );
 
-/**
- * GET /enrollments/:id — Single enrollment (ownership protected)
- */
 export const getOneEnrollment = asyncHandler(
   async (req: Request, res: Response) => {
-    const userId = req.user!.userId || req.user!.id;
+    const userId = req.user?.id || req.user?.userId;
     const enrollmentId = req.params.id;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
 
     const enrollment = await getOneEnrollmentService(enrollmentId as string, userId);
 
@@ -36,5 +38,5 @@ export const getOneEnrollment = asyncHandler(
       success: true,
       data: enrollment,
     });
-  },
+  }
 );

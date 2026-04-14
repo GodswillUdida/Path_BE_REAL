@@ -39,7 +39,10 @@ const credentialLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { success: false, message: "Too many attempts. Please try again later." },
+  message: {
+    success: false,
+    message: "Too many attempts. Please try again later.",
+  },
 });
 
 /** 5 attempts per 15 min per IP — covers OTP/magic-link spam. */
@@ -48,7 +51,10 @@ const otpLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { success: false, message: "Too many requests. Please try again later." },
+  message: {
+    success: false,
+    message: "Too many requests. Please try again later.",
+  },
 });
 
 // ─── Public: Credentials ──────────────────────────────────────────────────────
@@ -60,12 +66,20 @@ r.post("/refresh", credentialLimiter, authController.refreshTokenController);
 // ─── Public: Email Verification ──────────────────────────────────────────────
 
 r.post("/verify-email", otpLimiter, authController.verifyEmailController);
-r.post("/resend-verification-email", otpLimiter, authController.resendVerificationEmailController);
+r.post(
+  "/resend-verification-email",
+  otpLimiter,
+  authController.resendVerificationEmailController,
+);
 
 // ─── Public: Password Reset ───────────────────────────────────────────────────
 
 r.post("/forgot-password", otpLimiter, authController.forgotPasswordController);
-r.get("/reset-password/verify/:token", otpLimiter, authController.verifyPasswordResetTokenController);
+r.get(
+  "/reset-password/verify/:token",
+  otpLimiter,
+  authController.verifyPasswordResetTokenController,
+);
 r.post("/reset-password", otpLimiter, authController.resetPasswordController);
 
 // ─── Public: Google OAuth (Redirect Flow) ─────────────────────────────────────
@@ -76,12 +90,25 @@ r.post("/reset-password", otpLimiter, authController.resetPasswordController);
 //  Step 2 — Google redirects to GET /api/auth/google/callback?code=…
 //           → server exchanges code, sets cookie, redirects to frontend
 
-r.get(
-  "/google",
+r.get("/google", 
+  
+  // (req, res, next) => {
+  // // Generate CSRF state (stored in short-lived cookie)
+  // const state = crypto.randomUUID(); // or use a signed cookie
+  // res.cookie("oauth_state", state, {
+  //   httpOnly: true,
+  //   secure: process.env.NODE_ENV === "production",
+  //   sameSite: "lax",
+  //   maxAge: 10 * 60 * 1000, // 10 minutes
+  // });
+
   passport.authenticate("google", {
-    scope: ['openid', "profile", "email"],
+    scope: ["openid", "profile", "email"],
     prompt: "select_account",
-  }),
+    // state, // ← CSRF protection
+  })
+    // (req, res, next);
+// }
 );
 
 r.get(
@@ -96,13 +123,29 @@ r.get(
 // ─── Public: Magic Link ───────────────────────────────────────────────────────
 
 // r.post("/magic-login/send",   otpLimiter, authController.sendMagicLoginController);
-r.post("/magic-login/verify", otpLimiter, authController.verifyMagicLoginController);
+r.post(
+  "/magic-login/verify",
+  otpLimiter,
+  authController.verifyMagicLoginController,
+);
 
 // ─── Public: Guest OTP & Login ────────────────────────────────────────────────
 
-r.post("/checkout/otp/send", otpLimiter, authController.sendCheckoutOtpController);
-r.post("/checkout/otp/verify", otpLimiter, authController.verifyCheckoutOtpController);
-r.post("/checkout/complete", credentialLimiter, authController.completeGuestProfileController);
+r.post(
+  "/checkout/otp/send",
+  otpLimiter,
+  authController.sendCheckoutOtpController,
+);
+r.post(
+  "/checkout/otp/verify",
+  otpLimiter,
+  authController.verifyCheckoutOtpController,
+);
+r.post(
+  "/checkout/complete",
+  credentialLimiter,
+  authController.completeGuestProfileController,
+);
 
 // ─── Authenticated: stateful session required ─────────────────────────────────
 //

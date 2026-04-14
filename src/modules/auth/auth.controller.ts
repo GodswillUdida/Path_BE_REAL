@@ -30,7 +30,13 @@ import {
   resetPasswordVerifySchema,
 } from "./auth.schema";
 import { RefreshTokenPayload, verifyRefreshToken } from "../../lib/jwt";
-import { completeGuestProfileSchema, sendCheckoutOtpSchema, verifyCheckoutOtpSchema, verifyMagicLoginSchema } from "./checkout.schema";
+import {
+  completeGuestProfileSchema,
+  sendCheckoutOtpSchema,
+  verifyCheckoutOtpSchema,
+  verifyMagicLoginSchema,
+} from "./checkout.schema";
+import { setAuthCookies } from "./config";
 
 // ─── Cookie Config ────────────────────────────────────────────────────────────
 const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME ?? "access_token";
@@ -39,15 +45,15 @@ const isProd = process.env.NODE_ENV === "production";
 
 const BASE_COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
-  secure: true,                   
-  sameSite: "none",
+  secure: true,
+  sameSite: "lax",
   path: "/",
   ...(isProd && { domain: process.env.COOKIE_DOMAIN }),
 };
 
 const ACCESS_COOKIE_OPTIONS: CookieOptions = {
   ...BASE_COOKIE_OPTIONS,
-  maxAge: 15 * 60 * 1000,            // 15 minutes (as requested)
+  maxAge: 15 * 60 * 1000, // 15 minutes (as requested)
 };
 
 const REFRESH_COOKIE_OPTIONS: CookieOptions = {
@@ -64,7 +70,7 @@ const CLEAR_COOKIE_OPTIONS: CookieOptions = {
 const sendAuthResponse = (
   res: Response,
   result: authService.AuthResult,
-  statusCode = 200
+  statusCode = 200,
 ) => {
   res.cookie(REFRESH_COOKIE_NAME, result.tokens.refreshToken, {
     ...BASE_COOKIE_OPTIONS,
@@ -91,22 +97,15 @@ export function issueTokenResponse(
   result: authService.AuthResult,
   statusCode = 200,
 ): Response {
-
   // REFRESH_COOKIE_NAME
 
-  res.cookie(
-    "access_token",
-    result.tokens.accessToken,
-    ACCESS_COOKIE_OPTIONS,
-  );
-
+  res.cookie("access_token", result.tokens.accessToken, ACCESS_COOKIE_OPTIONS);
 
   res.cookie(
     "refresh_token",
     result.tokens.refreshToken,
     REFRESH_COOKIE_OPTIONS,
   );
-
 
   return res.status(statusCode).json({
     success: true,
@@ -123,7 +122,7 @@ export const registerController = asyncHandler(
     res.status(201).json({
       success: true,
       message: "Account created. Please check your email to verify.",
-      user
+      user,
     });
   },
 );
@@ -131,10 +130,13 @@ export const registerController = asyncHandler(
 export const verifyEmailController = asyncHandler(
   async (req: Request, res: Response) => {
     const { email, code } = verifyEmailSchema.parse(req.body);
-    const verifiedUser = await authService.verifyEmail(email, code, extractMeta(req));
+    const verifiedUser = await authService.verifyEmail(
+      email,
+      code,
+      extractMeta(req),
+    );
 
     issueTokenResponse(res, verifiedUser, 200);
-
   },
 );
 
@@ -161,35 +163,79 @@ export const loginController = asyncHandler(
     );
 
     return issueTokenResponse(res, result, 200);
-
   },
 );
 
 export const googleCallbackController = asyncHandler(async (req, res) => {
+
+  const cookieState = req.cookies.oauth_state;
+  const queryState = req.query.state as string | undefined;
+
+  if (!cookieState || cookieState !== queryState) {
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/auth/login?error=invalid_state`,
+    );
+  }
+
+  // Clear the state cookie immediately
+  res.clearCookie("oauth_state");
+
+
   // 1. Check if passport already populated req.user
-  const user = req.user as unknown as authService.SessionUser | undefined;
+  const passportUser = req.user as unknown as
+    | authService.GoogleProfile
+    | undefined;
+
+  if (!passportUser) {
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
+    );
+  }
+
+  const meta = extractMeta(req);
+
+  // ← THIS IS THE CORE NEW LOGIC YOU ASKED FOR
+  const result = await authService.processGoogleOAuth(passportUser, meta);
+
+  // Set secure cookies server-side
+  setAuthCookies(res, result.tokens);
 
   // 2. Fallback: If no passport, handle via authorization code from query
-  if (!user && req.query.code) {
-    const result = await authService.handleGoogleCallback(
-      req.query.code as string,
-      extractMeta(req)
-    );
-    return sendAuthResponse(res, result);
-  }
+  // if (!user && req.query.code) {
+  //   const result = await authService.handleGoogleCallback(
+  //     req.query.code as string,
+  //     extractMeta(req),
+  //   );
+  //   return sendAuthResponse(res, result);
+  // }
 
-  if (!user) {
-    return res.redirect(`${process.env.FRONTEND_URL}/auth/login?error=unauthorized`);
-  }
+  // if (!user) {
+  //   return res.redirect(
+  //     `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
+  //   );
+  // }
 
-  const result = await authService.createSessionAndTokens(user, extractMeta(req));
-  
+  // if (user.provider !== "google") {
+
+  // }
+
+  // const result = await authService.createSessionAndTokens(
+  //   user,
+  //   extractMeta(req),
+  // );
+
   // For OAuth redirects, we MUST set the cookie and redirect
-  res.cookie(REFRESH_COOKIE_NAME, result.tokens.refreshToken, REFRESH_COOKIE_OPTIONS);
-  
-  // We append the access token as a short-lived query param or hash 
+  // res.cookie(
+  //   REFRESH_COOKIE_NAME,
+  //   result.tokens.refreshToken,
+  //   REFRESH_COOKIE_OPTIONS,
+  // );
+
+  // We append the access token as a short-lived query param or hash
   // so the frontend can grab it and clear the URL.
-  return res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${result.tokens.accessToken}`);
+  return res.redirect(
+    `${process.env.FRONTEND_URL}/auth/callback?status=success`,
+  );
 });
 // ─── Magic Link ───────────────────────────────────────────────────────────────
 
@@ -221,30 +267,41 @@ export const sendMagicLoginController = asyncHandler(
 
 // ─── Guest OTP ────────────────────────────────────────────────────────────────
 
-export const sendCheckoutOtpController = asyncHandler(async (req: Request, res: Response) => {
-  const { email } = sendCheckoutOtpSchema.parse(req.body);
-  const result = await authService.sendCheckoutOtp(email);
-  res.status(200).json({ success: true, ...result });
-});
+export const sendCheckoutOtpController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { email } = sendCheckoutOtpSchema.parse(req.body);
+    const result = await authService.sendCheckoutOtp(email);
+    res.status(200).json({ success: true, ...result });
+  },
+);
 
-export const verifyCheckoutOtpController = asyncHandler(async (req: Request, res: Response) => {
-  const { email, code } = verifyCheckoutOtpSchema.parse(req.body);
-  await authService.verifyCheckoutOtp(email, code);
-  // After OTP we just confirm — profile step comes next
-  res.status(200).json({ success: true, message: "OTP verified. Please complete your profile." });
-});
+export const verifyCheckoutOtpController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { email, code } = verifyCheckoutOtpSchema.parse(req.body);
+    await authService.verifyCheckoutOtp(email, code);
+    // After OTP we just confirm — profile step comes next
+    res.status(200).json({
+      success: true,
+      message: "OTP verified. Please complete your profile.",
+    });
+  },
+);
 
-export const completeGuestProfileController = asyncHandler(async (req: Request, res: Response) => {
-  const dto = completeGuestProfileSchema.parse(req.body);
-  const user = await authService.completeGuestProfile(dto);
-  res.status(200).json({ success: true, user });
-});
+export const completeGuestProfileController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const dto = completeGuestProfileSchema.parse(req.body);
+    const user = await authService.completeGuestProfile(dto);
+    res.status(200).json({ success: true, user });
+  },
+);
 
-export const verifyMagicLoginController = asyncHandler(async (req: Request, res: Response) => {
-  const { email, token } = verifyMagicLoginSchema.parse(req.body);
-  const result = await authService.verifyMagicLogin(email, token);
-  return issueTokenResponse(res, result, 200); // sets cookies + returns accessToken
-});
+export const verifyMagicLoginController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { email, token } = verifyMagicLoginSchema.parse(req.body);
+    const result = await authService.verifyMagicLogin(email, token);
+    return issueTokenResponse(res, result, 200); // sets cookies + returns accessToken
+  },
+);
 
 // export const verifyMagicLoginController = asyncHandler(async (req: Request, res: Response) => {
 //   const { email, token } = verifyMagicLoginSchema.parse(req.body);
@@ -274,7 +331,6 @@ export const refreshTokenController = asyncHandler(
     const result = await authService.rotateRefreshToken(oldRefreshToken, meta);
 
     return issueTokenResponse(res, result, 200);
-
   },
 );
 
@@ -396,12 +452,12 @@ export const verifyPasswordResetTokenController = asyncHandler(
     const { token } = resetPasswordVerifySchema.parse(req.params); // or use req.params directly with validation
     const isValid = await authService.verifyPasswordResetToken(token);
 
-    res.status(200).json({ 
-      success: true, 
+    res.status(200).json({
+      success: true,
       valid: isValid,
-      message: isValid ? "Token is valid" : "Token is invalid or expired" 
+      message: isValid ? "Token is valid" : "Token is invalid or expired",
     });
-  }
+  },
 );
 
 export const resetPasswordController = asyncHandler(
@@ -409,9 +465,10 @@ export const resetPasswordController = asyncHandler(
     const dto = resetPasswordSchema.parse(req.body);
     await authService.resetPassword(dto);
 
-    res.status(200).json({ 
-      success: true, 
-      message: "Password updated successfully. Please log in with your new password." 
+    res.status(200).json({
+      success: true,
+      message:
+        "Password updated successfully. Please log in with your new password.",
     });
-  }
+  },
 );

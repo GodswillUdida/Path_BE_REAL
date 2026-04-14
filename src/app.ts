@@ -1,4 +1,10 @@
-import express, { Application, Request, Response, NextFunction, json } from "express";
+import express, {
+  Application,
+  Request,
+  Response,
+  NextFunction,
+  json,
+} from "express";
 import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
@@ -6,7 +12,7 @@ import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import { join } from "path";
-import passport from "./config/passport";
+import passport from "passport";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
 import { corsOptions } from "./middleware/cors";
@@ -23,6 +29,8 @@ import enrollmentRoutes from "./modules/enrollment/enrollment.routes";
 import orderRoutes from "./modules/order/order.routes";
 import paymentRoutes from "./modules/payment/payment.routes";
 import { sessionMiddleware } from "./config/session";
+// src/app.ts or server.ts
+import "./modules/auth/google.strategy";
 
 const app: Application = express();
 const isProduction = process.env.NODE_ENV === "production";
@@ -57,6 +65,15 @@ app.use(cookieParser());
 
 app.use(sessionMiddleware);
 
+
+// app.use(
+//   cookie({
+//     name: "session",
+//     keys: ["key1", "key2"],
+//     maxAge: 24 * 60 * 60 * 1000,
+//   }),
+// );
+app.use(passport.authenticate("session"));
 app.use(passport.initialize());
 
 /* -------------------------------------------------------------------------- */

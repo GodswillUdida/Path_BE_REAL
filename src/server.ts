@@ -29,8 +29,8 @@ const IS_PROD = process.env.NODE_ENV === "production";
 // Render's load balancer idle timeout is ~75s.
 // Node's default keepAliveTimeout is 5s — this mismatch causes 502s.
 // Set both higher than the load balancer to prevent the race condition.
-const KEEP_ALIVE_TIMEOUT_MS = 90_000;   // 90s — above Render's 75s
-const HEADERS_TIMEOUT_MS    = 95_000;   // Must be > keepAliveTimeout
+const KEEP_ALIVE_TIMEOUT_MS = 90_000; // 90s — above Render's 75s
+const HEADERS_TIMEOUT_MS = 95_000; // Must be > keepAliveTimeout
 
 // How long to wait for in-flight requests to complete on shutdown
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -57,7 +57,7 @@ const shutdown = async (signal: string): Promise<never> => {
     // 1. Stop accepting new HTTP requests
     if (server) {
       await new Promise<void>((resolve, reject) =>
-        server!.close((err) => (err ? reject(err) : resolve()))
+        server!.close((err) => (err ? reject(err) : resolve())),
       );
       logger.info("[Server] HTTP server closed — no new connections accepted");
     }

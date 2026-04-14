@@ -1,7 +1,7 @@
 import path from "path";
 import crypto from "crypto";
 import logger from "../utils/logger";
-import {  } from "../middleware/error";
+// import {} from "../middleware/error";
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -15,8 +15,6 @@ const {
   RESEND_API_KEY,
   BASE_URL,
   FRONTEND_URL,
-  RESEND_FROM,
-  NODE_ENV,
 } = process.env;
 
 if (
@@ -28,8 +26,7 @@ if (
   !ADMIN_EMAIL ||
   !RESEND_API_KEY ||
   !BASE_URL ||
-  !FRONTEND_URL ||
-  !RESEND_FROM
+  !FRONTEND_URL
 ) {
   throw new Error("Missing required environment variables for email service");
 }
@@ -68,7 +65,6 @@ export const getGmailTransporter = async (): Promise<any> => {
     },
   });
 };
-
 
 const templateCache: Record<string, string> = {};
 
@@ -134,7 +130,6 @@ export const sendOtpEmail = async (to: string, email: string, code: string) => {
   await sendCoreEmail(to, "Your Pathfinder Verification Code", html);
 };
 
-
 // Password Reset Email
 export const sendPasswordResetEmail = async (
   to: string,
@@ -142,7 +137,11 @@ export const sendPasswordResetEmail = async (
   token: string,
 ) => {
   const url = `${FRONTEND_URL}/auth/reset-password/${token}`;
-  const html = await renderEmailTemplate("resetPassword", { name, url, expiresIn: "1 hour" });
+  const html = await renderEmailTemplate("resetPassword", {
+    name,
+    url,
+    expiresIn: "1 hour",
+  });
   await sendCoreEmail(to, "Reset your password - Pathfinder College", html);
 };
 

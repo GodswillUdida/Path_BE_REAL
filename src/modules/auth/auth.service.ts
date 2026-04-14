@@ -50,13 +50,14 @@ import { ResetPasswordDTO } from "./auth.schema";
 
 const TTL = {
   VERIFICATION_TOKEN: 24 * 60 * 60 * 1000, //  24 h
-  RESET_TOKEN: 1 * 60 * 60 * 1000,  //   1 h
+  RESET_TOKEN: 1 * 60 * 60 * 1000, //   1 h
   REFRESH_SESSION: 7 * 24 * 60 * 60 * 1000, // 7 d
-  OTP: 15 * 60 * 1000,        //  15 min
+  OTP: 15 * 60 * 1000, //  15 min
 } as const;
 
 /** Dummy bcrypt hash used for constant-time login path when user is not found. */
-const DUMMY_HASH = "$2b$12$invalidsaltthatisexactly22chars.invalidhashpadding123456";
+const DUMMY_HASH =
+  "$2b$12$invalidsaltthatisexactly22chars.invalidhashpadding123456";
 
 // Helper to generate 6-digit code
 const generateOTP = (): string => {
@@ -76,6 +77,13 @@ const minutes = (n: number) => n * 60 * 1000;
 // }
 
 // ─── Shared Types ─────────────────────────────────────────────────────────────
+
+export interface GoogleProfile {
+  id: string; // Google's unique user ID
+  displayName?: string;
+  emails: Array<{ value: string; verified: boolean }>;
+  photos?: Array<{ value: string }>;
+}
 
 export interface AuthTokens {
   accessToken: string;
@@ -124,7 +132,11 @@ export async function createSessionAndTokens(
   user: SessionUser,
   meta?: RequestMeta,
 ): Promise<AuthResult> {
-  const accessToken = signAccessToken({ userId: user.id, role: user.role });
+  const accessToken = signAccessToken({
+    userId: user.id,
+    role: user.role,
+    emailVerified: user.emailVerified,
+  });
 
   const tokenId = generateToken(16);
   const refreshToken = signRefreshToken({ userId: user.id, tokenId });
@@ -138,6 +150,7 @@ export async function createSessionAndTokens(
       userAgent: meta?.userAgent,
       ipAddress: meta?.ipAddress,
       fingerprint: meta?.fingerprint,
+      provider: "credentials",
       expiresAt: new Date(Date.now() + TTL.REFRESH_SESSION),
     },
   });
@@ -147,6 +160,60 @@ export async function createSessionAndTokens(
     user: toPublicUser(user),
   };
 }
+
+export const processGoogleOAuth = async (
+  profile: GoogleProfile,
+  meta: RequestMeta,
+): Promise<AuthResult> => {
+  const googleId = profile.id;
+  const email = profile.emails[0]?.value;
+  const name = profile.displayName || email?.split("@")[0] || "Google User";
+  const avatar = profile.photos?.[0]?.value;
+
+  if (!email)
+    throw badRequest("Google account did not provide an email address");
+
+  // 1. Try exact Google ID match (fastest path)
+  let user = await prisma.user.findUnique({ where: { googleId } });
+
+  // 2. If not found by googleId → check by email (account linking)
+  if (!user) {
+    user = await prisma.user.findUnique({ where: { email } });
+
+    if (user) {
+      // EXISTING USER → LINK GOOGLE ACCOUNT
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          googleId,
+          emailVerified: true, // trust Google
+          profileImage: avatar || user.profileImage,
+          name: user.name || name,
+          provider: "google",
+        },
+      });
+
+      // Optional: emit domain event "AccountLinked" for audit/email notification
+      // await eventBus.emit("user.google.linked", { userId: user.id, googleId });
+    } else {
+      // COMPLETELY NEW USER → CREATE ACCOUNT
+      user = await prisma.user.create({
+        data: {
+          name,
+          email,
+          googleId,
+          emailVerified: true,
+          profileImage: avatar,
+          provider: "google",
+          // password remains null for OAuth users
+        },
+      });
+    }
+  }
+
+  // 3. Create fresh session + tokens (your existing logic, slightly improved)
+  return createSessionAndTokens(user, meta);
+};
 
 export async function createUser(
   name: string,
@@ -178,11 +245,7 @@ export async function createUser(
     select: { id: true, name: true, email: true },
   });
   // 5. Send OTP (async, non-blocking)
-  sendOtpEmail(
-    email,
-    name ?? "User",
-    otp
-  ).catch(() => {
+  sendOtpEmail(email, name ?? "User", otp).catch(() => {
     // logger.warn({ email }, "Verification OTP email failed"),
     logger.warn("Verification OTP email failed");
   });
@@ -268,10 +331,7 @@ export async function authenticate(
   });
 
   // Always run a bcrypt comparison regardless of whether the user exists.
-  const isMatch = await comparePassword(
-    password,
-    user?.password ?? DUMMY_HASH,
-  );
+  const isMatch = await comparePassword(password, user?.password ?? DUMMY_HASH);
 
   // Surface a generic error for both "user not found" and "wrong password" to
   // avoid leaking account existence.
@@ -486,7 +546,10 @@ export async function sendCheckoutOtp(
   return { message: "OTP sent successfully" };
 }
 
-export async function verifyCheckoutOtp(email: string, code: string): Promise<{ verified: true; tempUserId?: string }> {
+export async function verifyCheckoutOtp(
+  email: string,
+  code: string,
+): Promise<{ verified: true; tempUserId?: string }> {
   const otp = await prisma.otp.findUnique({
     where: { email_code: { email, code } },
   });
@@ -514,7 +577,11 @@ export async function verifyCheckoutOtp(email: string, code: string): Promise<{ 
   return { verified: true, tempUserId: provisional.id };
 }
 
-export async function completeGuestProfile(dto: { email: string; name: string; phone?: string }): Promise<SessionUser> {
+export async function completeGuestProfile(dto: {
+  email: string;
+  name: string;
+  phone?: string;
+}): Promise<SessionUser> {
   const user = await prisma.user.update({
     where: { email: dto.email },
     data: {
@@ -534,12 +601,16 @@ export async function completeGuestProfile(dto: { email: string; name: string; p
   return user;
 }
 
-export async function createMagicLoginToken(email: string): Promise<{ token: string; expiresAt: Date }> {
+export async function createMagicLoginToken(
+  email: string,
+): Promise<{ token: string; expiresAt: Date }> {
   const token = generateMagicToken();
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
-  const existingToken = await prisma.magicLoginToken.findFirst({ where: { email } });
+  const existingToken = await prisma.magicLoginToken.findFirst({
+    where: { email },
+  });
 
   if (existingToken) {
     await prisma.magicLoginToken.update({
@@ -555,7 +626,10 @@ export async function createMagicLoginToken(email: string): Promise<{ token: str
   return { token, expiresAt };
 }
 
-export async function verifyMagicLogin(email: string, token: string): Promise<AuthResult> {
+export async function verifyMagicLogin(
+  email: string,
+  token: string,
+): Promise<AuthResult> {
   const tokenHash = hashToken(token);
 
   const magic = await prisma.magicLoginToken.findFirst({
@@ -564,36 +638,16 @@ export async function verifyMagicLogin(email: string, token: string): Promise<Au
 
   if (!magic) throw badRequest("Invalid or expired magic token");
 
-  await prisma.magicLoginToken.update({ where: { id: magic.id }, data: { used: true } });
+  await prisma.magicLoginToken.update({
+    where: { id: magic.id },
+    data: { used: true },
+  });
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) throw notFound("User not found");
 
   return createSessionAndTokens(user);
 }
-
-// export async function createCheckoutUser(
-//   email: string,
-//   name: string,
-// ): Promise<{ id: string; email: string; name: string | null }> {
-//   const user = await prisma.user.upsert({
-//     where: { email },
-//     update: {},
-//     create: {
-//       email,
-//       name,
-//       password: await hashPassword(generateToken()),
-//       emailVerified: false,
-//       provider: "credentials",
-//     },
-//     select: { id: true, email: true, name: true },
-//   });
-
-//   return user;
-
-
-// }
-
 
 export async function requestPasswordReset(email: string): Promise<void> {
   const user = await prisma.user.findUnique({
@@ -621,21 +675,19 @@ export async function requestPasswordReset(email: string): Promise<void> {
   });
 
   sendPasswordResetEmail(user.email, user.name ?? "Student", rawToken).catch(
-    (err) =>
-      logger.error(
-        "Password reset email failed",
-      ),
+    (err) => logger.error("Password reset email failed"),
   );
 }
 
-export async function verifyPasswordResetToken(token: string): Promise<boolean> {
-
+export async function verifyPasswordResetToken(
+  token: string,
+): Promise<boolean> {
   if (!token || token.length < 32) return false;
 
   const user = await prisma.user.findFirst({
-    where: { 
-      resetToken: token, 
-      resetTokenExpires: { gt: new Date() } 
+    where: {
+      resetToken: token,
+      resetTokenExpires: { gt: new Date() },
     },
     select: { id: true },
   });
@@ -643,13 +695,13 @@ export async function verifyPasswordResetToken(token: string): Promise<boolean> 
   return !!user;
 }
 
-export async function resetPassword(dto:ResetPasswordDTO): Promise<void> {
+export async function resetPassword(dto: ResetPasswordDTO): Promise<void> {
   const { token, newPassword } = dto;
 
   const user = await prisma.user.findFirst({
-    where: { 
-      resetToken: token, 
-      resetTokenExpires: { gt: new Date() } 
+    where: {
+      resetToken: token,
+      resetTokenExpires: { gt: new Date() },
     },
     select: { id: true },
   });
@@ -661,10 +713,10 @@ export async function resetPassword(dto:ResetPasswordDTO): Promise<void> {
   await prisma.$transaction([
     prisma.user.update({
       where: { id: user.id },
-      data: { 
-        password: hashed, 
-        resetToken: null, 
-        resetTokenExpires: null 
+      data: {
+        password: hashed,
+        resetToken: null,
+        resetTokenExpires: null,
       },
     }),
     prisma.session.updateMany({
@@ -676,7 +728,7 @@ export async function resetPassword(dto:ResetPasswordDTO): Promise<void> {
 
 export async function rotateRefreshToken(
   refreshToken: string,
-  meta?: RequestMeta
+  meta?: RequestMeta,
 ): Promise<AuthResult> {
   const payload = verifyRefreshToken(refreshToken);
 
@@ -684,7 +736,7 @@ export async function rotateRefreshToken(
   const result = await prisma.$transaction(async (tx) => {
     const session = await tx.session.findUnique({
       where: { tokenId: payload.tokenId },
-      include: { user: true }
+      include: { user: true },
     });
 
     if (!session || session.revokedAt || session.expiresAt < new Date()) {
@@ -695,7 +747,7 @@ export async function rotateRefreshToken(
     if (!compareTokenHash(refreshToken, session.tokenHash)) {
       await tx.session.updateMany({
         where: { userId: session.userId },
-        data: { revokedAt: new Date() }
+        data: { revokedAt: new Date() },
       });
       throw unauthorized("Security breach detected. Please login again.");
     }
@@ -703,7 +755,7 @@ export async function rotateRefreshToken(
     // Revoke old session
     await tx.session.update({
       where: { id: session.id },
-      data: { revokedAt: new Date() }
+      data: { revokedAt: new Date() },
     });
 
     // Create new session

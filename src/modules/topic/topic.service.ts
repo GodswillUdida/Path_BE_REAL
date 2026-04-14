@@ -97,7 +97,7 @@ export const generateSignedPlaybackUrl = async (
       .update(`${dbTopic.bunnyVideoId}${expires}`)
       .digest("hex");
 
-    await redis.set(cacheKey, JSON.stringify(dbTopic), "EX", 300);
+    // await redis.set(cacheKey, JSON.stringify(dbTopic), "EX", 300);
     const url = `https://iframe.mediadelivery.net/play/${LIBRARY_ID}/${dbTopic.bunnyVideoId}?token=${token}&expires=${expires}`;
     return url;
   }

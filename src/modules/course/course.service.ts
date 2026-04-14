@@ -8,7 +8,6 @@ import type {
   UpdateCourseInput,
   CoursePricingInput,
 } from "./course.schema";
-// import redis from "../../utils/redisClient";
 import redis from "../../config/redis";
 
 /* -------------------- CREATE ONLINE COURSE -------------------- */

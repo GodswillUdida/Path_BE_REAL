@@ -94,6 +94,8 @@ model Session {
   expiresAt DateTime
   revokedAt DateTime?
 
+  provider String   @default("credentials") // "credentials" or "google"
+
   createdAt DateTime @default(now())
 
   @@index([userId])

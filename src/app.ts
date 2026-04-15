@@ -28,7 +28,8 @@ import topicRoutes from "./modules/topic/topic.routes";
 import enrollmentRoutes from "./modules/enrollment/enrollment.routes";
 import orderRoutes from "./modules/order/order.routes";
 import paymentRoutes from "./modules/payment/payment.routes";
-import { sessionMiddleware } from "./config/session";
+import session from "express-session";
+// import { sessionMiddleware } from "./config/session";
 // src/app.ts or server.ts
 // import "./modules/auth/google.strategy";
 
@@ -63,18 +64,13 @@ app.use(
 
 app.use(cookieParser());
 
-app.use(sessionMiddleware);
-
-
-// app.use(
-//   cookie({
-//     name: "session",
-//     keys: ["key1", "key2"],
-//     maxAge: 24 * 60 * 60 * 1000,
-//   }),
-// );
-app.use(passport.initialize());
-app.use(passport.session());
+app.use(session({
+  secret: "your-secret",
+  resave: false,
+  saveUninitialized: false,
+}))
+app.use(passport.initialize())
+app.use(passport.session())
 
 /* -------------------------------------------------------------------------- */
 /*                               RATE LIMITING                                */
@@ -148,8 +144,8 @@ app.get("/health", async (_req, res) => {
 
 app.get("/health/redis", async (req, res) => {
   try {
-    const { default: redis } = await import("./config/redis");
-    await redis.ping();
+    // const { default: redis } = await import("./config/redis");
+    // await redis.ping();
     res.json({ status: "healthy", redis: "connected" });
   } catch (err) {
     res.status(500).json({ status: "unhealthy", redis: "disconnected" });

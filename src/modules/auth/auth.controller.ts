@@ -143,6 +143,47 @@ export const googleCallbackController = asyncHandler(async (req, res) => {
   );
   issueTokens(res, result);
 
+  // const meta = extractMeta(req);
+
+  // ← THIS IS THE CORE NEW LOGIC YOU ASKED FOR
+  // const result = await authService.processGoogleOAuth(passportUser, meta);
+
+  // // Set secure cookies server-side
+  // setAuthCookies(res, result.tokens);
+
+  // 2. Fallback: If no passport, handle via authorization code from query
+  // if (!user && req.query.code) {
+  //   const result = await authService.handleGoogleCallback(
+  //     req.query.code as string,
+  //     extractMeta(req),
+  //   );
+  //   return sendAuthResponse(res, result);
+  // }
+
+  // if (!user) {
+  //   return res.redirect(
+  //     `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
+  //   );
+  // }
+
+  // if (user.provider !== "google") {
+
+  // }
+
+  // const result = await authService.createSessionAndTokens(
+  //   user,
+  //   extractMeta(req),
+  // );
+
+  // For OAuth redirects, we MUST set the cookie and redirect
+  // res.cookie(
+  //   REFRESH_COOKIE_NAME,
+  //   result.tokens.refreshToken,
+  //   REFRESH_COOKIE_OPTIONS,
+  // );
+
+  // We append the access token as a short-lived query param or hash
+  // so the frontend can grab it and clear the URL.
   return res.redirect(
     `${process.env.FRONTEND_URL}/auth/callback?status=success`,
   );

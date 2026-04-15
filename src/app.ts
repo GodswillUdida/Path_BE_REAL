@@ -64,13 +64,26 @@ app.use(
 
 app.use(cookieParser());
 
-app.use(session({
-  secret: "your-secret",
-  resave: false,
-  saveUninitialized: false,
-}))
-app.use(passport.initialize())
-app.use(passport.session())
+// app.use(sessionMiddleware);
+
+app.use(
+  session({
+    secret: "your-secret",
+    resave: false,
+    saveUninitialized: false,
+  }),
+);
+
+
+// app.use(
+//   cookie({
+//     name: "session",
+//     keys: ["key1", "key2"],
+//     maxAge: 24 * 60 * 60 * 1000,
+//   }),
+// );
+app.use(passport.initialize());
+app.use(passport.session());
 
 /* -------------------------------------------------------------------------- */
 /*                               RATE LIMITING                                */

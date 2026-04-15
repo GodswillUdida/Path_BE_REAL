@@ -2,4 +2,4 @@
 // declare module "bullmq";
 // declare module "resend";
 // declare module "nodemailer";
-declare module "ejs";
+// declare module "ejs";

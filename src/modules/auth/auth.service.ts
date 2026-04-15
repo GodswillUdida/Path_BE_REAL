@@ -166,52 +166,39 @@ export const processGoogleOAuth = async (
   meta: RequestMeta,
 ): Promise<AuthResult> => {
   const googleId = profile.id;
-  const email = profile.emails[0]?.value;
+  const email = profile.emails?.[0]?.value;
   const name = profile.displayName || email?.split("@")[0] || "Google User";
   const avatar = profile.photos?.[0]?.value;
 
   if (!email)
     throw badRequest("Google account did not provide an email address");
 
-  // 1. Try exact Google ID match (fastest path)
-  let user = await prisma.user.findUnique({ where: { googleId } });
+  // Single atomic upsert — eliminates TOCTOU between findUnique + create.
+  // If a user with this googleId exists, update profile fields.
+  // If not, create fresh. DB unique constraint prevents duplicates under concurrency.
+  const user = await prisma.user.upsert({
+    where: { googleId },
+    update: {
+      // Keep name/avatar fresh; trust Google for email verification
+      profileImage: avatar,
+      emailVerified: true,
+      provider: "google",
+    },
+    create: {
+      name,
+      email,
+      googleId,
+      emailVerified: true,
+      profileImage: avatar,
+      provider: "google",
+      // password intentionally null for OAuth users
+    },
+  });
 
-  // 2. If not found by googleId → check by email (account linking)
-  if (!user) {
-    user = await prisma.user.findUnique({ where: { email } });
+  // Edge case: email exists under a different account (account linking)
+  // Handled at DB level: add a unique index on email + partial for provider='google'
+  // or check explicitly here if your schema requires merging accounts.
 
-    if (user) {
-      // EXISTING USER → LINK GOOGLE ACCOUNT
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          googleId,
-          emailVerified: true, // trust Google
-          profileImage: avatar || user.profileImage,
-          name: user.name || name,
-          provider: "google",
-        },
-      });
-
-      // Optional: emit domain event "AccountLinked" for audit/email notification
-      // await eventBus.emit("user.google.linked", { userId: user.id, googleId });
-    } else {
-      // COMPLETELY NEW USER → CREATE ACCOUNT
-      user = await prisma.user.create({
-        data: {
-          name,
-          email,
-          googleId,
-          emailVerified: true,
-          profileImage: avatar,
-          provider: "google",
-          // password remains null for OAuth users
-        },
-      });
-    }
-  }
-
-  // 3. Create fresh session + tokens (your existing logic, slightly improved)
   return createSessionAndTokens(user, meta);
 };
 

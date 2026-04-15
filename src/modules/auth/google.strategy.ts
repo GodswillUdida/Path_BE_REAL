@@ -2,6 +2,11 @@ import prisma from "lib/prisma";
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 
+// Temporary — add to the top of passport.config.ts, remove after confirming
+console.log("G_ID loaded:", !!process.env.G_ID);
+console.log("G_SECRET loaded:", !!process.env.G_SECRET);
+console.log("BACKEND_URL:", process.env.BACKEND_URL);
+
 // Store only the user ID — never the entire profile object
 passport.serializeUser((user: Express.User, done) => {
   done(null, (user as { id: string }).id);

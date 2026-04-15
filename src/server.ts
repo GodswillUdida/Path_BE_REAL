@@ -105,6 +105,9 @@ process.on("uncaughtException", (err: Error) => {
 logger.info("[Server] Booting Pathfinder API...");
 
 server = app.listen(PORT, "0.0.0.0", () => {
+  prisma
+    .$connect()
+    .then(() => logger.info("[Server] Database connected"))
   logger.info(`[Server] Listening on port ${PORT} (${process.env.NODE_ENV})`);
 });
 

@@ -263,7 +263,8 @@ async function buildVerifyResult(
   // const userId = payment.userId ?? payment.order?.userId ?? null;
   // const email = payment.order?.email ?? null;
 
-  const wasGuest = !payment.order?.userId;
+  // const wasGuest = !payment.order?.userId;
+  const wasGuest = !payment.userId;
   const email = payment.order?.email ?? null;
 
   if (isSuccess && wasGuest && email) {

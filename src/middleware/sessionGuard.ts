@@ -1,10 +1,10 @@
 import type { Response, NextFunction } from "express";
-import prisma from "../config/db";
 import { verifyRefreshToken } from "../lib/jwt";
 import { compareTokenHash } from "../utils/hash";
 import { unauthorized } from "../utils/errors";
 import logger from "../utils/logger";
 import type { AuthRequest } from "./authGuard";
+import prisma from "../lib/prisma";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

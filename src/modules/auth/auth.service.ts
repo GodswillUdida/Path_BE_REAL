@@ -21,7 +21,7 @@
  */
 
 import crypto from "crypto";
-import prisma from "../../config/db";
+import prisma from "../../lib/prisma";
 import { Role } from "@prisma/client";
 import {
   hashPassword,
@@ -43,8 +43,8 @@ import {
   sendVerificationEmail,
 } from "../../services/emailService";
 // import { sendMagicLogin } from "./magicLogin.service";
-import { Profile } from "passport-google-oauth20";
 import { ResetPasswordDTO } from "./auth.schema";
+import { send } from "process";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -72,9 +72,6 @@ const hashOTP = (code: string): string =>
 
 const minutes = (n: number) => n * 60 * 1000;
 
-// function hashOTP(code: string) {
-//   return crypto.createHash("sha256").update(code).digest("hex");
-// }
 
 // ─── Shared Types ─────────────────────────────────────────────────────────────
 
@@ -83,6 +80,9 @@ export interface GoogleProfile {
   displayName?: string;
   emails: Array<{ value: string; verified: boolean }>;
   photos?: Array<{ value: string }>;
+  _json: {
+    email_verified: boolean;
+  };
 }
 
 export interface AuthTokens {
@@ -161,43 +161,138 @@ export async function createSessionAndTokens(
   };
 }
 
+// export const processGoogleOAuth = async (
+//   profile: GoogleProfile,
+//   meta: RequestMeta,
+// ): Promise<AuthResult> => {
+//   // const googleId = profile.id;
+//   const email = profile.emails?.[0]?.value;
+//   const name = profile.displayName || email?.split("@")[0] || "Google User";
+//   const avatar = profile.photos?.[0]?.value;
+//   const isEmailVerified = profile._json.email_verified === true;
+
+//   if (!isEmailVerified) {
+//     throw unauthorized("Google email is not verified");
+//   }
+
+//   if (!email)
+//     throw badRequest("Google account did not provide an email address");
+
+//   // Refuse silent merge: email exists but registered via password
+//   const emailConflict = await prisma.user.findUnique({
+//     where: { email },
+//     select: { provider: true },
+//   });
+
+//   if (emailConflict && emailConflict.provider !== "google") {
+//     throw badRequest(
+//       "An account with this email already exists. Please log in with your password."
+//     );
+//   }
+
+//   const user = await prisma.user.upsert({
+//     where: { email },
+//     update: { googleId: profile.id, provider: "google", emailVerified: true, name, profileImage: avatar },
+//     create: {
+//       email,
+//       name,
+//       googleId: profile.id,
+//       provider: "google",
+//       emailVerified: true,
+//       profileImage: avatar,
+//     },
+//     select: {
+//       id: true,
+//       name: true,
+//       email: true,
+//       role: true,
+//       emailVerified: true,
+//       provider: true,
+//     },
+//   });
+
+//   // Single atomic upsert — eliminates TOCTOU between findUnique + create.
+//   // If a user with this googleId exists, update profile fields.
+//   // If not, create fresh. DB unique constraint prevents duplicates under concurrency.
+//   // const user = await prisma.user.upsert({
+//   //   where: { googleId },
+//   //   update: {
+//   //     // Keep name/avatar fresh; trust Google for email verification
+//   //     profileImage: avatar,
+//   //     emailVerified: true,
+//   //     provider: "google",
+//   //   },
+//   //   create: {
+//   //     name,
+//   //     email,
+//   //     googleId,
+//   //     emailVerified: true,
+//   //     profileImage: avatar,
+//   //     provider: "google",
+//   //     // password intentionally null for OAuth users
+//   //   },
+//   // });
+
+//   // Edge case: email exists under a different account (account linking)
+//   // Handled at DB level: add a unique index on email + partial for provider='google'
+//   // or check explicitly here if your schema requires merging accounts.
+
+//   return createSessionAndTokens(user, meta);
+// };
+
 export const processGoogleOAuth = async (
   profile: GoogleProfile,
   meta: RequestMeta,
 ): Promise<AuthResult> => {
-  const googleId = profile.id;
   const email = profile.emails?.[0]?.value;
-  const name = profile.displayName || email?.split("@")[0] || "Google User";
+  const name = profile.displayName || email?.split("@")[0];
   const avatar = profile.photos?.[0]?.value;
+  const googleId = profile.id;
+  const emailVerified = profile._json?.email_verified === true;
 
-  if (!email)
-    throw badRequest("Google account did not provide an email address");
+  if (!email) throw badRequest("Google account has no email");
+  if (!emailVerified) throw unauthorized("Google email not verified");
 
-  // Single atomic upsert — eliminates TOCTOU between findUnique + create.
-  // If a user with this googleId exists, update profile fields.
-  // If not, create fresh. DB unique constraint prevents duplicates under concurrency.
-  const user = await prisma.user.upsert({
-    where: { googleId },
-    update: {
-      // Keep name/avatar fresh; trust Google for email verification
-      profileImage: avatar,
-      emailVerified: true,
-      provider: "google",
+  // 1. Check if Google account already exists
+  const existingAccount = await prisma.account.findUnique({
+    where: {
+      provider_providerId: {
+        provider: "google",
+        providerId: googleId,
+      },
     },
-    create: {
-      name,
-      email,
-      googleId,
-      emailVerified: true,
-      profileImage: avatar,
-      provider: "google",
-      // password intentionally null for OAuth users
-    },
+    include: { user: true },
   });
 
-  // Edge case: email exists under a different account (account linking)
-  // Handled at DB level: add a unique index on email + partial for provider='google'
-  // or check explicitly here if your schema requires merging accounts.
+  if (existingAccount) {
+    return createSessionAndTokens(existingAccount.user, meta);
+  }
+
+  // 2. Check if user exists by email
+  let user = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  // 3. If not, create user
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        email,
+        name,
+        profileImage: avatar,
+        emailVerified: true,
+      },
+    });
+  }
+
+  // 4. Link Google account
+  await prisma.account.create({
+    data: {
+      userId: user.id,
+      provider: "google",
+      providerId: googleId,
+    },
+  });
 
   return createSessionAndTokens(user, meta);
 };
@@ -224,7 +319,13 @@ export async function createUser(
     data: {
       name,
       email,
-      password: hashedPassword,
+      accounts: {
+        create: {
+          provider: "credentials",
+          providerId: email,
+          password: hashedPassword,
+        },
+      },
       emailVerified: false,
       verificationToken: otpHash,
       verificationExpires,
@@ -232,11 +333,22 @@ export async function createUser(
     select: { id: true, name: true, email: true },
   });
   // 5. Send OTP (async, non-blocking)
-  sendOtpEmail(email, name ?? "User", otp).catch(() => {
-    // logger.warn({ email }, "Verification OTP email failed"),
-    logger.warn("Verification OTP email failed");
-  });
+  try {
+    await sendOtpEmail({ to: email, name, code: otp });
+  } catch (err) {
+    logger.error("Failed to send verification email", {
+      email,
+      error: (err as Error).message,
+      stack: (err as Error).stack,
 
+    });
+    // await prisma.user.delete({ where: { id: user.id } });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: false },
+    });
+    throw new Error("Failed to send verification email");
+  }
   return user;
 }
 
@@ -296,7 +408,17 @@ export async function resendVerificationEmail(email: string): Promise<void> {
     data: { verificationToken: otpHash, verificationExpires },
   });
 
-  await sendOtpEmail(email, user.name ?? "User", otp);
+  try {
+    await sendOtpEmail({ to: email, name: user.name!, code: otp });
+  } catch (err) {
+    logger.error("Failed to resend verification email", {
+      email,
+      error: (err as Error).message,
+      stack: (err as Error).stack,
+    });
+    throw new Error("Failed to resend verification email");
+
+  }
 }
 
 export async function authenticate(
@@ -306,100 +428,24 @@ export async function authenticate(
 ): Promise<AuthResult> {
   const user = await prisma.user.findUnique({
     where: { email },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      emailVerified: true,
-      password: true,
-      provider: true,
+    include: {
+      accounts: {
+        where: { provider: "credentials" },
+        select: { password: true },
+      },
     },
   });
 
-  // Always run a bcrypt comparison regardless of whether the user exists.
-  const isMatch = await comparePassword(password, user?.password ?? DUMMY_HASH);
-
-  // Surface a generic error for both "user not found" and "wrong password" to
-  // avoid leaking account existence.
-  if (!user || !isMatch) throw unauthorized("Invalid credentials");
-
-  // Only surface the unverified state after the password check so timing
-  // remains consistent with a successful login.
-  if (!user.emailVerified) throw unauthorized("Email not verified");
-
-  if (user.provider === "google") {
-    throw unauthorized("Please log in with Google");
+  // Always do password comparison to mitigate timing attacks, even if user not found
+  const hashedPassword = user?.accounts[0]?.password || DUMMY_HASH;
+  const passwordMatch = await comparePassword(password, hashedPassword);
+  if (!user || !passwordMatch) {
+    throw unauthorized("Invalid email or password");
   }
 
-  const { password: _omit, ...sessionUser } = user;
+  const { accounts: _accounts, ...sessionUser } = user;
+
   return createSessionAndTokens(sessionUser, meta);
-}
-
-export async function handleGoogleUser(profile: Profile): Promise<SessionUser> {
-  const email = profile.emails?.[0]?.value;
-
-  if (!email) {
-    throw badRequest("Google account did not provide an email address");
-  }
-
-  const existing = await prisma.user.findUnique({
-    where: { email },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      emailVerified: true,
-      provider: true,
-    },
-  });
-
-  // Existing account registered via email/password — refuse silent merge.
-  if (existing && existing.provider !== "google") {
-    throw badRequest(
-      "An account with this email already exists. Please log in with your password.",
-    );
-  }
-
-  // Returning Google user — refresh display name if it changed.
-  if (existing) {
-    const freshName = profile.displayName ?? existing.name;
-
-    if (freshName !== existing.name) {
-      await prisma.user.update({
-        where: { id: existing.id },
-        data: { name: freshName },
-      });
-    }
-
-    return {
-      id: existing.id,
-      name: freshName,
-      email: existing.email,
-      role: existing.role,
-      emailVerified: true,
-    };
-  }
-
-  // New user — provision account. Google has already verified the email.
-  const user = await prisma.user.create({
-    data: {
-      email,
-      name: profile.displayName,
-      emailVerified: true,
-      provider: "google",
-    },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      emailVerified: true,
-    },
-  });
-
-  return user;
 }
 
 export async function handleGoogleCallback(
@@ -520,16 +566,44 @@ export async function handleGoogleCallback(
 
 export async function sendCheckoutOtp(
   email: string,
+  userId?: string,
 ): Promise<{ message: string }> {
+
+  if (userId) {
+  return { message: "User already authenticated" };
+  }
+
   const code = crypto.randomInt(100_000, 1_000_000).toString();
 
-  await prisma.otp.upsert({
-    where: { email_code: { email, code: "" } },
-    update: { code, expiresAt: new Date(Date.now() + TTL.OTP), used: false },
-    create: { email, code, expiresAt: new Date(Date.now() + TTL.OTP) },
+  await prisma.otp.deleteMany({ where: { email } });
+
+  await prisma.otp.create({
+    data: {
+      email,
+      code: hashOTP(code),
+      expiresAt: new Date(Date.now() + TTL.OTP),
+      used: false,
+    },
   });
 
-  await sendOtpEmail(email, email, code).catch(logger.warn);
+  // await prisma.otp.upsert({
+  //   where: { email_code: { email, code: "" } },
+  //   update: { code, expiresAt: new Date(Date.now() + TTL.OTP), used: false },
+  //   create: { email, code, expiresAt: new Date(Date.now() + TTL.OTP) },
+  // });
+
+  try {
+    await sendOtpEmail({ to: email, code, name: "" });
+  } catch (err) {
+    logger.error("Failed to send checkout OTP email", {
+      email,
+      error: (err as Error).message,
+      stack: (err as Error).stack,
+    });
+    throw new Error("Failed to send OTP email");
+  }
+
+
   return { message: "OTP sent successfully" };
 }
 
@@ -548,20 +622,23 @@ export async function verifyCheckoutOtp(
   await prisma.otp.update({ where: { id: otp.id }, data: { used: true } });
 
   // Create provisional guest user immediately after OTP (emailVerified = true)
-  const provisional = await prisma.user.upsert({
-    where: { email },
-    update: { emailVerified: true, provider: "checkout" },
-    create: {
-      email,
-      name: email.split("@")[0],
-      password: await hashPassword(crypto.randomBytes(32).toString("hex")),
-      emailVerified: true,
-      provider: "checkout",
-    },
-    select: { id: true },
-  });
+  // const provisional = await prisma.user.upsert({
+  //   where: { email },
+  //   update: { emailVerified: true, provider: "checkout" },
+  //   create: {
+  //     email,
+  //     name: email.split("@")[0],
+  //     password: await hashPassword(crypto.randomBytes(32).toString("hex")),
+  //     emailVerified: true,
+  //     provider: "checkout",
+  //   },
+  //   select: { id: true },
+  // });
 
-  return { verified: true, tempUserId: provisional.id };
+
+  // optionally cache verified email (redis recommended)
+
+  return { verified: true };
 }
 
 export async function completeGuestProfile(dto: {

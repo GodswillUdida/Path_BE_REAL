@@ -1,7 +1,12 @@
 import path from "path";
 import crypto from "crypto";
 import logger from "../utils/logger";
-// import {} from "../middleware/error";
+import fs from "fs/promises";
+
+const getEjs = async () => {
+  const mod = await import("ejs");
+  return mod.default || mod;
+};
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -69,28 +74,69 @@ export const getGmailTransporter = async (): Promise<any> => {
 const templateCache: Record<string, string> = {};
 
 const resolveViewPath = (template: string) => {
-  const rootDir = path.resolve(
-    __dirname,
-    "..",
-    isProduction ? "views" : "../../views",
-  );
-  return path.join(rootDir, `${template}.ejs`);
+  const basePath = isProduction
+    ? path.join(process.cwd(), "dist/views")
+    : path.join(process.cwd(), "src/views");
+
+  return path.join(basePath, `${template}.ejs`);
 };
+
+// const resolveViewPath = (template: string) => {
+//   const rootDir = path.resolve(
+//     __dirname,
+//     "..",
+//     isProduction ? "views" : "../../views",
+//   );
+//   return path.join(rootDir, `${template}.ejs`);
+// };
+
+// const renderEmailTemplate = async (template: string, data: any) => {
+//   try {
+//     if (!templateCache[template]) {
+//       templateCache[template] = resolveViewPath(template);
+//     }
+//     const ejs = await import("ejs");
+//     return await ejs.renderFile(templateCache[template], data);
+//   } catch (err: any) {
+//     logger.error("Email template render failed: " + err.message);
+//     throw new Error("Failed to render email template");
+//   }
+// };
+
+// Core sender
 
 const renderEmailTemplate = async (template: string, data: any) => {
   try {
+
+    const ejs = await getEjs();
+    // 1. Resolve path once
     if (!templateCache[template]) {
-      templateCache[template] = resolveViewPath(template);
+      const filePath = resolveViewPath(template);
+
+      // 2. Validate file exists
+      try {
+        await fs.access(filePath);
+      } catch {
+        throw new Error(`Template not found: ${filePath}`);
+      }
+
+      // 3. Cache file content (NOT path)
+      templateCache[template] = await fs.readFile(filePath, "utf-8");
     }
-    const ejs = await import("ejs");
-    return await ejs.renderFile(templateCache[template], data);
+
+    // 4. Render from cached string (faster)
+    return ejs.render(templateCache[template], data);
   } catch (err: any) {
-    logger.error("Email template render failed: " + err.message);
+    logger.error("Email template render failed", {
+      template,
+      error: err.message,
+      stack: err.stack,
+    });
+
     throw new Error("Failed to render email template");
   }
 };
 
-// Core sender
 const sendCoreEmail = async (to: string, subject: string, html: string) => {
   const correlationId = crypto.randomBytes(32).toString("hex");
 
@@ -123,10 +169,26 @@ export const sendVerificationEmail = async (
   await sendCoreEmail(to, "Verify your email - Pathfinder College", html);
 };
 
-export const sendOtpEmail = async (to: string, email: string, code: string) => {
-  const html = await renderEmailTemplate("otpEmail", { email, name: "", code });
+// export const sendOtpEmail = async (to: string, email: string, code: string) => {
+//   const html = await renderEmailTemplate("otpEmail", { email, name: "", code });
 
-  // Use your existing email sender (nodemailer, Resend, etc.)
+//   // Use your existing email sender (nodemailer, Resend, etc.)
+//   await sendCoreEmail(to, "Your Pathfinder Verification Code", html);
+// };
+
+type SendOtpInput = {
+  to: string;
+  name?: string;
+  code: string;
+};
+
+export const sendOtpEmail = async ({ to, name, code }: SendOtpInput) => {
+  const html = await renderEmailTemplate("otpEmail", {
+    email: to,
+    name: name ?? "",
+    code,
+  });
+
   await sendCoreEmail(to, "Your Pathfinder Verification Code", html);
 };
 

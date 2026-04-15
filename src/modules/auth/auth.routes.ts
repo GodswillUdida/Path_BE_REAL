@@ -23,7 +23,8 @@ import * as authController from "./auth.controller";
 import { authGuard } from "../../middleware/authGuard";
 import { sessionGuard } from "../../middleware/sessionGuard";
 import { roleGuard } from "../../middleware/roleGuard";
-import passport from "../../config/passport";
+import passport from "../auth/google.strategy";
+import crypto from "crypto";
 
 const r = Router();
 
@@ -90,16 +91,27 @@ r.post("/reset-password", otpLimiter, authController.resetPasswordController);
 //  Step 2 — Google redirects to GET /api/auth/google/callback?code=…
 //           → server exchanges code, sets cookie, redirects to frontend
 
-r.get("/google", 
+r.get("/google", (req, res, next) => {
+  // Generate a cryptographically random state value
+  const state = crypto.randomBytes(24).toString("base64url");
+
+  // Set it as a cookie BEFORE redirecting to Google
+  res.cookie("oauth_state", state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "none",   // must be lax, not strict — cross-origin redirect won't send strict cookies
+    maxAge: 5 * 60 * 1000, // 5 minutes
+    path: "/",
+  });
+
+  // Pass the same value to Google as the state param
   passport.authenticate("google", {
     scope: ["openid", "profile", "email"],
-    prompt: "select_account",
-    session:false
-    // state, // ← CSRF protection
-  })
-    // (req, res, next);
-// }
-);
+    state,
+    session: false,
+  })(req, res, next);
+});
+
 r.get(
   "/google/callback",
   passport.authenticate("google", {

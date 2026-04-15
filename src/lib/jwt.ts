@@ -1,3 +1,5 @@
+import * as dotenv from "dotenv";
+dotenv.config();
 import { sign, verify } from "jsonwebtoken";
 
 export type AccessTokenPayload = {
@@ -14,6 +16,7 @@ export type RefreshTokenPayload = {
 const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET!;
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET!;
 
+
 if (!ACCESS_SECRET || !REFRESH_SECRET) {
   throw new Error(
     "JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be configured"
@@ -21,7 +24,7 @@ if (!ACCESS_SECRET || !REFRESH_SECRET) {
 }
 
 export const signAccessToken = (payload: object) => {
-  return sign(payload, ACCESS_SECRET, { 
+  return sign(payload, ACCESS_SECRET, {
     expiresIn: "60m",
   });
 };

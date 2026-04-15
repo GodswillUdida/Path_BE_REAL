@@ -91,43 +91,21 @@ r.post("/reset-password", otpLimiter, authController.resetPasswordController);
 //           → server exchanges code, sets cookie, redirects to frontend
 
 r.get("/google", 
-  
-  // (req, res, next) => {
-  // // Generate CSRF state (stored in short-lived cookie)
-  // const state = crypto.randomUUID(); // or use a signed cookie
-  // res.cookie("oauth_state", state, {
-  //   httpOnly: true,
-  //   secure: process.env.NODE_ENV === "production",
-  //   sameSite: "lax",
-  //   maxAge: 10 * 60 * 1000, // 10 minutes
-  // });
-
   passport.authenticate("google", {
     scope: ["openid", "profile", "email"],
     prompt: "select_account",
+    session:false
     // state, // ← CSRF protection
   })
     // (req, res, next);
 // }
 );
-
-// r.get(
-//   "/google/callback",
-//   passport.authenticate("google", {
-//     session: false,
-//     failureRedirect: `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
-//   }),
-//   authController.googleCallbackController,
-// );
-
-// Temporary probe — log the exact code and state coming back from Google
-app.get(
+r.get(
   "/google/callback",
-  (req, res, next) => {
-    console.log("OAuth query params:", req.query);
-    next();
-  },
-  passport.authenticate("google", { session: false }),
+  passport.authenticate("google", {
+    session: false,
+    failureRedirect: `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
+  }),
   authController.googleCallbackController,
 );
 

@@ -8,7 +8,7 @@ import type {
   UpdateCourseInput,
   CoursePricingInput,
 } from "./course.schema";
-import redis from "../../config/redis";
+// import redis from "../../config/redis";
 
 /* -------------------- CREATE ONLINE COURSE -------------------- */
 export async function createOnlineCourse(
@@ -160,8 +160,8 @@ export async function listCourses(
 
   const cacheKey = `courses:${q ?? ""}:${tag ?? ""}:${limit}:${offset}`;
 
-  const cached = await redis.get(cacheKey);
-  if (cached) return JSON.parse(cached);
+  // const cached = await redis.get(cacheKey);
+  // if (cached) return JSON.parse(cached);
 
   const [total, courses] = await prisma.$transaction([
     prisma.course.count({ where }),
@@ -184,7 +184,7 @@ export async function listCourses(
     },
   };
 
-  await redis.set(cacheKey, JSON.stringify(result), "EX", 60);
+  // await redis.set(cacheKey, JSON.stringify(result), "EX", 60);
 
   return result;
 }

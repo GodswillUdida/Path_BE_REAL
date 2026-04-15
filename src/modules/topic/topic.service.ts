@@ -3,7 +3,7 @@ import { notFound } from "../../utils/errors";
 import crypto from "crypto";
 import { generateUniqueSlug } from "../../utils/slugify";
 import { bunnyFetch } from "../../utils/bunnyClient";
-import redis from "../../config/redis";
+// import redis from "../../config/redis";
 import logger from "../../utils/logger";
 
 const LIBRARY_ID = process.env.BUNNY_STREAM_LIBRARY_ID!;
@@ -77,11 +77,11 @@ export const generateSignedPlaybackUrl = async (
   topicId: string,
   userId: string,
 ) => {
-  const cacheKey = `topic:${topicId}`;
+  // const cacheKey = `topic:${topicId}`;
 
-  const topic = await redis.get(cacheKey);
+  // const topic = await redis.get(cacheKey);
 
-  if (!topic) {
+  // if (!topic) {
     const dbTopic = await prisma.topic.findUnique({
       where: { id: topicId },
       include: { module: true },
@@ -106,7 +106,7 @@ export const generateSignedPlaybackUrl = async (
   // if (!userHasAccess(userId, topic.module.courseId)) throw forbidden();
 
   // const urlBeta = `https://player.mediadelivery.net /play/${LIBRARY_ID}/${topic.bunnyVideoId}?token=${token}&expires=${expires}`;
-};
+// };
 
 const WEBHOOK_SECRET = process.env.BUNNY_WEBHOOK_SECRET!;
 

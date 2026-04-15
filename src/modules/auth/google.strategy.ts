@@ -1,6 +1,7 @@
-import prisma from "lib/prisma";
+import prisma from "../../lib/prisma";
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
+
 
 // Temporary — add to the top of passport.config.ts, remove after confirming
 console.log("G_ID loaded:", !!process.env.G_ID);
@@ -27,11 +28,7 @@ passport.use(
       clientID: process.env.G_ID!,
       clientSecret: process.env.G_SECRET!,
       // Never hardcode localhost — use env var for both local and prod
-      callbackURL:
-        `${process.env.BACKEND_URL}/api/v1/auth/google/callback`.replace(
-          /\/$/,
-          "",
-        ),
+      callbackURL: `${process.env.BACKEND_URL}/api/v1/auth/google/callback`.replace(/\/$/, ""),
       scope: ["openid", "profile", "email"],
       // passReqToCallback removed — not used
     },

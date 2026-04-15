@@ -1,16 +1,3 @@
-/**
- * @file auth.controller.ts
- * @description Thin HTTP adapter layer — validates input, delegates to authService,
- *              shapes the response. No business logic lives here.
- *
- * Response contract (all endpoints):
- *   Success → { success: true, ...payload }
- *   Error   → handled by the global error middleware via thrown AppError
- *
- * Cookie strategy:
- *   Refresh token is always in an httpOnly cookie.
- *   Access token is returned in the JSON body only (never in a cookie).
- */
 
 import type { Request, Response, CookieOptions } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
@@ -36,7 +23,7 @@ import {
   verifyCheckoutOtpSchema,
   verifyMagicLoginSchema,
 } from "./checkout.schema";
-import { setAuthCookies } from "./config";
+// import { setAuthCookies } from "./config";
 
 // ─── Cookie Config ────────────────────────────────────────────────────────────
 const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME ?? "access_token";
@@ -116,8 +103,51 @@ export function issueTokens(
     result.tokens.refreshToken,
     REFRESH_COOKIE_OPTIONS,
   );
-  return res.status(statusCode).json({ success: true, user: result.user });
+
+  return res.status(statusCode).json({
+    success: true,
+    user: result.user,
+  });
 }
+
+export const googleCallbackController = asyncHandler(async (req, res) => {
+  const cookieState = req.cookies.oauth_state;
+  const queryState = req.query.state as string | undefined;
+
+  // Always clear state cookie first, regardless of outcome
+  res.clearCookie("oauth_state", { ...BASE_COOKIE_OPTIONS, sameSite: "strict" });
+
+  if (!cookieState || !queryState || cookieState !== queryState) {
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/auth/login?error=invalid_state`,
+    );
+  }
+
+  // Clear the state cookie immediately
+  res.clearCookie("oauth_state");
+
+  // 1. Check if passport already populated req.user
+  const passportUser = req.user as unknown as
+    | authService.GoogleProfile
+    | undefined;
+
+  if (!passportUser) {
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
+    );
+  }
+
+  const result = await authService.processGoogleOAuth(
+    passportUser,
+    extractMeta(req),
+  );
+  issueTokens(res, result);
+
+  return res.redirect(
+    `${process.env.FRONTEND_URL}/auth/callback?status=success`,
+  );
+});
+
 
 export const registerController = asyncHandler(
   async (req: Request, res: Response) => {
@@ -170,37 +200,6 @@ export const loginController = asyncHandler(
     return issueTokens(res, result, 200);
   },
 );
-
-export const googleCallbackController = asyncHandler(async (req, res) => {
-  const cookieState = req.cookies?.oauth_state as string | undefined;
-  const queryState = req.query.state as string | undefined;
-
-  // Always clear state cookie first, regardless of outcome
-  res.clearCookie("oauth_state", { ...BASE_COOKIE_OPTIONS, sameSite: "strict" });
-
-  if (!cookieState || !queryState || cookieState !== queryState) {
-    return res.redirect(
-      `${process.env.FRONTEND_URL}/auth/login?error=invalid_state`,
-    );
-  }
-
-  const passportUser = req.user as authService.GoogleProfile | undefined;
-  if (!passportUser) {
-    return res.redirect(
-      `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
-    );
-  }
-
-  const result = await authService.processGoogleOAuth(
-    passportUser,
-    extractMeta(req),
-  );
-  issueTokens(res, result);
-
-  return res.redirect(
-    `${process.env.FRONTEND_URL}/auth/callback?status=success`,
-  );
-});
 // ─── Magic Link ───────────────────────────────────────────────────────────────
 
 export const sendMagicLoginController = asyncHandler(

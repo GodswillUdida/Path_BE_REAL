@@ -30,7 +30,7 @@ import orderRoutes from "./modules/order/order.routes";
 import paymentRoutes from "./modules/payment/payment.routes";
 import { sessionMiddleware } from "./config/session";
 // src/app.ts or server.ts
-import "./modules/auth/google.strategy";
+// import "./modules/auth/google.strategy";
 
 const app: Application = express();
 const isProduction = process.env.NODE_ENV === "production";

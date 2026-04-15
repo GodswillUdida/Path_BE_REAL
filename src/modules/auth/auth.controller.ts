@@ -45,27 +45,39 @@ const isProd = process.env.NODE_ENV === "production";
 
 const BASE_COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
-  secure: true,
+  secure: isProd,
   sameSite: "lax",
   path: "/",
-  ...(isProd && { domain: process.env.COOKIE_DOMAIN }),
+  ...(isProd &&
+    process.env.COOKIE_DOMAIN && { domain: process.env.COOKIE_DOMAIN }),
+};
+
+// State cookie uses Strict to harden CSRF surface
+const STATE_COOKIE_OPTIONS: CookieOptions = {
+  ...BASE_COOKIE_OPTIONS,
+  sameSite: "strict",
+  maxAge: 5 * 60 * 1000, // 5 min, short-lived
 };
 
 const ACCESS_COOKIE_OPTIONS: CookieOptions = {
   ...BASE_COOKIE_OPTIONS,
-  maxAge: 15 * 60 * 1000, // 15 minutes (as requested)
+  maxAge: 15 * 60 * 1000,
 };
-
 const REFRESH_COOKIE_OPTIONS: CookieOptions = {
   ...BASE_COOKIE_OPTIONS,
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
-
 // Clearing cookie
 const CLEAR_COOKIE_OPTIONS: CookieOptions = {
   ...BASE_COOKIE_OPTIONS,
   maxAge: 0,
 };
+
+export function clearAuthCookies(res: Response): void {
+  const clear: CookieOptions = { ...BASE_COOKIE_OPTIONS, maxAge: 0 };
+  res.clearCookie("access_token", clear);
+  res.clearCookie("refresh_token", clear);
+}
 
 const sendAuthResponse = (
   res: Response,
@@ -92,26 +104,19 @@ function extractMeta(req: Request): authService.RequestMeta {
   };
 }
 
-export function issueTokenResponse(
+
+export function issueTokens(
   res: Response,
   result: authService.AuthResult,
   statusCode = 200,
 ): Response {
-  // REFRESH_COOKIE_NAME
-
   res.cookie("access_token", result.tokens.accessToken, ACCESS_COOKIE_OPTIONS);
-
   res.cookie(
     "refresh_token",
     result.tokens.refreshToken,
     REFRESH_COOKIE_OPTIONS,
   );
-
-  return res.status(statusCode).json({
-    success: true,
-    accessToken: result.tokens.accessToken,
-    user: result.user,
-  });
+  return res.status(statusCode).json({ success: true, user: result.user });
 }
 
 export const registerController = asyncHandler(
@@ -136,7 +141,7 @@ export const verifyEmailController = asyncHandler(
       extractMeta(req),
     );
 
-    issueTokenResponse(res, verifiedUser, 200);
+    issueTokens(res, verifiedUser, 200);
   },
 );
 
@@ -162,77 +167,36 @@ export const loginController = asyncHandler(
       extractMeta(req),
     );
 
-    return issueTokenResponse(res, result, 200);
+    return issueTokens(res, result, 200);
   },
 );
 
 export const googleCallbackController = asyncHandler(async (req, res) => {
-
-  const cookieState = req.cookies.oauth_state;
+  const cookieState = req.cookies?.oauth_state as string | undefined;
   const queryState = req.query.state as string | undefined;
 
-  if (!cookieState || cookieState !== queryState) {
+  // Always clear state cookie first, regardless of outcome
+  res.clearCookie("oauth_state", { ...BASE_COOKIE_OPTIONS, sameSite: "strict" });
+
+  if (!cookieState || !queryState || cookieState !== queryState) {
     return res.redirect(
       `${process.env.FRONTEND_URL}/auth/login?error=invalid_state`,
     );
   }
 
-  // Clear the state cookie immediately
-  res.clearCookie("oauth_state");
-
-
-  // 1. Check if passport already populated req.user
-  const passportUser = req.user as unknown as
-    | authService.GoogleProfile
-    | undefined;
-
+  const passportUser = req.user as authService.GoogleProfile | undefined;
   if (!passportUser) {
     return res.redirect(
       `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
     );
   }
 
-  const meta = extractMeta(req);
+  const result = await authService.processGoogleOAuth(
+    passportUser,
+    extractMeta(req),
+  );
+  issueTokens(res, result);
 
-  // ← THIS IS THE CORE NEW LOGIC YOU ASKED FOR
-  const result = await authService.processGoogleOAuth(passportUser, meta);
-
-  // Set secure cookies server-side
-  setAuthCookies(res, result.tokens);
-
-  // 2. Fallback: If no passport, handle via authorization code from query
-  // if (!user && req.query.code) {
-  //   const result = await authService.handleGoogleCallback(
-  //     req.query.code as string,
-  //     extractMeta(req),
-  //   );
-  //   return sendAuthResponse(res, result);
-  // }
-
-  // if (!user) {
-  //   return res.redirect(
-  //     `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
-  //   );
-  // }
-
-  // if (user.provider !== "google") {
-
-  // }
-
-  // const result = await authService.createSessionAndTokens(
-  //   user,
-  //   extractMeta(req),
-  // );
-
-  // For OAuth redirects, we MUST set the cookie and redirect
-  // res.cookie(
-  //   REFRESH_COOKIE_NAME,
-  //   result.tokens.refreshToken,
-  //   REFRESH_COOKIE_OPTIONS,
-  // );
-
-  // We append the access token as a short-lived query param or hash
-  // so the frontend can grab it and clear the URL.
   return res.redirect(
     `${process.env.FRONTEND_URL}/auth/callback?status=success`,
   );
@@ -261,7 +225,7 @@ export const sendMagicLoginController = asyncHandler(
 
 //     const result = await authService.verifyMagicLogin(email, token);
 
-//     issueTokenResponse(res, result);
+//     issueTokens(res, result);
 //   },
 // );
 
@@ -299,14 +263,14 @@ export const verifyMagicLoginController = asyncHandler(
   async (req: Request, res: Response) => {
     const { email, token } = verifyMagicLoginSchema.parse(req.body);
     const result = await authService.verifyMagicLogin(email, token);
-    return issueTokenResponse(res, result, 200); // sets cookies + returns accessToken
+    return issueTokens(res, result, 200); // sets cookies + returns accessToken
   },
 );
 
 // export const verifyMagicLoginController = asyncHandler(async (req: Request, res: Response) => {
 //   const { email, token } = verifyMagicLoginSchema.parse(req.body);
 //   const result = await authService.verifyMagicLogin(email, token);
-//   issueTokenResponse(res, result); // sets cookies + returns accessToken
+//   issueTokens(res, result); // sets cookies + returns accessToken
 // });
 
 // ─── Guest Login ──────────────────────────────────────────────────────────────
@@ -316,7 +280,7 @@ export const verifyMagicLoginController = asyncHandler(
 //     const { email } = guestLoginSchema.parse(req.body);
 //     const result = await authService.guestLogin(email, extractMeta(req));
 
-//     issueTokenResponse(res, result);
+//     issueTokens(res, result);
 //   },
 // );
 
@@ -330,7 +294,7 @@ export const refreshTokenController = asyncHandler(
 
     const result = await authService.rotateRefreshToken(oldRefreshToken, meta);
 
-    return issueTokenResponse(res, result, 200);
+    return issueTokens(res, result, 200);
   },
 );
 

@@ -1,43 +1,45 @@
+import prisma from "lib/prisma";
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
+
+// Store only the user ID — never the entire profile object
+passport.serializeUser((user: Express.User, done) => {
+  done(null, (user as { id: string }).id);
+});
+
+passport.deserializeUser(async (id: string, done) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id } });
+    done(null, user ?? false);
+  } catch (err) {
+    done(err);
+  }
+});
 
 passport.use(
   new GoogleStrategy(
     {
       clientID: process.env.G_ID!,
       clientSecret: process.env.G_SECRET!,
-      callbackURL: `${process.env.BACKEND_URL}/api/v1/auth/google/callback`.replace(
-        /\/$/,
-        "",
-      ),
+      // Never hardcode localhost — use env var for both local and prod
+      callbackURL:
+        `${process.env.BACKEND_URL}/api/v1/auth/google/callback`.replace(
+          /\/$/,
+          "",
+        ),
       scope: ["openid", "profile", "email"],
-      passReqToCallback: true,
+      // passReqToCallback removed — not used
     },
-    async (
-      req: any,
-      accessToken: string,
-      refreshToken: string,
-      profile: any,
-      done: any,
-    ) => {
+    async (_accessToken, _refreshToken, profile, done) => {
+      // Passport strategy is a thin adapter only.
+      // All business logic lives in processGoogleOAuth.
       try {
-
-          console.log("access token:", accessToken);
-          console.log("refresh token:", refreshToken);
-          console.log("email:", profile._json.email);
-
-        return done(null, profile); // ← we handle everything in processGoogleOAuth
+        return done(null, profile);
       } catch (err) {
-        return done(err);
+        return done(err as Error);
       }
     },
   ),
 );
 
-passport.serializeUser((user, done) => {
-  return done(null, user);
-});
-
-passport.deserializeUser((user, done) => {
-  return done(null, user!);
-});
+export default passport;

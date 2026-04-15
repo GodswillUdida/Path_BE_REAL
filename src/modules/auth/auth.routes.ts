@@ -99,7 +99,7 @@ r.get("/google", (req, res, next) => {
   res.cookie("oauth_state", state, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "none",   // must be lax, not strict — cross-origin redirect won't send strict cookies
+    sameSite: "none", // must be lax, not strict — cross-origin redirect won't send strict cookies
     maxAge: 5 * 60 * 1000, // 5 minutes
     path: "/",
   });
@@ -149,7 +149,7 @@ r.post(
 );
 
 // ─── Authenticated: stateful session required ─────────────────────────────────
-//
+
 // sessionGuard validates the refresh cookie against the DB — suitable for
 // endpoints that directly modify or inspect the caller's session state.
 

@@ -111,12 +111,23 @@ r.get("/google",
 // }
 );
 
-r.get(
+// r.get(
+//   "/google/callback",
+//   passport.authenticate("google", {
+//     session: false,
+//     failureRedirect: `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
+//   }),
+//   authController.googleCallbackController,
+// );
+
+// Temporary probe — log the exact code and state coming back from Google
+app.get(
   "/google/callback",
-  passport.authenticate("google", {
-    session: false,
-    failureRedirect: `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
-  }),
+  (req, res, next) => {
+    console.log("OAuth query params:", req.query);
+    next();
+  },
+  passport.authenticate("google", { session: false }),
   authController.googleCallbackController,
 );
 

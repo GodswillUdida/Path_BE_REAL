@@ -11,7 +11,7 @@ if (!fs.existsSync(logDir)) {
 const isProduction = process.env.NODE_ENV === 'production';
 
 const logger = winston.createLogger({
-  level: isProduction ? 'info' : 'debug',
+  level: isProduction ? 'debug' : 'debug',
   format: winston.format.combine(
     winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
     winston.format.errors({ stack: true }), // log full stack traces
@@ -33,7 +33,7 @@ const logger = winston.createLogger({
 });
 
 // Add console logs in dev environment
-if (!isProduction) {
+if (isProduction) {
   logger.add(
     new winston.transports.Console({
       format: winston.format.combine(

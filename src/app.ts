@@ -9,7 +9,6 @@ import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import { join } from "path";
-import passport from "passport";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
 import { corsOptions } from "./middleware/cors";
@@ -25,10 +24,6 @@ import topicRoutes from "./modules/topic/topic.routes";
 import enrollmentRoutes from "./modules/enrollment/enrollment.routes";
 import orderRoutes from "./modules/order/order.routes";
 import paymentRoutes from "./modules/payment/payment.routes";
-// import session from "express-session";
-// import { sessionMiddleware } from "./config/session";
-// src/app.ts or server.ts
-// import "./modules/auth/google.strategy";
 
 const app: Application = express();
 const isProduction = process.env.NODE_ENV === "production";
@@ -61,26 +56,8 @@ app.use(
 
 app.use(cookieParser());
 
-// app.use(sessionMiddleware);
-
-// app.use(
-//   session({
-//     secret: "your-secret",
-//     resave: false,
-//     saveUninitialized: false,
-//   }),
-// );
-
-
-// app.use(
-//   cookie({
-//     name: "session",
-//     keys: ["key1", "key2"],
-//     maxAge: 24 * 60 * 60 * 1000,
-//   }),
-// );
-app.use(passport.initialize());
-app.use(passport.session());
+// app.use(passport.initialize());
+// app.use(passport.session());
 
 /* -------------------------------------------------------------------------- */
 /*                               RATE LIMITING                                */

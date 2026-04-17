@@ -6,7 +6,7 @@ import {
   ListModulesQuery,
   UpdateModuleInput,
 } from "./module.schema";
-import redis from "../../config/redis";
+// import redis from "../../config/redis";
 
 interface CreateModuleInput {
   title: string;
@@ -112,7 +112,7 @@ export const updateModule = async (id: string, data: UpdateModuleInput) => {
   });
 
   // Invalidate cache for course modules
-  await redis.del(`modules:${existing.courseId}:*`);
+  // await redis.del(`modules:${existing.courseId}:*`);
 
   return updated;
 };
@@ -127,7 +127,7 @@ export const deleteModule = async (id: string) => {
   });
 
   // Invalidate cache for course modules
-  await redis.del(`modules:${existing.courseId}:*`);
+  // await redis.del(`modules:${existing.courseId}:*`);
 
   return true;
 };

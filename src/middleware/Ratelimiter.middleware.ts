@@ -1,6 +1,5 @@
 import rateLimit from "express-rate-limit";
-import RedisStore from "express-rate-limit";
-import {  } from "../config/redis"; // adjust path
+// import RedisStore from "express-rate-limit";
 
 /**
  * Strict limiter for sensitive auth endpoints (login, OTP, password reset).

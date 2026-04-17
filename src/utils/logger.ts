@@ -33,7 +33,7 @@ const logger = winston.createLogger({
 });
 
 // Add console logs in dev environment
-if (isProduction) {
+// if (isProduction) {
   logger.add(
     new winston.transports.Console({
       format: winston.format.combine(
@@ -45,6 +45,6 @@ if (isProduction) {
       ),
     })
   );
-}
+// }
 
 export default logger;

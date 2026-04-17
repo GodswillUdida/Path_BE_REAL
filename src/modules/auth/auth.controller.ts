@@ -33,7 +33,7 @@ const isProd = process.env.NODE_ENV === "production";
 const BASE_COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
   secure: isProd,
-  sameSite: "lax",
+  sameSite: "none",
   path: "/",
   ...(isProd &&
     process.env.COOKIE_DOMAIN && { domain: process.env.COOKIE_DOMAIN }),
@@ -42,7 +42,7 @@ const BASE_COOKIE_OPTIONS: CookieOptions = {
 // State cookie uses Strict to harden CSRF surface
 const STATE_COOKIE_OPTIONS: CookieOptions = {
   ...BASE_COOKIE_OPTIONS,
-  sameSite: "strict",
+  sameSite: "none",
   maxAge: 5 * 60 * 1000, // 5 min, short-lived
 };
 

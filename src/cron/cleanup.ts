@@ -1,4 +1,4 @@
-import prisma from "../config/db";
+import prisma from "../lib/prisma";
 
 // src/cron/cleanup.ts - Run daily
 export const cleanupExpired = async () => {

@@ -1,9 +1,9 @@
 import { OAuth2Client } from "google-auth-library";
-import prisma from "../../config/db";
 import { AuthResult, createSessionAndTokens } from "./auth.service";
 import { badRequest } from "../../utils/errors";
 import { hashPassword } from "../../utils/hash";
 import { randomBytes } from "crypto";
+import prisma from "../../lib/prisma";
 
 const client = new OAuth2Client(process.env.G_ID);
 

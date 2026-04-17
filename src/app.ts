@@ -1,8 +1,5 @@
 import express, {
   Application,
-  Request,
-  Response,
-  NextFunction,
   json,
 } from "express";
 import cors from "cors";
@@ -28,7 +25,7 @@ import topicRoutes from "./modules/topic/topic.routes";
 import enrollmentRoutes from "./modules/enrollment/enrollment.routes";
 import orderRoutes from "./modules/order/order.routes";
 import paymentRoutes from "./modules/payment/payment.routes";
-import session from "express-session";
+// import session from "express-session";
 // import { sessionMiddleware } from "./config/session";
 // src/app.ts or server.ts
 // import "./modules/auth/google.strategy";
@@ -66,13 +63,13 @@ app.use(cookieParser());
 
 // app.use(sessionMiddleware);
 
-app.use(
-  session({
-    secret: "your-secret",
-    resave: false,
-    saveUninitialized: false,
-  }),
-);
+// app.use(
+//   session({
+//     secret: "your-secret",
+//     resave: false,
+//     saveUninitialized: false,
+//   }),
+// );
 
 
 // app.use(

@@ -1,9 +1,10 @@
 import { OAuth2Client } from "google-auth-library";
-import { AuthResult, createSessionAndTokens } from "./auth.service";
 import { badRequest } from "../../utils/errors";
 import { hashPassword } from "../../utils/hash";
 import { randomBytes } from "crypto";
 import prisma from "../../lib/prisma";
+import { AuthResult } from "./types";
+import { createSessionAndTokens } from "./auth.service";
 
 const client = new OAuth2Client(process.env.G_ID);
 

@@ -22,7 +22,6 @@
 
 import crypto from "crypto";
 import prisma from "../../lib/prisma";
-import { Role } from "@prisma/client";
 import {
   hashPassword,
   hashToken,

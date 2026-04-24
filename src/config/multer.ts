@@ -45,7 +45,7 @@ import multer, { FileFilterCallback } from "multer";
 import { Request } from "express";
 
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
 
 export const uploadImage = multer({
   storage: multer.memoryStorage(),
@@ -61,6 +61,41 @@ export const uploadImage = multer({
       );
     }
     cb(null, true);
+  },
+});
+
+export const uploadMultipleImages = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE },
+  fileFilter: (
+    _req: Request,
+    file: Express.Multer.File,
+    cb: FileFilterCallback
+  ) => {
+    if (!file.mimetype.startsWith("image/")) {
+      return cb(
+        new Error("Only image files (jpeg, png, webp, gif) are allowed")
+      );
+    }
+    cb(null, true);
+  },
+});
+
+export const uploadVideo = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB for videos
+  fileFilter: (
+    _req: Request,
+    file: Express.Multer.File,
+    cb: FileFilterCallback
+  ) => {
+    if (!file.mimetype.startsWith("video/")) {
+      return cb(
+        new Error("Only video files (mp4, webm, avi) are allowed")
+      );
+    }
+    cb(null, true);
+
   },
 });
 

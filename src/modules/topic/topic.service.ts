@@ -1,111 +1,206 @@
 import prisma from "../../lib/prisma";
-import { notFound } from "../../utils/errors";
+import { forbidden, notFound } from "../../utils/errors";
 import crypto from "crypto";
 import { generateUniqueSlug } from "../../utils/slugify";
-import { bunnyFetch } from "../../utils/bunnyClient";
-// import redis from "../../config/redis";
-import logger from "../../utils/logger";
+import { CreateTopicInput } from "./topic.schema";
+import { withRetry } from "../../utils/retry";
+
+type BunnyVideoResponse = {
+  guid: string;
+  title: string;
+};
+
+function userHasAccess(userId: string, courseId: string): boolean {
+  // TODO: Implement actual access control logic
+  return true;
+}
+
 
 const LIBRARY_ID = process.env.BUNNY_STREAM_LIBRARY_ID!;
 const API_KEY = process.env.BUNNY_STREAM_API_KEY!;
 const SIGNING_KEY = process.env.BUNNY_STREAM_SIGNING_KEY!;
 
-export const createTopic = async (
-  moduleId: string,
-  data: {
-    title: string;
-    resources?: string[];
-  },
-) => {
-  const module = await prisma.module.findUnique({
-    where: { id: moduleId },
-  });
-  if (!module) throw notFound("Module not found");
-
-  const slug = await generateUniqueSlug(data.title, "topic");
-
-  /* Create Bunny video */
-  const bunnyRes = await fetch(
+async function createBunnyVideo(title: string) {
+  const res = await fetch(
     `https://video.bunnycdn.com/library/${LIBRARY_ID}/videos`,
     {
       method: "POST",
       headers: {
         AccessKey: API_KEY,
-        accept: "application/json",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        title: data.title,
-      }),
-    },
+      body: JSON.stringify({ title }),
+    }
   );
 
-  const bunnyVideo = await bunnyRes.json();
+  if (!res.ok) {
+    throw new Error(`Bunny server error: ${res.status}`);
+  }
+
+  const data: BunnyVideoResponse = await res.json();
+
+  if (!data?.guid) {
+    throw new Error("Invalid Bunny response");
+  }
+
+  return data;
+}
+
+export async function uploadVideoToBunny(
+  videoId: string,
+  buffer: Buffer,
+) {
+  return withRetry(async () => {
+    const res = await fetch(
+      `https://video.bunnycdn.com/library/${LIBRARY_ID}/videos/${videoId}`,
+      {
+        method: "PUT",
+        headers: {
+          AccessKey: API_KEY,
+          "Content-Type": "application/octet-stream",
+        },
+        body: new Uint8Array(buffer),
+      }
+    );
+
+    if (res.status >= 400 && res.status < 500) {
+      const text = await res.text();
+      throw new Error(`Upload failed (client): ${text}`);
+    }
+
+    if (!res.ok) {
+      throw new Error(`Upload failed (server): ${res.status}`);
+    }
+
+    return true;
+  });
+}
+
+async function safeDeleteBunnyVideo(videoId: string) {
+  try {
+    await fetch(
+      `https://video.bunnycdn.com/library/${LIBRARY_ID}/videos/${videoId}`,
+      {
+        method: "DELETE",
+        headers: { AccessKey: API_KEY },
+      }
+    );
+  } catch {
+    // swallow error (best effort cleanup)
+  }
+}
+
+export const createTopic = async (
+  moduleId: string,
+  data: CreateTopicInput,
+  file: Express.Multer.File,
+  idempotencyKey?: string
+
+) => {
+  /* ---- IDEMPOTENCY CHECK (CRITICAL) ---- */
+  if (idempotencyKey) {
+    const existing = await prisma.topic.findFirst({
+      where: { idempotencyKey },
+    });
+    if (existing) return existing;
+  }
+
+  const module = await prisma.module.findUnique({
+    where: { id: moduleId },
+    select: { id: true },
+  });
+
+  if (!module) throw notFound("Module not found");
+
+  const slug = await generateUniqueSlug(data.title, "topic");
+
+  /* ---- CREATE BUNNY VIDEO (CRITICAL STEP) ---- */
+  const { guid } = await createBunnyVideo(data.title);
+
+  try {
+    // 3. Upload video (with retry)
+    await uploadVideoToBunny(guid, file.buffer);
+  } catch (err) {
+    // 🔥 cleanup (VERY IMPORTANT)
+    await safeDeleteBunnyVideo(guid);
+    throw err;
+  }
 
   const topic = await prisma.topic.create({
     data: {
       title: data.title,
       slug,
-      resources: data.resources ?? [],
-      bunnyVideoId: bunnyVideo.guid,
       moduleId,
-      videoStatus: "created",
+      resources: data.resources ?? [],
+      bunnyVideoId: guid,
+      videoStatus: "uploaded",
+      idempotencyKey: idempotencyKey ?? null,
     },
   });
 
-  // await prisma.$transaction(async (tx) => {
-  //   const topic = await tx.topic.create({
-  //     data: {
-  //       title: data.title,
-  //       slug,
-  //       resources: data.resources ?? [],
-  //       bunnyVideoId: bunnyVideo.guid,
-  //       moduleId,
-  //       videoStatus: "created",
-  //     },
-  //   });
+  console.log("Uploading video to Bunny", {
+    videoId: guid,
+    size: file.buffer.length,
+  });
 
-  return {
-    topic,
-    uploadEndpoint: `https://video.bunnycdn.com/library/${LIBRARY_ID}/videos/${bunnyVideo.guid}`,
-    videoId: bunnyVideo.guid,
-  };
+  return topic;
+  //  {
+  //   topic,
+  //   uploadEndpoint: `https://video.bunnycdn.com/library/${LIBRARY_ID}/videos/${guid}`,
+  // };
+
 };
 
 /* ---------------- SIGNED PLAYBACK ---------------- */
 export const generateSignedPlaybackUrl = async (
   topicId: string,
-  userId: string,
+  userId?: string,
+  ip?: string
 ) => {
-  // const cacheKey = `topic:${topicId}`;
 
-  // const topic = await redis.get(cacheKey);
+  const topic = await prisma.topic.findUnique({
+    where: { id: topicId },
+    include: {
+      module: {
+       include: {
+          course: true,
+       },
+      },
+    },
+    // select: {
+    //   bunnyVideoId: true,
+    //   deletedAt: true,
+    // },
+  });
 
-  // if (!topic) {
-    const dbTopic = await prisma.topic.findUnique({
-      where: { id: topicId },
-      include: { module: true },
-    });
 
-    if (!dbTopic || dbTopic.deletedAt) throw notFound("Topic not found");
-    if (!dbTopic.bunnyVideoId) throw notFound("Video not attached");
+  if (!topic || topic.deletedAt) throw notFound("Topic not found");
+  if (!topic.bunnyVideoId) throw notFound("Video not ready");
 
-    const expires = Math.floor(Date.now() / 1000) + 60 * 60;
-
-    const token = crypto
-      .createHmac("sha256", SIGNING_KEY)
-      .update(`${dbTopic.bunnyVideoId}${expires}`)
-      .digest("hex");
-
-    // await redis.set(cacheKey, JSON.stringify(dbTopic), "EX", 300);
-    const url = `https://iframe.mediadelivery.net/play/${LIBRARY_ID}/${dbTopic.bunnyVideoId}?token=${token}&expires=${expires}`;
-    return url;
+    if (!userHasAccess(userId as string, topic.module.courseId)) {
+    throw forbidden("No access to this course");
   }
 
-  // TODO: Replace with real enrollment check
-  // if (!userHasAccess(userId, topic.module.courseId)) throw forbidden();
+  const expires = Math.floor(Date.now() / 1000) + 60 + 10; // 10 mins
 
-  // const urlBeta = `https://player.mediadelivery.net /play/${LIBRARY_ID}/${topic.bunnyVideoId}?token=${token}&expires=${expires}`;
+  const path = `/${topic.bunnyVideoId}`;
+
+   const payload = `${path}${expires}${userId}${ip ?? ""}`;
+
+  const token = crypto
+    .createHmac("sha256", SIGNING_KEY)
+    .update(payload)
+    .digest("hex");
+
+  return `https://iframe.mediadelivery.net/play/${LIBRARY_ID}/${topic.bunnyVideoId}?token=${token}&expires=${expires}`;
+
+  // return `https://iframe.mediadelivery.net/play/${LIBRARY_ID}/${topic.bunnyVideoId}?token=${token}&expires=${expires}`;
+};
+
+// TODO: Replace with real enrollment check
+// if (!userHasAccess(userId, topic.module.courseId)) throw forbidden();
+
+// const urlBeta = `https://player.mediadelivery.net /play/${LIBRARY_ID}/${topic.bunnyVideoId}?token=${token}&expires=${expires}`;
 // };
 
 const WEBHOOK_SECRET = process.env.BUNNY_WEBHOOK_SECRET!;
@@ -119,6 +214,8 @@ export const verifyBunnyWebhookSignature = (
     .update(rawBody)
     .digest("hex");
 
+  if (computed.length !== signature.length) return false;
+
   return crypto.timingSafeEqual(Buffer.from(computed), Buffer.from(signature));
 };
 
@@ -126,12 +223,7 @@ export const verifyBunnyWebhookSignature = (
 export const handleBunnyWebhook = async (payload: any) => {
   const { VideoGuid, Status } = payload;
 
-  // logger.info("BunnyWebhook", {
-  //   videoGuid: VideoGuid,
-  //   status: Status,
-  // });
-
-  // logger.error("BunnyWebhookError", error);
+  if (!VideoGuid) return;
 
   const topic = await prisma.topic.findUnique({
     where: { bunnyVideoId: VideoGuid },
@@ -139,100 +231,58 @@ export const handleBunnyWebhook = async (payload: any) => {
 
   if (!topic) return;
 
-  // const statusMap: Record<number, string> = {
-  //   1: "uploaded",
-  //   2: "processing",
-  //   4: "ready",
-  //   5: "failed",
-  // };
+  /* ---- IDEMPOTENCY GUARD ---- */
+  // if (topic.videoStatus === "ready") return;
 
-  // const mappedStatus = statusMap[Status];
+  const statusMap: Record<number, string> = {
+    1: "uploaded",
+    2: "processing",
+    4: "ready",
+    5: "failed",
+  };
 
-  // if (!mappedStatus) return;
+  const newStatus = statusMap[Status];
 
-  // if (mappedStatus !== "ready") {
-  //   await prisma.topic.update({
-  //     where: { id: topic.id },
-  //     data: { videoStatus: mappedStatus },
-  //   });
-  //   return;
-  // }
+  if (topic.videoStatus === newStatus) return;
 
-  /* ---------------- STATUS UPDATES ---------------- */
 
-  if (Status === 1) {
+  if (!newStatus) return;
+
+  if (newStatus !== "ready") {
     await prisma.topic.update({
       where: { id: topic.id },
-      data: { videoStatus: "uploaded" },
+      data: { videoStatus: newStatus },
     });
     return;
   }
 
-  if (Status === 2) {
-    await prisma.topic.update({
-      where: { id: topic.id },
-      data: { videoStatus: "processing" },
-    });
-    return;
-  }
+  let meta = null;
 
-  if (Status === 5) {
-    await prisma.topic.update({
-      where: { id: topic.id },
-      data: { videoStatus: "failed" },
-    });
-    return;
-  }
-
-  /* ---------------- READY (FINAL STATE) ---------------- */
-
-  if (Status === 4) {
-    const response = await fetch(
+  try {
+    const res = await fetch(
       `https://video.bunnycdn.com/library/${LIBRARY_ID}/videos/${VideoGuid}`,
       {
-        method: "GET",
-        headers: {
-          AccessKey: API_KEY,
-          accept: "application/json",
-        },
-      },
+        headers: { AccessKey: API_KEY },
+      }
     );
-
-    const videoMeta = await response.json();
-    logger.info("Video Data: ", videoMeta);
-
-    if (!videoMeta || typeof videoMeta.length !== "number") {
-      throw new Error("Invalid Bunny metadata response");
-    }
-
-    /*
-      Bunny response contains:
-      videoMeta.length
-      videoMeta.storageSize
-      videoMeta.thumbnailFileName
-      videoMeta.width
-      videoMeta.height
-    */
-
-    await prisma.topic.updateMany({
-      where: {
-        id: topic.id,
-        videoStatus: { not: "ready" },
-      },
-      data: {
-        videoStatus: "ready",
-        durationSeconds: videoMeta.length ?? 0,
-        fileSizeBytes: videoMeta.storageSize,
-        videoWidth: videoMeta.width,
-        videoHeight: videoMeta.height,
-        thumbnailUrl: videoMeta.thumbnailFileName
-          ? `https://vz-${LIBRARY_ID}.b-cdn.net/${VideoGuid}/${videoMeta.thumbnailFileName}`
-          : null,
-      },
-    });
-
-    return;
+    if (res.ok) meta = await res.json();
+  } catch (err) {
+    console.error("Metadata fetch failed", err);
   }
+
+  await prisma.topic.update({
+    where: { id: topic.id },
+    data: {
+      videoStatus: "ready",
+      durationSeconds: meta.length ?? 0,
+      fileSizeBytes: meta.storageSize ?? 0,
+      videoWidth: meta.width ?? null,
+      videoHeight: meta.height ?? null,
+      thumbnailUrl: meta.thumbnailFileName
+        ? `https://vz-${LIBRARY_ID}.b-cdn.net/${VideoGuid}/${meta.thumbnailFileName}`
+        : null,
+    },
+  });
 };
 
 export const listTopicsForModule = async (moduleId: string) => {
@@ -255,6 +305,13 @@ export const updateTopic = async (
 };
 
 export const deleteTopic = async (id: string) => {
-  await prisma.topic.delete({ where: { id } });
+  const existing = await prisma.topic.findUnique({ where: { id } });
+
+  if (!existing || existing.deletedAt) throw notFound("Topic not found");
+
+  await prisma.topic.update({
+    where: { id },
+    data: { deletedAt: new Date() }
+  });
   return true;
 };

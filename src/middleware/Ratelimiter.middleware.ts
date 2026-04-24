@@ -41,10 +41,19 @@ export const generalRateLimiter = rateLimit({
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
-//   store: redisClient
-//     ? new RedisStore({
-//         sendCommand: (...args: string[]) => redisClient.call(...args),
-//         prefix: "rl:general:",
-//       })
-//     : undefined,
+  message: {
+    success: false,
+    message: "We're receiving a lot of requests from your IP. Please try again in a little while.",
+  },
+});
+
+export const createTopicRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // limit each user to 5 topic creations per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many topic creation attempts. Please try again in a minute.",
+  },
 });

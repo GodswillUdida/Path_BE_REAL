@@ -1,5 +1,5 @@
 
-import type { Request, Response, CookieOptions } from "express";
+import type { Request, Response } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { unauthorized } from "../../utils/errors";
 import * as authService from "./auth.service";
@@ -9,9 +9,7 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   verifyEmailSchema,
-  guestLoginSchema,
   guestOtpSendSchema,
-  guestOtpVerifySchema,
   paginationSchema,
   resendVerificationEmailSchema,
   resetPasswordVerifySchema,
@@ -23,92 +21,9 @@ import {
   verifyCheckoutOtpSchema,
   verifyMagicLoginSchema,
 } from "./checkout.schema";
-// import { setAuthCookies } from "./config";
+import { ACCESS_COOKIE_NAME, CLEAR_COOKIE_OPTIONS, extractMeta, issueTokens, REFRESH_COOKIE_NAME } from "./config";
+import { GoogleProfile } from "./types";
 
-// ─── Cookie Config ────────────────────────────────────────────────────────────
-const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME ?? "access_token";
-const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME ?? "refresh_token";
-const isProd = process.env.NODE_ENV === "production";
-
-const BASE_COOKIE_OPTIONS: CookieOptions = {
-  httpOnly: true,
-  secure: isProd,
-  sameSite: "none",
-  path: "/",
-  ...(isProd &&
-    process.env.COOKIE_DOMAIN && { domain: process.env.COOKIE_DOMAIN }),
-};
-
-// State cookie uses Strict to harden CSRF surface
-const STATE_COOKIE_OPTIONS: CookieOptions = {
-  ...BASE_COOKIE_OPTIONS,
-  sameSite: "none",
-  maxAge: 5 * 60 * 1000, // 5 min, short-lived
-};
-
-const ACCESS_COOKIE_OPTIONS: CookieOptions = {
-  ...BASE_COOKIE_OPTIONS,
-  maxAge: 15 * 60 * 1000,
-};
-const REFRESH_COOKIE_OPTIONS: CookieOptions = {
-  ...BASE_COOKIE_OPTIONS,
-  maxAge: 7 * 24 * 60 * 60 * 1000,
-};
-// Clearing cookie
-const CLEAR_COOKIE_OPTIONS: CookieOptions = {
-  ...BASE_COOKIE_OPTIONS,
-  maxAge: 0,
-};
-
-export function clearAuthCookies(res: Response): void {
-  const clear: CookieOptions = { ...BASE_COOKIE_OPTIONS, maxAge: 0 };
-  res.clearCookie("access_token", clear);
-  res.clearCookie("refresh_token", clear);
-}
-
-const sendAuthResponse = (
-  res: Response,
-  result: authService.AuthResult,
-  statusCode = 200,
-) => {
-  res.cookie(REFRESH_COOKIE_NAME, result.tokens.refreshToken, {
-    ...BASE_COOKIE_OPTIONS,
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 Days
-  });
-
-  return res.status(statusCode).json({
-    success: true,
-    accessToken: result.tokens.accessToken, // Access token stays in body
-    user: result.user,
-  });
-};
-
-function extractMeta(req: Request): authService.RequestMeta {
-  return {
-    userAgent: req.headers["user-agent"],
-    ipAddress: req.ip,
-    fingerprint: req.headers["x-device-fingerprint"] as string | undefined,
-  };
-}
-
-
-export function issueTokens(
-  res: Response,
-  result: authService.AuthResult,
-  statusCode = 200,
-): Response {
-  res.cookie("access_token", result.tokens.accessToken, ACCESS_COOKIE_OPTIONS);
-  res.cookie(
-    "refresh_token",
-    result.tokens.refreshToken,
-    REFRESH_COOKIE_OPTIONS,
-  );
-
-  return res.status(statusCode).json({
-    success: true,
-    user: result.user,
-  });
-}
 
 export const googleCallbackController = asyncHandler(async (req, res) => {
   const cookieState = req.cookies.oauth_state;
@@ -130,7 +45,7 @@ export const googleCallbackController = asyncHandler(async (req, res) => {
 
   // 1. Check if passport already populated req.user
   const passportUser = req.user as unknown as
-    | authService.GoogleProfile
+    | GoogleProfile
     | undefined;
 
   if (!passportUser) {
@@ -215,26 +130,11 @@ export const sendMagicLoginController = asyncHandler(
   },
 );
 
-// export const verifyMagicLoginController = asyncHandler(
-//   async (req: Request, res: Response) => {
-//     const { email, token } = req.body as { email?: string; token?: string };
-
-//     // Manual guard: these two fields don't have a dedicated schema yet.
-//     if (!email || !token) {
-//       throw unauthorized("email and token are required");
-//     }
-
-//     const result = await authService.verifyMagicLogin(email, token);
-
-//     issueTokens(res, result);
-//   },
-// );
-
 // ─── Guest OTP ────────────────────────────────────────────────────────────────
 
 export const sendCheckoutOtpController = asyncHandler(
   async (req: Request, res: Response) => {
-    const userId = (req as any).user?.id  ?? null; // authGuard is optional on this route
+    const userId = (req as any).user?.id ?? null; // authGuard is optional on this route
     const { email } = sendCheckoutOtpSchema.parse(req.body);
     const result = await authService.sendCheckoutOtp(email, userId);
     res.status(200).json({ success: true, ...result });
@@ -269,30 +169,12 @@ export const verifyMagicLoginController = asyncHandler(
   },
 );
 
-// export const verifyMagicLoginController = asyncHandler(async (req: Request, res: Response) => {
-//   const { email, token } = verifyMagicLoginSchema.parse(req.body);
-//   const result = await authService.verifyMagicLogin(email, token);
-//   issueTokens(res, result); // sets cookies + returns accessToken
-// });
-
-// ─── Guest Login ──────────────────────────────────────────────────────────────
-
-// export const guestLoginController = asyncHandler(
-//   async (req: Request, res: Response) => {
-//     const { email } = guestLoginSchema.parse(req.body);
-//     const result = await authService.guestLogin(email, extractMeta(req));
-
-//     issueTokens(res, result);
-//   },
-// );
-
 export const refreshTokenController = asyncHandler(
   async (req: Request, res: Response) => {
     const oldRefreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
     if (!oldRefreshToken) throw unauthorized("No refresh token");
 
     const meta = extractMeta(req);
-    // const result = await rotateRefreshToken(refreshToken, meta);
 
     const result = await authService.rotateRefreshToken(oldRefreshToken, meta);
 
@@ -319,15 +201,6 @@ export const logoutController = asyncHandler(
         // Invalid token → just clear cookies
       }
     }
-
-    // const tokenId = req.user?.tokenId;
-    // if (tokenId) {
-    //   await authService.logout(tokenId).catch(() => {
-    //     // Non-fatal: session may have already expired; cookie is cleared regardless.
-    //   });
-    // }
-
-    // res.clearCookie(REFRESH_COOKIE_NAME, CLEAR_COOKIE_OPTIONS);
     res.cookie(ACCESS_COOKIE_NAME, "", CLEAR_COOKIE_OPTIONS);
     res.cookie(REFRESH_COOKIE_NAME, "", CLEAR_COOKIE_OPTIONS);
     res.status(200).json({ success: true, message: "Logged out successfully" });
@@ -346,7 +219,7 @@ export const logoutAllController = asyncHandler(
 
     return res.status(200).json({
       success: true,
-      message: "Logged out from all devices",
+      message: "Logged out from all devices successfully",
     });
   },
 );
@@ -420,7 +293,7 @@ export const verifyPasswordResetTokenController = asyncHandler(
 
     res.status(200).json({
       success: true,
-      valid: isValid,
+      // valid: isValid,
       message: isValid ? "Token is valid" : "Token is invalid or expired",
     });
   },

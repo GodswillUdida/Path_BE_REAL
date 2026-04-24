@@ -33,18 +33,6 @@ export const createModuleController = asyncHandler(
       courseId,
     });
 
-    // const moduleInput = {
-    //   ...req.body,
-    //   courseId: req.params.courseId,
-    // };
-
-    // const parsed = createModuleSchema.parse(module);
-
-    // Attach courseId from URL params
-    // const courseId = req.params.courseId;
-
-    // const module = await svc.createModule(parsed);
-    
     res.status(201).json({
       success: true,
       message: "Module created successfully",
@@ -75,12 +63,6 @@ export const listModulesController = asyncHandler(
 
 export const updateModuleController = asyncHandler(
   async (req: Request, res: Response) => {
-    // const body = updateModuleSchema.parse(req.body);
-    // const updated = await svc.updateModule(req.params.id, {
-    //   description: body.description ?? undefined,
-    // });
-    // res.json({ success: true, module: updated });
-
     const parsed = updateModuleSchema.parse(req.body);
     const updated = await svc.updateModule(req.params.id as string, parsed);
     res.json({ success: true, data: updated });

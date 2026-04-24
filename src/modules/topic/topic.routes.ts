@@ -2,25 +2,31 @@ import { raw, Router } from "express";
 import * as ctrl from "./topic.controller";
 import { authGuard } from "../../middleware/authGuard";
 import { roleGuard } from "../../middleware/roleGuard";
+import { createTopicRateLimiter } from "../../middleware/Ratelimiter.middleware";
+import { uploadVideo } from "../../config/multer";
 
 const r = Router({ mergeParams: true });
 
 // Public: list topics for a module
-r.get("/module/:moduleId", ctrl.listTopicsController);
+r.get("/:moduleId", ctrl.listTopicsController);
 
 // Admin / instructor
 r.post(
   "/:moduleId",
+  createTopicRateLimiter,
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
+  uploadVideo.single("video"),
   ctrl.createTopicController,
 );
+
 r.patch(
   "/:id",
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
   ctrl.updateTopicController
 );
+
 r.delete(
   "/:id",
   authGuard,

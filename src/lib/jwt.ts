@@ -1,5 +1,3 @@
-import * as dotenv from "dotenv";
-dotenv.config();
 import { sign, verify } from "jsonwebtoken";
 
 export type AccessTokenPayload = {
@@ -25,7 +23,7 @@ if (!ACCESS_SECRET || !REFRESH_SECRET) {
 
 export const signAccessToken = (payload: object) => {
   return sign(payload, ACCESS_SECRET, {
-    expiresIn: "60m",
+    expiresIn: "24h",
   });
 };
 

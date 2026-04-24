@@ -3,6 +3,8 @@ import * as ctrl from "./course.controller";
 import { authGuard } from "../../middleware/authGuard";
 import { roleGuard } from "../../middleware/roleGuard";
 import uploadImage from "../../config/multer";
+import { generalRateLimiter } from "../../middleware/Ratelimiter.middleware";
+
 
 const r = Router();
 
@@ -13,13 +15,17 @@ const r = Router();
  */
 
 // List courses (cached)
-r.get("/", ctrl.listCoursesController);
+r.get("/",
+  generalRateLimiter,
+  ctrl.listCoursesController);
 
 // Get single course by ID
-r.get("/:id", ctrl.getCourseController);
+r.get("/:id",
+  generalRateLimiter,
+  ctrl.getCourseController);
 
 // Get by slug (program + course)
-r.get("/:programSlug/:courseSlug", ctrl.getCourseBySlugController);
+r.get("/:programSlug/:courseSlug", generalRateLimiter, ctrl.getCourseBySlugController);
 
 /**
  * --------------------------------
@@ -30,6 +36,7 @@ r.get("/:programSlug/:courseSlug", ctrl.getCourseBySlugController);
 // Create course (unified)
 r.post(
   "/:programId",
+  generalRateLimiter,
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
   uploadImage.single("thumbnail"),
@@ -39,6 +46,7 @@ r.post(
 // Update
 r.patch(
   "/:id",
+  generalRateLimiter,
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
   uploadImage.single("thumbnail"),
@@ -48,6 +56,7 @@ r.patch(
 // Soft delete
 r.delete(
   "/:id",
+  generalRateLimiter,
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
   ctrl.deleteCourseController,
@@ -56,6 +65,7 @@ r.delete(
 // Course analytics
 r.get(
   "/:id/analytics",
+  generalRateLimiter,
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
   ctrl.courseAnalyticsController,

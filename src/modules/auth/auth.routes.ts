@@ -25,6 +25,7 @@ import { sessionGuard } from "../../middleware/sessionGuard";
 import { roleGuard } from "../../middleware/roleGuard";
 import passport from "../auth/google.strategy";
 import crypto from "crypto";
+import { generalRateLimiter } from "../../middleware/Ratelimiter.middleware";
 
 const r = Router();
 
@@ -166,6 +167,7 @@ r.delete("/sessions/:id", sessionGuard, authController.revokeSessionController);
 
 r.get(
   "/users",
+  generalRateLimiter,
   authGuard,
   roleGuard("admin", "superadmin"),
   authController.getAllUsersController,

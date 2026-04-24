@@ -8,79 +8,83 @@ import type {
   UpdateCourseInput,
   CoursePricingInput,
 } from "./course.schema";
+import { withMetrics } from "../../utils/observability";
+import { resolveThumbnail } from "../../utils/file";
 // import redis from "../../config/redis";
 
-/* -------------------- CREATE ONLINE COURSE -------------------- */
-export async function createOnlineCourse(
-  data: CreateCourseInput,
-  adminId: string,
-  fileBuffer?: Buffer,
-  fileMime?: string,
-) {
-  if (data.type !== "online")
-    throw badRequest("Only online courses allowed here");
+type CreateCourseParams = {
+  data: CreateCourseInput;
+  instructorId: string;
+  file?: Express.Multer.File;
+};
 
-  // Fetch program if assigned
-  const program = data.programId
-    ? await prisma.program.findUnique({ where: { id: data.programId } })
-    : null;
+export async function createCourse({
+  data,
+  instructorId,
+  file,
+}: CreateCourseParams) {
+  return withMetrics("create_course", async () => {
+    return prisma.$transaction(async (tx) => {
+      /* -------------------- VALIDATE PROGRAM -------------------- */
+      if (data.programId) {
+        const program = await tx.program.findUnique({
+          where: { id: data.programId },
+          select: { id: true },
+        });
 
-  if (data.programId && !program) throw notFound("Program not found");
+        if (!program) throw notFound("Program not found");
+      }
 
-  // Handle thumbnail upload
-  let thumbnail = data.thumbnail ?? "";
-  if (fileBuffer) {
-    if (!fileMime?.startsWith("image/")) throw badRequest("Invalid image type");
-    try {
-      const uploadResult = await streamUpload(
-        fileBuffer,
-        "pathfinder/images/courses",
+      /* -------------------- HANDLE FILE -------------------- */
+      const thumbnail = await resolveThumbnail(file, data.thumbnail);
+
+      /* -------------------- GENERATE SLUG -------------------- */
+      const slug = await generateUniqueSlug(
+        data.slug ?? data.title,
+        "course",
       );
-      thumbnail = uploadResult.secure_url;
-    } catch (err) {
-      logger.error("Thumbnail upload failed", err);
-      throw badRequest("Failed to upload thumbnail");
-    }
-  } else if (!thumbnail) {
-    throw badRequest("Thumbnail is required");
-  }
 
-  // Generate unique slug
-  const slug = await generateUniqueSlug(data.slug ?? data.title, "course");
+      /* -------------------- CREATE COURSE -------------------- */
+      const course = await tx.course.create({
+        data: {
+          title: data.title,
+          description: data.description,
+          slug,
+          thumbnail,
+          videoPreview: data.videoPreview ?? null,
+          level: data.level ?? null,
+          tags: data.tags,
+          duration: data.duration ?? null,
+          status: data.status ?? "DRAFT",
+          programId: data.programId ?? null,
+          instructorId,
 
-  // Prisma create course with pricing
-  const course = await prisma.course.create({
-    data: {
-      title: data.title,
-      description: data.description,
-      slug,
-      thumbnail,
-      videoPreview: data.videoPreview ?? null,
-      level: data.level ?? null,
-      tags: data.tags,
-      duration: data.duration ?? null,
-      status: data.status ?? "DRAFT",
-      programId: data.programId ?? null,
-      instructorId: adminId,
-      // type: "online",
-      pricings: {
-        create: data.pricings.map((p: CoursePricingInput) => ({
-          name: p.name ?? null,
-          price: p.price,
-          currency: p.currency ?? "NGN",
-          durationDays: p.durationDays,
-          isActive: p.isActive ?? true,
-        })),
-      },
-    },
-    include: { pricings: true, program: true },
+          pricings: {
+            create: data.pricings.map((p) => ({
+              name: p.name ?? null,
+              price: p.price,
+              currency: p.currency ?? "NGN",
+              durationDays: p.durationDays,
+              isActive: p.isActive ?? true,
+            })),
+          },
+        },
+        include: {
+          pricings: true,
+          program: true,
+        },
+      });
+
+      return course;
+    });
   });
-
-  return course;
 }
 
 /* -------------------- GET COURSE -------------------- */
 export async function getCourse(courseId: string) {
+
+  if (!courseId) throw badRequest("Course ID is required");
+
   const course = await prisma.course.findUnique({
     where: { id: courseId },
     include: {
@@ -115,31 +119,6 @@ export async function getCourseBySlug(programSlug: string, courseSlug: string) {
 }
 
 /* -------------------- LIST COURSES -------------------- */
-// export async function listCourses(
-//   q?: string,
-//   tag?: string,
-//   type?: "online" | "physical",
-//   limit = 20,
-//   offset = 0,
-// ) {
-//   const where: any = {};
-
-//   if (q)
-//     where.OR = [
-//       { title: { contains: q, mode: "insensitive" } },
-//       { description: { contains: q, mode: "insensitive" } },
-//     ];
-//   if (tag) where.tags = { has: tag };
-//   if (type) where.type = type;
-
-//   return prisma.course.findMany({
-//     where,
-//     skip: offset,
-//     take: limit,
-//     include: { pricings: true, program: true, enrollments: true },
-//     orderBy: { createdAt: "desc" },
-//   });
-// }
 
 export async function listCourses(
   q?: string,
@@ -158,7 +137,7 @@ export async function listCourses(
 
   if (tag) where.tags = { has: tag };
 
-  const cacheKey = `courses:${q ?? ""}:${tag ?? ""}:${limit}:${offset}`;
+  // const cacheKey = `courses:${q ?? ""}:${tag ?? ""}:${limit}:${offset}`;
 
   // const cached = await redis.get(cacheKey);
   // if (cached) return JSON.parse(cached);
@@ -249,17 +228,6 @@ export async function updateCourse(
     },
     include: { program: true, pricings: true },
   });
-
-  // const updated = await prisma.course.update({
-  //   where: { id },
-  //   data: {
-  //     ...data,
-  //     slug: updatedSlug,
-  //     thumbnail,
-  //     instructorId: undefined,
-  //   },
-  //   include: { pricings: true, program: true },
-  // });
 
   return updated;
 }

@@ -333,9 +333,15 @@ export const processPaymentWebhook = async (
         update: {}, // already exists — don't overwrite anything
         create: {
           email: order.email,
-          name: order.name ?? "Student",
+          name: order.name ?? order.email.split("@")[0],
+          accounts: {
+            create: {
+              provider: "credentials",
+              providerId: order.email,
+              password: await hashPassword(crypto.randomBytes(32).toString("hex")),
+            },
+          },
           phone: order.phone ?? null,
-          password: await hashPassword(crypto.randomBytes(32).toString("hex")),
           emailVerified: true, // verified via OTP during checkout
           provider: "checkout"
         },
@@ -509,9 +515,9 @@ async function sendPostPaymentNotifications(
 
   await Promise.allSettled(
     notifiable.map((e) => {
-      const studentName = e.user!.name ?? "Student";
+      const studentName = e.user!.name ?? e.user!.email.split("@")[0];
       const studentEmail = e.user!.email;
-      const studentPhone = e.user!.phone ?? "—";
+      const studentPhone = e.user!.phone ?? "N/A"; // added phone with fallback
       const courseName = e.course.title;
       const coursePrice = Number(e.pricing.price).toLocaleString("en-NG");
       const courseDuration = `${e.pricing.durationDays} days`;

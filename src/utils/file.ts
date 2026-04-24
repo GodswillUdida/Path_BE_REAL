@@ -1,5 +1,5 @@
 // shared/utils/file.ts
-import { streamUpload } from "config/stream";
+import { streamUpload } from "../config/stream";
 import { badRequest } from "../utils/errors";
 import logger from "./logger";
 

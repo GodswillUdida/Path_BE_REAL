@@ -7,7 +7,7 @@ import {
   updateTopicSchema,
 } from "./topic.schema";
 import { asyncHandler } from "../../utils/asyncHandler";
-import { badRequest, forbidden } from "utils/errors";
+import { badRequest } from "../../utils/errors";
 
 function normalizeResources(input: unknown): string[] | undefined {
   if (!input) return undefined;

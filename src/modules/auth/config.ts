@@ -1,43 +1,109 @@
-// auth/config.ts  ← create this file
-import type { CookieOptions, Response } from "express";
+import { CookieOptions, Request, Response } from "express";
+import * as authService from "./auth.service";
+import crypto from "crypto"
+import { AuthResult, RequestMeta, SessionUser } from "./types";
+import { access } from "fs";
 
-export const COOKIE = {
-  ACCESS_NAME: process.env.ACCESS_COOKIE_NAME ?? "access_token",
-  REFRESH_NAME: process.env.REFRESH_COOKIE_NAME ?? "refresh_token",
+// Auth.Servive.ts
 
-  BASE_OPTIONS: {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
-    path: "/",
-    domain:
-      process.env.NODE_ENV === "production"
-        ? process.env.COOKIE_DOMAIN
-        : undefined,
-  } as const,
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-  ACCESS_MAX_AGE: 15 * 60 * 1000, // 15 minutes
-  REFRESH_MAX_AGE: 7 * 24 * 60 * 60 * 1000, // 7 days
+export const TTL = {
+  VERIFICATION_TOKEN: 24 * 60 * 60 * 1000, //  24 h
+  RESET_TOKEN: 1 * 60 * 60 * 1000, //   1 h
+  REFRESH_SESSION: 7 * 24 * 60 * 60 * 1000, // 7 d
+  OTP: 15 * 60 * 1000, //  15 min
 } as const;
 
-export const setAuthCookies = (
+/** Dummy bcrypt hash used for constant-time login path when user is not found. */
+export const DUMMY_HASH =
+  "$2b$12$invalidsaltthatisexactly22chars.invalidhashpadding123456";
+
+// Helper to generate 6-digit code
+export const generateOTP = (): string => {
+  return crypto.randomInt(100000, 1000000).toString();
+};
+
+export const generateMagicToken = (): string => crypto.randomBytes(32).toString("hex");
+
+export const hashOTP = (code: string): string =>
+  crypto.createHash("sha256").update(code).digest("hex");
+
+export const generateToken = (bytes = 32): string =>
+  crypto.randomBytes(bytes).toString("hex");
+
+export const toPublicUser = (user: SessionUser): Required<SessionUser> => ({
+  id: user.id,
+  name: user.name ?? "",
+  email: user.email,
+  role: user.role,
+  emailVerified: user.emailVerified,
+});
+
+
+
+
+// Auth.Controller.ts
+
+// ─── Cookie Config ────────────────────────────────────────────────────────────
+export const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME!;
+export const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME!;
+const isProd = process.env.NODE_ENV === "production";
+
+const BASE_COOKIE_OPTIONS: CookieOptions = {
+  httpOnly: true,
+  secure: isProd,
+  sameSite: "none",
+  path: "/",
+  ...(isProd &&
+    process.env.COOKIE_DOMAIN && { domain: process.env.COOKIE_DOMAIN }),
+};
+
+const ACCESS_COOKIE_OPTIONS: CookieOptions = {
+  ...BASE_COOKIE_OPTIONS,
+  maxAge: 15 * 60 * 1000,
+};
+
+export const REFRESH_COOKIE_OPTIONS: CookieOptions = {
+  ...BASE_COOKIE_OPTIONS,
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+};
+
+// Clearing cookie
+export const CLEAR_COOKIE_OPTIONS: CookieOptions = {
+  ...BASE_COOKIE_OPTIONS,
+  maxAge: 0,
+};
+
+export function clearAuthCookies(res: Response): void {
+  const clear: CookieOptions = { ...BASE_COOKIE_OPTIONS, maxAge: 0 };
+  res.clearCookie(ACCESS_COOKIE_NAME, clear);
+  res.clearCookie(REFRESH_COOKIE_NAME, clear);
+}
+
+export function extractMeta(req: Request): RequestMeta {
+  return {
+    userAgent: req.headers["user-agent"],
+    ipAddress: req.ip,
+    fingerprint: req.headers["x-device-fingerprint"] as string | undefined,
+  };
+}
+
+export function issueTokens(
   res: Response,
-  tokens: { accessToken: string; refreshToken: string },
-): void => {
-  // Refresh token – long-lived, httpOnly
-  res.cookie(COOKIE.REFRESH_NAME, tokens.refreshToken, {
-    ...COOKIE.BASE_OPTIONS,
-    maxAge: COOKIE.REFRESH_MAX_AGE,
-  });
+  result:AuthResult,
+  statusCode = 200,
+): Response {
+  res.cookie(ACCESS_COOKIE_NAME, result.tokens.accessToken, ACCESS_COOKIE_OPTIONS);
+  res.cookie(
+    REFRESH_COOKIE_NAME,
+    result.tokens.refreshToken,
+    REFRESH_COOKIE_OPTIONS,
+  );
 
-  // Access token – short-lived (optional cookie + body)
-  res.cookie(COOKIE.ACCESS_NAME, tokens.accessToken, {
-    ...COOKIE.BASE_OPTIONS,
-    maxAge: COOKIE.ACCESS_MAX_AGE,
+  return res.status(statusCode).json({
+    success: true,
+    accessToken: result.tokens.accessToken,
+    user: result.user,
   });
-};
-
-export const clearAuthCookies = (res: Response): void => {
-  res.cookie(COOKIE.ACCESS_NAME, "", { ...COOKIE.BASE_OPTIONS, maxAge: 0 });
-  res.cookie(COOKIE.REFRESH_NAME, "", { ...COOKIE.BASE_OPTIONS, maxAge: 0 });
-};
+}

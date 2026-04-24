@@ -7,39 +7,34 @@ import {
 } from "./course.schema";
 import { badRequest, notFound } from "../../utils/errors";
 import { asyncHandler } from "../../utils/asyncHandler";
+import { enforceIdempotency } from "../../utils/idempotency";
 
-/* -------------------- CREATE COURSE -------------------- */
+//* -------------------- CREATE COURSE -------------------- */
 export const createCourseController = asyncHandler(
   async (req: Request, res: Response) => {
+
     const { programId } = req.params;
     if (!programId) throw badRequest("programId is required");
-    // Handle pricing JSON if multipart/form-data
-    let pricings = req.body.pricings;
 
-    if (typeof pricings === "string") {
-      try {
-        pricings = JSON.parse(pricings);
-      } catch {
-        throw badRequest("Invalid pricings format");
-      }
-    }
-
-    const parsed = createCourseSchema.parse({
-      ...req.body,
-      programId,
-      pricings: req.body.pricings ? JSON.parse(req.body.pricings) : undefined,
-    });
-
-    const file = req.file;
     const instructorId = req.user?.id;
     if (!instructorId) throw badRequest("Unauthorized");
 
-    const course = await svc.createOnlineCourse(
-      parsed,
+    const parsedBody = {
+      ...req.body,
+      programId,
+      pricings:
+        typeof req.body.pricings === "string"
+          ? JSON.parse(req.body.pricings)
+          : req.body.pricings,
+    };
+
+    const parsed = createCourseSchema.parse(parsedBody);
+
+    const course = await svc.createCourse({
+      data: parsed,
       instructorId,
-      file?.buffer,
-      file?.mimetype,
-    );
+      file: req.file,
+    });
 
     return res.status(201).json({
       success: true,
@@ -50,7 +45,6 @@ export const createCourseController = asyncHandler(
 );
 
 /* -------------------- LIST COURSES -------------------- */
-
 export const listCoursesController = asyncHandler(
   async (req: Request, res: Response) => {
     const query = listCoursesQuery.parse(req.query);
@@ -132,6 +126,7 @@ export const updateCourseController = asyncHandler(
   },
 );
 
+//* -------------------- COURSE ANALYTICS -------------------- */
 export const courseAnalyticsController = asyncHandler(
   async (req: Request, res: Response) => {
     const analytics = await svc.getCourseAnalytics(req.params.id as string);

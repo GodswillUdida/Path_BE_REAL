@@ -21,19 +21,17 @@ export const baseCourseSchema = z.object({
   thumbnail: z.string().url("Invalid thumbnail URL").optional(),
   videoPreview: z.string().url("Invalid video URL").optional(),
   level: z.string().optional(),
-  tags: z.array(z.string().trim()).max(20, "Max 20 tags").default([]),
+  tags: z.array(z.string().trim()).max(10, "Max 10 tags").default([]),
   duration: z.number().int().positive().optional(),
   status: courseStatusEnum.default("DRAFT"),
   instructorId: z.string().uuid().optional(),
   programId: z.string().uuid().optional(),
 });
 
-/* -------------------- Online Course Schema -------------------- */
 export const createCourseSchema = baseCourseSchema.extend({
-  type: z.literal("online"),
   pricings: z
     .array(coursePricingSchema)
-    .min(1, "Online courses must have at least one pricing"),
+    .min(1, "Courses must have at least one pricing"),
 });
 
 /* -------------------- Update Course Schema -------------------- */

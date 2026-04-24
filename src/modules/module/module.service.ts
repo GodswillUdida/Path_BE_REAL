@@ -3,10 +3,11 @@ import prisma from "../../lib/prisma";
 import { badRequest, notFound } from "../../utils/errors";
 import {
   // CreateModuleInput,
+  // CreateModuleInput,
   ListModulesQuery,
   UpdateModuleInput,
 } from "./module.schema";
-// import redis from "../../config/redis";
+import { withMetrics } from "../../utils/observability";
 
 interface CreateModuleInput {
   title: string;
@@ -16,25 +17,32 @@ interface CreateModuleInput {
 }
 
 export const createModule = async (data: CreateModuleInput) => {
-  const course = await prisma.course.findUnique({
-    where: { id: data.courseId },
+  return withMetrics("create_module", async () => {
+    const course = await prisma.course.findUnique({
+      where: { id: data.courseId },
+      select: { id: true },
+    });
+
+    if (!course) throw notFound("Course not found");
+
+    const slug = await generateUniqueSlug(
+      data.title,
+      "module",
+    );
+
+    const mod = await prisma.module.create({
+      data: {
+        title: data.title,
+        description: data.description,
+        position: data.position,
+        slug,
+        courseId: data.courseId,
+      },
+    });
+
+
+    return mod;
   });
-  if (!course) throw notFound("Course not found");
-
-  const slug = await generateUniqueSlug(data.title, "module");
-
-  const created = await prisma.module.create({
-    data: {
-      title: data.title,
-      description: data.description ?? null,
-      position: data.position ?? 0,
-      slug,
-      courseId: data.courseId,
-    },
-    include: { topics: true },
-  });
-
-  return created;
 };
 
 export const listModulesForCourse = async (
@@ -43,7 +51,7 @@ export const listModulesForCourse = async (
 ) => {
   const { limit = 20, offset = 0 } = query ?? {};
 
-  const cacheKey = `modules:${courseId}:${limit}:${offset}`;
+  // const cacheKey = `modules:${courseId}:${limit}:${offset}`;
   // const cached = await redis.get(cacheKey);
   // if (cached) return JSON.parse(cached);
 
@@ -83,18 +91,6 @@ export const listModulesForCourse = async (
 
   return result;
 };
-
-// export const updateModule = async (
-//   id: string,
-//   data: Partial<{ title: string; description?: string }>
-// ) => {
-//   const updated = await prisma.module.update({
-//     where: { id },
-//     data,
-//     include: { topics: true },
-//   });
-//   return updated;
-// };
 
 export const updateModule = async (id: string, data: UpdateModuleInput) => {
   const existing = await prisma.module.findUnique({ where: { id } });

@@ -1,38 +1,65 @@
-import { NextFunction, Request, Response } from "express";
+import { Request, Response } from "express";
 import { createProgramSchema, updateProgramSchema } from "./program.schema";
-import z from "zod";
 import * as svc from "./program.service";
 import { asyncHandler } from "../../utils/asyncHandler";
+import { enforceIdempotency } from "../../utils/idempotency";
 
 export const createProgramController = asyncHandler(
   async (req: Request, res: Response) => {
+    const existing = await enforceIdempotency(
+      req.headers["idempotency-key"] as string,
+      "create_program",
+    );
+
+    if (existing?.response) {
+      return res.status(existing.statusCode!).json(existing.response);
+    }
+
+
+
     const body = createProgramSchema.parse(req.body);
+
     const program = await svc.createProgram(body);
 
     res.status(201).json({
       success: true,
-      message: "Program created successfully",
       program,
     });
+
+    // await prisma.idempotencyKey.update({
+    //   where: {
+    //     key_scope: { key, scope: "create_program" },
+    //   },
+    //   data: {
+    //     response: result,
+    //     statusCode: 201,
+    //   },
+    // });
   },
 );
 
 export const createCourseFromProgramController = asyncHandler(
   async (req: Request, res: Response) => {
-    const { programId } = req.params;
+    const { programId } = req.params as { programId: string };
+
+    const payload = {
+      ...req.body,
+      pricings:
+        typeof req.body.pricings === "string"
+          ? JSON.parse(req.body.pricings)
+          : req.body.pricings,
+    };
 
     const course = await svc.createCourseFromProgramId({
-      programId: programId as string,
-      type: req.body.type,
-      payload: req.body,
+      programId,
+      payload,
       adminId: req.user!.id,
-      fileBuffer: req.file?.buffer,
-      fileMime: req.file?.mimetype,
+      file: req.file,
     });
+    
 
     res.status(201).json({
       success: true,
-      message: "Course created successfully",
       course,
     });
   },
@@ -61,13 +88,6 @@ export const getProgramController = asyncHandler(async (req: Request, res: Respo
 
 export const getProgramBySlugController = asyncHandler(
   async (req: Request, res: Response) => {
-    // const slugSchema = z.object({
-    //   slug: z
-    //     .string()
-    //     .min(1)
-    //     .max(255)
-    //     .regex(/^[a-z0-9-]+$/i, "Invalid slug format"),
-    // });
     const { slug } = req.params;
 
     const program = await svc.getProgramBySlug(slug as string);

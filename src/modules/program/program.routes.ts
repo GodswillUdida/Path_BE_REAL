@@ -35,7 +35,7 @@ r.post(
 
 /**
  * @swagger
- * /programs/{programId}/courses/physical:
+ * /programs/{programId}:
  *   post:
  *     summary: Create a physical course under a program
  *     tags: [Programs]
@@ -65,10 +65,10 @@ r.post(
  *       - bearerAuth: []
  */
 r.post(
-  "/:programId/courses/physical",
-  uploadImage.single("thumbnail"),
+  "/:programId",
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
+  uploadImage.single("thumbnail"),
   ctrl.createCourseFromProgramController,
 );
 

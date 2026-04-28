@@ -1,5 +1,15 @@
 import { z } from 'zod';
 
+const emailSchema = z
+  .string("Email is required.")
+  .email("Please enter a valid email address.")
+  .toLowerCase()
+  .trim();
+
+const verifiedTokenSchema = z
+  .string("Verified token is required.")
+  .min(1, "Verified token cannot be empty.");
+
 export const sendCheckoutOtpSchema = z.object({
   email: z.string().email("Invalid email"),
 });
@@ -11,8 +21,16 @@ export const verifyCheckoutOtpSchema = z.object({
 
 export const completeGuestProfileSchema = z.object({
   email: z.string().email(),
-  name: z.string().min(2).max(100),
-  phone: z.string().regex(/^\+?\d{10,15}$/, "Invalid phone number").optional(),
+  verifiedToken: verifiedTokenSchema,
+  name: z
+    .string("Name is required.")
+    .min(2, "Name must be at least 2 characters.")
+    .max(100, "Name cannot exceed 100 characters.")
+    .trim(),
+   phone: z
+    .string()
+    .regex(/^\+?[1-9]\d{6,14}$/, "Please enter a valid phone number.")
+    .optional(),
 });
 
 export const verifyMagicLoginSchema = z.object({

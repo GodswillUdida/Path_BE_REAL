@@ -13,6 +13,7 @@ if (process.env.NODE_ENV === "production" && !process.env.FRONTEND_URL) {
 // include undefined if an env var is missing
 const ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
   process.env.FRONTEND_URL,                              // Primary production URL
+  "http://localhost:3000",
   "https://accountant-pathfinder.vercel.app",
   "https://dvcyq7-3000.csb.app",
   "https://jckxpr-3000.csb.app",

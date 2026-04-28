@@ -18,7 +18,7 @@ const r = Router();
  *         application/json:
  *           schema:
  *             $ref: '#/components/schemas/CreateProgramDTO'
- *     responses:
+ *     responses: 
  *       201:
  *         description: Program created successfully
  *       400:

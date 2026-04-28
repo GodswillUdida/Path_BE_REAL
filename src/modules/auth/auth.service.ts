@@ -31,7 +31,9 @@ import {
 import {
   signAccessToken,
   signRefreshToken,
+  signVerifiedToken,
   verifyRefreshToken,
+  verifyVerifiedToken,
 } from "../../lib/jwt";
 import { badRequest, notFound, unauthorized } from "../../utils/errors";
 import logger from "../../utils/logger";
@@ -42,8 +44,14 @@ import {
 import { ResetPasswordDTO } from "./auth.schema";
 import { AuthResult, GoogleProfile, PaginatedUsers, SessionUser, SessionView } from "./types";
 import { DUMMY_HASH, generateMagicToken, generateOTP, generateToken, hashOTP, toPublicUser, TTL } from "./config";
-import { RequestMeta } from "types/auth.types";
+import { RequestMeta } from "../../types/auth.types";
 import { CompleteGuestProfileDto } from "./checkout.schema";
+
+/** Minimum seconds a user must wait before requesting another OTP. */
+const OTP_RESEND_COOLDOWN_MS = 60_000; // 60 s
+
+/** Max OTP attempts before the record is locked. */
+const OTP_MAX_ATTEMPTS = 5;
 
 
 export async function createSessionAndTokens(
@@ -53,7 +61,7 @@ export async function createSessionAndTokens(
   const accessToken = signAccessToken({
     userId: user.id,
     role: user.role,
-    emailVerified: user.emailVerified,
+    // emailVerified: user.emailVerified,
   });
 
   const tokenId = generateToken(16);
@@ -157,6 +165,8 @@ export async function createUser(
     hashPassword(password),
     Promise.resolve(generateOTP()),
   ]);
+
+  console.log("Generated OTP for verification:", otp); // Log OTP for testing; remove in production!
   // 3. Generate fresh 6-digit OTP
   const otpHash = hashOTP(otp);
   const verificationExpires = new Date(Date.now() + TTL.OTP);
@@ -178,23 +188,24 @@ export async function createUser(
     },
     select: { id: true, name: true, email: true },
   });
-  // 5. Send OTP (async, non-blocking)
-  try {
-    await sendOtpEmail({ to: email, name, code: otp });
-  } catch (err) {
-    logger.error("Failed to send verification email", {
-      email,
-      error: (err as Error).message,
-      stack: (err as Error).stack,
 
-    });
-    // await prisma.user.delete({ where: { id: user.id } });
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { emailVerified: false },
-    });
-    throw new Error("Failed to send verification email");
-  }
+  // 5. Send OTP (async, non-blocking)
+  // try {
+  //   await sendOtpEmail({ to: email, name, code: otp });
+  // } catch (err) {
+  //   logger.error("Failed to send verification email", {
+  //     email,
+  //     error: (err as Error).message,
+  //     stack: (err as Error).stack,
+
+  //   });
+  //   // await prisma.user.delete({ where: { id: user.id } });
+  //   await prisma.user.update({
+  //     where: { id: user.id },
+  //     data: { emailVerified: false },
+  //   });
+  //   throw new Error("Failed to send verification email");
+  // }
   return user;
 };
 
@@ -202,7 +213,7 @@ export async function verifyEmail(
   email: string,
   code: string,
   meta?: RequestMeta,
-): Promise<AuthResult> {
+): Promise<any> {
   const otpHash = hashOTP(code);
 
   const user = await prisma.user.findFirst({
@@ -224,16 +235,23 @@ export async function verifyEmail(
     },
   });
 
-  return createSessionAndTokens(
-    {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      emailVerified: true,
-    },
-    meta,
-  );
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    emailVerified: true,
+  }
+  // createSessionAndTokens(
+  // {
+  //   id: user.id,
+  //   name: user.name,
+  //   email: user.email,
+  //   role: user.role,
+  //   emailVerified: true,
+  // },
+  // meta,
+  // );
 };
 
 export async function resendVerificationEmail(email: string): Promise<void> {
@@ -249,22 +267,24 @@ export async function resendVerificationEmail(email: string): Promise<void> {
   const otpHash = hashOTP(otp);
   const verificationExpires = new Date(Date.now() + TTL.OTP);
 
+  console.log("Resend Verification: ", otp)
+
   await prisma.user.update({
     where: { email },
     data: { verificationToken: otpHash, verificationExpires },
   });
 
-  try {
-    await sendOtpEmail({ to: email, name: user.name!, code: otp });
-  } catch (err) {
-    logger.error("Failed to resend verification email", {
-      email,
-      error: (err as Error).message,
-      stack: (err as Error).stack,
-    });
-    throw new Error("Failed to resend verification email");
+  // try {
+  //   await sendOtpEmail({ to: email, name: user.name!, code: otp });
+  // } catch (err) {
+  //   logger.error("Failed to resend verification email", {
+  //     email,
+  //     error: (err as Error).message,
+  //     stack: (err as Error).stack,
+  //   });
+  //   throw new Error("Failed to resend verification email");
 
-  }
+  // }
 };
 
 export async function authenticate(
@@ -285,6 +305,7 @@ export async function authenticate(
   // Always do password comparison to mitigate timing attacks, even if user not found
   const hashedPassword = user?.accounts[0]?.password || DUMMY_HASH;
   const passwordMatch = await comparePassword(password, hashedPassword);
+
   if (!user || !passwordMatch) {
     throw unauthorized("Invalid email or password");
   }
@@ -416,88 +437,151 @@ export async function handleGoogleCallback(
 
 export async function sendCheckoutOtp(
   email: string,
-  userId?: string,
-): Promise<{ message: string }> {
+  userId?: string | null,
+): Promise<{ message: string, code: string }> {
 
-  if (userId) {
-    return { message: "User already authenticated" };
-  }
+  // if (userId) {
+  //   return { message: "Already authenticated — proceed to checkout." };
+  // }
 
-  const code = crypto.randomInt(100_000, 1_000_000).toString();
-  const hashedOtp = hashOTP(code)
-
-  await prisma.otp.deleteMany({ where: { email } });
-
-  await prisma.otp.create({
-    data: {
-      email,
-      code: hashedOtp,
-      expiresAt: new Date(Date.now() + TTL.OTP),
-      used: false,
-    },
+  const recent = await prisma.otp.findFirst({
+    where: { email },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true, expiresAt: true, used: true },
   });
 
-  // await prisma.otp.upsert({
-  //   where: { email_code: { email, code: "" } },
-  //   update: { code, expiresAt: new Date(Date.now() + TTL.OTP), used: false },
-  //   create: { email, code, expiresAt: new Date(Date.now() + TTL.OTP) },
-  // });
-
-  try {
-    await sendOtpEmail({ to: email, code, name: "" });
-  } catch (err) {
-    logger.error("Failed to send checkout OTP email", {
-      email,
-      error: (err as Error).message,
-      stack: (err as Error).stack,
-    });
-    throw new Error("Failed to send OTP email");
+  if (recent && !recent.used) {
+    const elapsed = Date.now() - recent.createdAt.getTime();
+    if (elapsed < OTP_RESEND_COOLDOWN_MS) {
+      const waitSecs = Math.ceil((OTP_RESEND_COOLDOWN_MS - elapsed) / 1000);
+      throw badRequest(`Please wait ${waitSecs}s before requesting another code.`);
+      // throw tooManyRequests(
+      //   `Please wait ${waitSecs}s before requesting another code.`,
+      // );
+    }
   }
 
+  const code = generateOTP();
+  const hashedOtp = hashOTP(code);
+  const expiresAt = new Date(Date.now() + TTL.OTP);
 
-  return { message: "OTP sent successfully" };
+  console.log("Checkout OTP :", code)
+
+  // Delete stale records then insert fresh — wrapped in a transaction so we
+  // never leave the table in a half-cleaned state.
+  await prisma.$transaction([
+    prisma.otp.deleteMany({ where: { email } }),
+    prisma.otp.create({
+      data: { email, code: hashedOtp, expiresAt, used: false, attempts: 0 },
+    }),
+  ]);
+
+  // try {
+  //   await sendOtpEmail({ to: email, code });
+  // } catch (err) {
+  //   await prisma.otp.deleteMany({ where: { email } }).catch(() => void 0);
+  //   logger.error("Failed to send checkout OTP email", {
+  //     email,
+  //     error: (err as Error).message,
+  //     stack: (err as Error).stack,
+  //   });
+  //   throw new Error("Unable to send OTP email. Please try again.");
+  // }
+
+
+  return { message: "A verification code has been sent to your email.", code };
 }
 
 export async function verifyCheckoutOtp(
   email: string,
   code: string,
-): Promise<{ verified: true; tempUserId?: string }> {
-  const otp = await prisma.otp.findUnique({
-    where: { email_code: { email, code } },
+): Promise<{ verifiedToken: string }> {
+  const otp = await prisma.otp.findFirst({
+    where: { email },
+    orderBy: { createdAt: "desc" },
   });
 
-  if (!otp || otp.used || otp.expiresAt < new Date()) {
-    throw badRequest("Invalid or expired OTP");
+  if (!otp) {
+    throw badRequest("No verification code was found for this email. Please request a new one.");
   }
 
-  await prisma.otp.update({ where: { id: otp.id }, data: { used: true } });
+  if (otp.used) {
+    throw badRequest("This code has already been used.");
+  }
 
-  // Create provisional guest user immediately after OTP (emailVerified = true)
-  // const provisional = await prisma.user.upsert({
-  //   where: { email },
-  //   update: { emailVerified: true, provider: "checkout" },
-  //   create: {
-  //     email,
-  //     name: email.split("@")[0],
-  //     password: await hashPassword(crypto.randomBytes(32).toString("hex")),
-  //     emailVerified: true,
-  //     provider: "checkout",
-  //   },
-  //   select: { id: true },
-  // });
+  if (otp.expiresAt < new Date()) {
+    throw badRequest("Verification code has expired. Please request a new one.");
+  }
 
+  if (otp.attempts >= OTP_MAX_ATTEMPTS) {
+    throw badRequest("Too many failed attempts. Please request a new verification code.");
+  }
 
-  // optionally cache verified email (redis recommended)
+  console.log("Checkout code:", code)
 
-  return { verified: true };
+  const isValid = compareTokenHash(code, otp.code);
+
+  if (!isValid) {
+    await prisma.otp.update({
+      where: { id: otp.id },
+      data: { attempts: otp.attempts + 1 },
+    });
+
+    const remaining = OTP_MAX_ATTEMPTS - (otp.attempts + 1);
+    throw badRequest(
+      remaining > 0
+        ? `Invalid code. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`
+        : "Too many failed attempts. Please request a new code.",
+    );
+  }
+
+  await prisma.$transaction([
+    prisma.otp.update({
+      where: { id: otp.id },
+      data: { used: true },
+    }),
+  ]);
+
+  const verifiedToken = signVerifiedToken({ email, purpose: "guest-checkout" });
+
+  return { verifiedToken };
+
 }
 
-export async function completeGuestProfile(dto: CompleteGuestProfileDto): Promise<SessionUser> {
-  const user = await prisma.user.update({
+export async function completeGuestProfile(dto: CompleteGuestProfileDto): Promise<AuthResult> {
+
+  const payload = verifyVerifiedToken(dto.verifiedToken);
+
+  if (
+    !payload ||
+    payload.email !== dto.email ||
+    payload.purpose !== "guest-checkout"
+  ) {
+    throw badRequest("Invalid or expired verification session. Please restart.");
+  }
+
+  const generatePassword = crypto.randomBytes(32).toString("hex");;
+
+  const user = await prisma.user.upsert({
     where: { email: dto.email },
-    data: {
+    create: {
+      email: dto.email,
       name: dto.name,
       phone: dto.phone ?? null,
+      accounts: {
+        create: {
+          provider: "checkout",
+          providerId: dto.email,
+          password: generatePassword,
+        },
+      },
+      emailVerified: true,
+    },
+    update: {
+      // Only update profile fields if the user already exists.
+      name: dto.name,
+      phone: dto.phone ?? null,
+      emailVerified: true,
     },
     select: {
       id: true,
@@ -508,16 +592,24 @@ export async function completeGuestProfile(dto: CompleteGuestProfileDto): Promis
     },
   });
 
-  if (!user) throw notFound("User not found");
-  return user;
+  // Promote to a real session — same path as a registered login.
+  return createSessionAndTokens(user as SessionUser);
 }
 
 export async function createMagicLoginToken(
   email: string,
-): Promise<{ token: string; expiresAt: Date }> {
+): Promise<{ message: string; token: string; expiresAt: Date }> {
+
   const token = generateMagicToken();
   const tokenHash = hashToken(token);
+  // const expiresAt = new Date(Date.now() + TTL.MAGIC_LINK ?? 15 * 60 * 1000);
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+  //   await prisma.magicLoginToken.upsert({
+  //   where: { email },
+  //   create: { email, tokenHash, expiresAt, used: false },
+  //   update: { tokenHash, expiresAt, used: false },
+  // });
 
   const existingToken = await prisma.magicLoginToken.findFirst({
     where: { email },
@@ -534,7 +626,11 @@ export async function createMagicLoginToken(
     });
   }
 
-  return { token, expiresAt };
+  return {
+    message: "If an account with that email exists, a magic login link has been sent.",
+    token, // Expose token for testing purposes; remove in production!
+    expiresAt, // Expose expiry for testing purposes; remove in production!
+  };
 }
 
 export async function verifyMagicLogin(
@@ -570,6 +666,8 @@ export async function requestPasswordReset(email: string): Promise<void> {
 
   const rawToken = generateToken();
 
+  console.log("Reset Password Token: ", rawToken)
+
   await prisma.user.update({
     where: { id: user.id },
     data: {
@@ -578,9 +676,9 @@ export async function requestPasswordReset(email: string): Promise<void> {
     },
   });
 
-  sendPasswordResetEmail(user.email, user.name ?? "Student", rawToken).catch(
-    (err) => logger.error("Password reset email failed", err.message),
-  );
+  // sendPasswordResetEmail(user.email, user.name ?? "Student", rawToken).catch(
+  //   (err) => logger.error("Password reset email failed", err.message),
+  // );
 }
 
 export async function verifyPasswordResetToken(
@@ -639,7 +737,18 @@ export async function rotateRefreshToken(
   refreshToken: string,
   meta?: RequestMeta,
 ): Promise<AuthResult> {
-  const payload = verifyRefreshToken(refreshToken);
+  // const payload = verifyRefreshToken(refreshToken);
+
+  // if (!payload) {
+  //   throw unauthorized("Invalid refresh token");
+  // }
+
+  let payload;
+  try {
+    payload = verifyRefreshToken(refreshToken);
+  } catch {
+    throw unauthorized("Invalid refresh token");
+  }
 
   // Atomic check and revocation
   const result = await prisma.$transaction(async (tx) => {

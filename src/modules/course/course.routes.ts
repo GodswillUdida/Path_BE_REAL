@@ -16,16 +16,17 @@ const r = Router();
 
 // List courses (cached)
 r.get("/",
-  generalRateLimiter,
+  // generalRateLimiter,
   ctrl.listCoursesController);
 
 // Get single course by ID
 r.get("/:id",
-  generalRateLimiter,
+  // generalRateLimiter,
   ctrl.getCourseController);
 
 // Get by slug (program + course)
-r.get("/:programSlug/:courseSlug", generalRateLimiter, ctrl.getCourseBySlugController);
+r.get("/:programSlug/:courseSlug", // generalRateLimiter, 
+  ctrl.getCourseBySlugController);
 
 /**
  * --------------------------------
@@ -36,7 +37,7 @@ r.get("/:programSlug/:courseSlug", generalRateLimiter, ctrl.getCourseBySlugContr
 // Create course (unified)
 r.post(
   "/:programId",
-  generalRateLimiter,
+  // generalRateLimiter,
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
   uploadImage.single("thumbnail"),
@@ -46,7 +47,7 @@ r.post(
 // Update
 r.patch(
   "/:id",
-  generalRateLimiter,
+  // generalRateLimiter,
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
   uploadImage.single("thumbnail"),
@@ -56,7 +57,7 @@ r.patch(
 // Soft delete
 r.delete(
   "/:id",
-  generalRateLimiter,
+  // generalRateLimiter,
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
   ctrl.deleteCourseController,
@@ -65,7 +66,7 @@ r.delete(
 // Course analytics
 r.get(
   "/:id/analytics",
-  generalRateLimiter,
+  // generalRateLimiter,
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
   ctrl.courseAnalyticsController,

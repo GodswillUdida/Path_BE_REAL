@@ -1,8 +1,6 @@
 import { CookieOptions, Request, Response } from "express";
-import * as authService from "./auth.service";
 import crypto from "crypto"
 import { AuthResult, RequestMeta, SessionUser } from "./types";
-import { access } from "fs";
 
 // Auth.Servive.ts
 
@@ -23,6 +21,7 @@ export const DUMMY_HASH =
 export const generateOTP = (): string => {
   return crypto.randomInt(100000, 1000000).toString();
 };
+
 
 export const generateMagicToken = (): string => crypto.randomBytes(32).toString("hex");
 
@@ -55,8 +54,8 @@ const BASE_COOKIE_OPTIONS: CookieOptions = {
   secure: isProd,
   sameSite: "none",
   path: "/",
-  ...(isProd &&
-    process.env.COOKIE_DOMAIN && { domain: process.env.COOKIE_DOMAIN }),
+  // ...(isProd &&
+  //   process.env.COOKIE_DOMAIN && { domain: process.env.COOKIE_DOMAIN }),
 };
 
 const ACCESS_COOKIE_OPTIONS: CookieOptions = {
@@ -91,7 +90,7 @@ export function extractMeta(req: Request): RequestMeta {
 
 export function issueTokens(
   res: Response,
-  result:AuthResult,
+  result: AuthResult,
   statusCode = 200,
 ): Response {
   res.cookie(ACCESS_COOKIE_NAME, result.tokens.accessToken, ACCESS_COOKIE_OPTIONS);
@@ -103,7 +102,7 @@ export function issueTokens(
 
   return res.status(statusCode).json({
     success: true,
-    accessToken: result.tokens.accessToken,
+    // accessToken: result.tokens.accessToken,
     user: result.user,
   });
 }

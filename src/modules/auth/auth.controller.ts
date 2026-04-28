@@ -88,7 +88,12 @@ export const verifyEmailController = asyncHandler(
       extractMeta(req),
     );
 
-    issueTokens(res, verifiedUser, 200);
+    return res.status(201).json({
+      message: "User verified Successfully",
+      data: verifiedUser
+    })
+
+    // issueTokens(res, verifiedUser, 200);
   },
 );
 
@@ -157,7 +162,9 @@ export const completeGuestProfileController = asyncHandler(
   async (req: Request, res: Response) => {
     const dto = completeGuestProfileSchema.parse(req.body);
     const user = await authService.completeGuestProfile(dto);
-    res.status(200).json({ success: true, user });
+
+    issueTokens(res, user, 201)
+    // res.status(200).json({ success: true, user });
   },
 );
 

@@ -62,7 +62,7 @@ export const getGmailTransporter = async (): Promise<any> => {
     service: "gmail",
     auth: {
       type: "OAuth2",
-      user: EMAIL_USER,
+      user: ADMIN_EMAIL,
       clientId: G_ID,
       clientSecret: G_SECRET,
       refreshToken: G_REFRESH_TOKEN,
@@ -169,13 +169,6 @@ export const sendVerificationEmail = async (
   await sendCoreEmail(to, "Verify your email - Pathfinder College", html);
 };
 
-// export const sendOtpEmail = async (to: string, email: string, code: string) => {
-//   const html = await renderEmailTemplate("otpEmail", { email, name: "", code });
-
-//   // Use your existing email sender (nodemailer, Resend, etc.)
-//   await sendCoreEmail(to, "Your Pathfinder Verification Code", html);
-// };
-
 type SendOtpInput = {
   to: string;
   name?: string;
@@ -202,6 +195,7 @@ export const sendPasswordResetEmail = async (
   const html = await renderEmailTemplate("resetPassword", {
     name,
     url,
+    token,
     expiresIn: "1 hour",
   });
   await sendCoreEmail(to, "Reset your password - Pathfinder College", html);

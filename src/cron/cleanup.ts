@@ -32,8 +32,16 @@ export const cleanupIdempotencyKeys = async () => {
   });
 };
 
+export const cleanupexpiredSessions = async () => {
+  await prisma.session.deleteMany({
+    where: {
+      OR: [{ expiresAt: { lt: new Date() } }, { revokedAt: { not: null } }],
+    },
+  });
+};
+
 export const cleanup = async () => {
-  await Promise.all([cleanupExpired(), cleanupUnverifiedUsers(), cleanupIdempotencyKeys()]);
+  await Promise.all([cleanupExpired(), cleanupUnverifiedUsers(), cleanupIdempotencyKeys(), cleanupexpiredSessions()]);
 };
 
 if (require.main === module) {

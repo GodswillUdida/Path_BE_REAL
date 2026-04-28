@@ -4,7 +4,6 @@ import { asyncHandler } from "../../utils/asyncHandler";
 
 import {
   createOrderAndInitiatePayment,
-  // initiatePaystackPayment,
   processPaymentWebhook,
   verifyPayment,
 } from "./payment.service";

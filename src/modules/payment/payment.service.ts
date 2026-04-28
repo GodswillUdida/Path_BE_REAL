@@ -336,7 +336,7 @@ export const processPaymentWebhook = async (
           name: order.name ?? order.email.split("@")[0],
           accounts: {
             create: {
-              provider: "credentials",
+              provider: "checkout",
               providerId: order.email,
               password: await hashPassword(crypto.randomBytes(32).toString("hex")),
             },

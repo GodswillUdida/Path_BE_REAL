@@ -1,46 +1,27 @@
-// shared/utils/file.ts
+// shared/services/file.service.ts
 import { streamUpload } from "../config/stream";
+import logger from "../utils/logger";
 import { badRequest } from "../utils/errors";
-import logger from "./logger";
 
-export function validateImage(file?: Express.Multer.File) {
-  if (!file) return;
-
-  const allowed = ["image/jpeg", "image/png", "image/webp"];
-
-  if (!allowed.includes(file.mimetype)) {
-    throw badRequest("Invalid image type");
-  }
-
-  if (file.size > 2 * 1024 * 1024) {
-    throw badRequest("Image too large (max 2MB)");
-  }
-}
-
-
-export async function resolveThumbnail(
-  file?: Express.Multer.File,
-  fallback?: string,
+export async function uploadImageOrFail(
+  file?: Express.Multer.File
 ): Promise<string> {
-  /* -------------------- FILE UPLOAD -------------------- */
-  if (file) {
-    validateImage(file); // strict validation
-
-    try {
-      const result = await streamUpload(
-        file.buffer,
-        "pathfinder/images/courses",
-      );
-
-      return result.secure_url;
-    } catch (err) {
-      logger.error("Thumbnail upload failed", err);
-      throw badRequest("Failed to upload image");
-    }
+  if (!file) {
+    throw badRequest("Thumbnail is required");
   }
 
-  /* -------------------- FALLBACK -------------------- */
-  if (fallback) return fallback;
+  try {
+    const result = await streamUpload(
+      file.buffer,
+      "pathfinder/images/courses"
+    );
 
-  throw badRequest("Thumbnail is required");
+    return result.secure_url;
+  } catch (error: unknown) {
+    logger.error("IMAGE_UPLOAD_FAILED", {
+      message: error instanceof Error ? error.message : "unknown",
+    });
+
+    throw badRequest("Image upload failed");
+  }
 }

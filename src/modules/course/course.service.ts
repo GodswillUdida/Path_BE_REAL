@@ -9,8 +9,7 @@ import type {
   CoursePricingInput,
 } from "./course.schema";
 import { withMetrics } from "../../utils/observability";
-import { resolveThumbnail } from "../../utils/file";
-// import redis from "../../config/redis";
+import { uploadImageOrFail } from "../../utils/file";
 
 type CreateCourseParams = {
   data: CreateCourseInput;
@@ -24,6 +23,15 @@ export async function createCourse({
   file,
 }: CreateCourseParams) {
   return withMetrics("create_course", async () => {
+
+    const thumbnail = file
+      ? await uploadImageOrFail(file)
+      : data.thumbnail;
+
+    if (!thumbnail) {
+      throw badRequest("Thumbnail is required");
+    }
+
     return prisma.$transaction(async (tx) => {
       /* -------------------- VALIDATE PROGRAM -------------------- */
       if (data.programId) {
@@ -35,12 +43,10 @@ export async function createCourse({
         if (!program) throw notFound("Program not found");
       }
 
-      /* -------------------- HANDLE FILE -------------------- */
-      const thumbnail = await resolveThumbnail(file, data.thumbnail);
-
       /* -------------------- GENERATE SLUG -------------------- */
+      const baseSlug = data.slug ?? data.title;
       const slug = await generateUniqueSlug(
-        data.slug ?? data.title,
+        baseSlug,
         "course",
       );
 

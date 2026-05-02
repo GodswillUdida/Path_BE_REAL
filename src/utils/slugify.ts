@@ -22,22 +22,10 @@ export const generateUniqueSlug = async (
       where: {
         slug,
         NOT: existingId ? { NOT: { id: existingId } } : undefined,
-        // ...(existingId ? { NOT: { id: existingId } } : undefined),
       },
     });
-
-    // const newSlug = `${baseSlug}-${counter}`;
-    // exists = await (prisma[model] as any).findU({
-    //   where: {
-    //     slug: newSlug,
-    //     ...(excludeId ? { NOT: { id: excludeId } } : {}),
-    //   },
-    // });
-
     if (!exists) break;
-    // {
     slug = `${baseSlug}-${counter++}`;
-    // }
   }
   return slug;
 };

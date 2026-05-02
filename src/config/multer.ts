@@ -44,45 +44,43 @@
 import multer, { FileFilterCallback } from "multer";
 import { Request } from "express";
 
+const onlineStorage = multer.memoryStorage();
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
 
-export const uploadImage = multer({
-  storage: multer.memoryStorage(),
+export const uploadSingleImage = multer({
+  storage: multer.memoryStorage(), // OK for now, but see note below
   limits: { fileSize: MAX_FILE_SIZE },
-  fileFilter: (
-    _req: Request,
-    file: Express.Multer.File,
-    cb: FileFilterCallback
-  ) => {
-    if (!file.mimetype.startsWith("image/")) {
-      return cb(
-        new Error("Only image files (jpeg, png, webp, gif) are allowed")
-      );
-    }
-    cb(null, true);
-  },
-});
+  fileFilter: (_req: Request, file, cb) => {
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
 
-export const uploadMultipleImages = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_FILE_SIZE },
-  fileFilter: (
-    _req: Request,
-    file: Express.Multer.File,
-    cb: FileFilterCallback
-  ) => {
-    if (!file.mimetype.startsWith("image/")) {
-      return cb(
-        new Error("Only image files (jpeg, png, webp, gif) are allowed")
-      );
+    if (!allowed.includes(file.mimetype)) {
+      return cb(new Error("INVALID_IMAGE_TYPE"));
     }
+
     cb(null, true);
   },
-});
+}).single("thumbnail");
+
+// export const uploadMultipleImages = multer({
+//   storage: onlineStorage,
+//   limits: { fileSize: MAX_FILE_SIZE },
+//   fileFilter: (
+//     _req: Request,
+//     file: Express.Multer.File,
+//     cb: FileFilterCallback
+//   ) => {
+//     if (!file.mimetype.startsWith("image/")) {
+//       return cb(
+//         new Error("Only image files (jpeg, png, webp, gif) are allowed")
+//       );
+//     }
+//     cb(null, true);
+//   },
+// });
 
 export const uploadVideo = multer({
-  storage: multer.memoryStorage(),
+  storage: onlineStorage,
   limits: { fileSize: 500 * 1024 * 1024 }, // 500MB for videos
   fileFilter: (
     _req: Request,
@@ -99,4 +97,4 @@ export const uploadVideo = multer({
   },
 });
 
-export default uploadImage;
+// export default uploadImage;

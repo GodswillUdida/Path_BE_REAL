@@ -5,7 +5,7 @@ import {
   createCourse,
 } from "../../modules/course/course.service";
 import { CreateProgramDTO, UpdateProgramDTO } from "./program.schema";
-import { validateImage } from "../../utils/file";
+import { uploadImageOrFail } from "../../utils/file";
 import { withMetrics } from "../../utils/observability";
 
 export const createProgram = async (data: CreateProgramDTO) => {
@@ -51,7 +51,7 @@ export async function createCourseFromProgramId({
 
       if (!program) throw notFound("Program not found");
 
-      validateImage(file);
+      uploadImageOrFail(file);
 
       return createCourse({
         data: { ...payload, programId },

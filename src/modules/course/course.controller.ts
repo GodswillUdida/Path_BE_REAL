@@ -7,17 +7,16 @@ import {
 } from "./course.schema";
 import { badRequest, notFound } from "../../utils/errors";
 import { asyncHandler } from "../../utils/asyncHandler";
-import { enforceIdempotency } from "../../utils/idempotency";
 
 //* -------------------- CREATE COURSE -------------------- */
 export const createCourseController = asyncHandler(
   async (req: Request, res: Response) => {
 
-    const { programId } = req.params;
-    if (!programId) throw badRequest("programId is required");
-
     const instructorId = req.user?.id;
     if (!instructorId) throw badRequest("Unauthorized");
+
+    const programId = req.params.programId;
+    if (!programId) throw badRequest("programId is required");
 
     const parsedBody = {
       ...req.body,

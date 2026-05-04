@@ -28,6 +28,7 @@ import paymentRoutes from "./modules/payment/payment.routes";
 const app: Application = express();
 const isProduction = process.env.NODE_ENV === "production";
 const BODY_LIMIT = "1mb";
+const COOKIE_SECRET = process.env.COOKIE_SECRET || "default_cookie_secret_change_me_in_production";
 
 /* -------------------------------------------------------------------------- */
 /*  PROXY TRUST — must be line 1, before any middleware reads req.secure/ip   */
@@ -54,7 +55,7 @@ app.use(
   }),
 );
 
-app.use(cookieParser());
+app.use(cookieParser(COOKIE_SECRET));
 
 // app.use(passport.initialize());
 // app.use(passport.session());

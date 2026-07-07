@@ -20,21 +20,22 @@ const ACCESS_COOKIE_NAME =
 
 export function authGuard(
   req: AuthRequest,
-  _res: Response,
+  res: Response,
   next: NextFunction,
-): void {
+) {
   try {
-    let token: string | undefined;
+    const token = req.cookies?.[ACCESS_COOKIE_NAME] || req.headers.authorization?.split(" ")[1];
+    // let token: string | undefined;
 
     // ✅ PRIMARY: cookie (your architecture)
-    if (req.cookies?.[ACCESS_COOKIE_NAME]) {
-      token = req.cookies[ACCESS_COOKIE_NAME];
-    }
+    // if (req.cookies?.[ACCESS_COOKIE_NAME]) {
+    //   token = req.cookies[ACCESS_COOKIE_NAME];
+    // }
 
-    // ✅ FALLBACK: Authorization header (optional)
-    else if (req.headers.authorization?.startsWith("Bearer ")) {
-      token = req.headers.authorization.slice(7);
-    }
+    // // ✅ FALLBACK: Authorization header (optional)
+    // else if (req.headers.authorization?.startsWith("Bearer ")) {
+    //   token = req.headers.authorization.slice(7);
+    // }
 
     if (!token) {
       throw unauthorized("No token provided");
@@ -49,8 +50,23 @@ export function authGuard(
     };
 
     next();
-  } catch (err) {
+  } catch (err: any) {
     logger.warn("authGuard: invalid/expired token");
-    next(unauthorized("Invalid or expired access token"));
+
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({
+        success: false,
+        code: "TOKEN_EXPIRED",
+        message: "Access token expired"
+      });
+    }
+
+    return res.status(401).json({
+      success: false,
+      code: "INVALID_TOKEN",
+      message: "Invalid or expired access token"
+    });
+
+    // next(unauthorized("Invalid or expired access token"));
   }
 }

@@ -2,15 +2,14 @@ import { CookieOptions, Request, Response } from "express";
 import crypto from "crypto"
 import { AuthResult, RequestMeta, SessionUser } from "./types";
 
-// Auth.Servive.ts
-
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const TTL = {
   VERIFICATION_TOKEN: 24 * 60 * 60 * 1000, //  24 h
   RESET_TOKEN: 1 * 60 * 60 * 1000, //   1 h
   REFRESH_SESSION: 7 * 24 * 60 * 60 * 1000, // 7 d
-  OTP: 15 * 60 * 1000, //  15 min
+  OTP: 15 * 60 * 1000, //  15 min,
+  MAGIC_LINK: 15 * 60 * 1000, // 15 min
 } as const;
 
 /** Dummy bcrypt hash used for constant-time login path when user is not found. */
@@ -33,16 +32,12 @@ export const generateToken = (bytes = 32): string =>
 
 export const toPublicUser = (user: SessionUser): Required<SessionUser> => ({
   id: user.id,
-  name: user.name ?? "",
+  name: user.name,
   email: user.email,
   role: user.role,
   emailVerified: user.emailVerified,
 });
 
-
-
-
-// Auth.Controller.ts
 
 // ─── Cookie Config ────────────────────────────────────────────────────────────
 export const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME!;
@@ -52,10 +47,9 @@ const isProd = process.env.NODE_ENV === "production";
 const BASE_COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
   secure: isProd,
-  sameSite: "none",
+  sameSite: "lax",
   path: "/",
-  // ...(isProd &&
-  //   process.env.COOKIE_DOMAIN && { domain: process.env.COOKIE_DOMAIN }),
+  // ...(isProd && { domain: process.env.COOKIE_DOMAIN }), // only set domain in production
 };
 
 const ACCESS_COOKIE_OPTIONS: CookieOptions = {

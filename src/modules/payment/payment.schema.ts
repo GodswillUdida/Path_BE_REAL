@@ -2,20 +2,11 @@
 import { z } from "zod";
 
 export const InitializePaymentSchema = z.object({
-  // Guest or logged-in user identity (email required, name/phone optional)
-  email: z.string().email("Valid email is required"),
-  name: z.string().min(2, "Name must be at least 2 characters").optional(),
-  phone: z.string().optional(),
+  orderId: z.string().uuid("Order ID must be a valid UUID"),
+});
 
-  // Cart items — at least one required
-  items: z
-    .array(
-      z.object({
-        pricingId: z.string().uuid("Invalid pricing ID"),
-        quantity: z.number().int().min(1).default(1),
-      }),
-    )
-    .min(1, "Cart cannot be empty"),
+export const VerifyPaymentQuerySchema = z.object({
+  reference: z.string().min(1, "Reference is required"),
 });
 
 export type InitializePaymentDTO = z.infer<typeof InitializePaymentSchema>;

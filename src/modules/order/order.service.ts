@@ -1,28 +1,6 @@
 import prisma from "../../lib/prisma";
 import { CreateOrderDTO, CreateOrderSchema } from "./order.schema";
-import { forbidden, notFound } from "../../utils/errors";
-
-// const orderIncludes = {
-//   user: { select: { id: true, name: true, email: true } },
-//   items: {
-//     include: {
-//       pricing: {
-//         include: {
-//           course: {
-//             select: { id: true, title: true },
-//           },
-//         },
-//       },
-//     },
-//   },
-//   payments: true,
-//   enrollments: {
-//     include: {
-//       course: { select: { id: true, title: true } },
-//       pricing: true,
-//     },
-//   },
-// } as const;
+import { badRequest, forbidden, notFound } from "../../utils/errors";
 
 const orderIncludes = {
   items: {
@@ -34,134 +12,24 @@ const orderIncludes = {
   enrollments: true,
 } as const;
 
-// export async function createOrderService(
-//   userId: string,
-//   data: CreateOrderDTO
-// ) {
-//   if (!data?.length) throw forbidden("No items provided");
-
-//   const pricingIds = [...new Set(data.map((i) => i.pricingId))];
-
-//   const pricings = await prisma.coursePricing.findMany({
-//     where: { id: { in: pricingIds } },
-//   });
-
-//   const pricingMap = new Map(pricings.map((p) => [p.id, p]));
-
-//   let totalAmount = 0;
-//   const itemsToCreate = data.map((item) => {
-//     const pricing = pricingMap.get(item.pricingId);
-//     if (!pricing) throw notFound(`Pricing ${item.pricingId} not found`);
-
-//     const quantity = item.quantity ?? 1;
-//     totalAmount += pricing.price * quantity;
-
-//     return {
-//       pricingId: item.pricingId,
-//       price: pricing.price, // unit price
-//       quantity,
-//     };
-//   });
-
-//   const order = await prisma.order.create({
-//     data: {
-//       userId,
-//       totalAmount,
-//       currency: "NGN",
-//       status: "PENDING",
-//       items: {
-//         create: itemsToCreate,
-//       },
-//     },
-//     include: orderIncludes,
-//   });
-
-//   return order;
-// }
-
-// export async function createOrderAndEnrollments(
-//   userId: string,
-//   dto: CreateOrderDTO,
-// ) {
-//   // 1. Validate all pricings exist + calculate total
-//   const pricingIds = dto.map((item) => item.pricingId);
-//   const pricings = await prisma.coursePricing.findMany({
-//     where: { id: { in: pricingIds }, isActive: true },
-//     include: { course: { select: { id: true, title: true } } },
-//   });
-
-//   if (pricings.length !== pricingIds.length) {
-//     throw notFound("One or more pricing plans not found or inactive");
-//   }
-
-//   const pricingMap = new Map(pricings.map((p) => [p.id, p]));
-
-//   let totalAmount = 0;
-//   const orderItemsData = dto.map((item) => {
-//     const pricing = pricingMap.get(item.pricingId)!;
-//     const qty = item.quantity ?? 1;
-//     totalAmount += pricing.price * qty;
-
-//     return {
-//       pricingId: item.pricingId,
-//       price: pricing.price, // snapshot
-//       quantity: qty,
-//     };
-//   });
-
-//   // 2. Atomic transaction: Order → OrderItems → Enrollments
-//   return prisma.$transaction(async (tx) => {
-//     // Create Order + OrderItems
-//     const order = await tx.order.create({
-//       data: {
-//         userId,
-//         totalAmount,
-//         currency: "NGN",
-//         status: "PENDING",
-//         items: { create: orderItemsData },
-//       },
-//       include: { items: true },
-//     });
-
-//     // Create Enrollments for each item
-//     // const enrollments = await Promise.all(
-//     //   order.items.map(async (item) => {
-//     //     const pricing = pricingMap.get(item.pricingId)!;
-
-//     //     return tx.enrollment.create({
-//     //       data: {
-//     //         userId,
-//     //         courseId: pricing.courseId,
-//     //         pricingId: item.pricingId,
-//     //         orderItemId: item.id,
-//     //         orderId: order.id,
-//     //         paymentStatus: "PENDING",
-//     //         expiresAt: new Date(
-//     //           Date.now() + pricing.durationDays * 24 * 60 * 60 * 1000,
-//     //         ),
-//     //       },
-//     //     });
-//     //   }),
-//     // );
-
-//     // Return enriched order
-//     return tx.order.findUnique({
-//       where: { id: order.id },
-//       include: orderIncludes,
-//     });
-//   });
-// }
-
 export async function createOrder(
   dto: CreateOrderDTO,
-  userId?: string,
+  userId: string,
 ) {
   // 1. Modern Zod validation (throws clear error + transforms if needed)
   const validatedDto = CreateOrderSchema.parse(dto);
 
-  const { email, name, phone, items } = validatedDto;
+  if (!userId) throw badRequest("Unauthorized");
 
-  const pricingIds = items.map((item) => item.pricingId);
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, name: true },
+  });
+
+  if (!user?.email) throw badRequest("User profile incomplete");
+
+
+  const pricingIds = validatedDto.items.map((item) => item.pricingId);
 
   const pricings = await prisma.coursePricing.findMany({
     where: {
@@ -178,32 +46,35 @@ export async function createOrder(
   }
   const pricingMap = new Map(pricings.map((p) => [p.id, p]));
 
-  let totalAmount = 0;
+  let totalAmountKobo  = 0;
 
-  const orderItemsData = items.map((item) => {
+  const orderItemsData = validatedDto.items.map((item) => {
     const pricing = pricingMap.get(item.pricingId)!;
     const qty = item.quantity ?? 1;
-    const unitPrice = pricing.price;
 
-    totalAmount += unitPrice * qty;
+    // 🔥 FIX: store money as integer (kobo)
+    // const unitPrice = Number(pricing.price);
+    const unitPriceKobo = Math.round(Number(pricing.price) * 100);
+
+    totalAmountKobo  += unitPriceKobo * qty;
 
     return {
       pricingId: item.pricingId,
-      unitPrice,
+      unitPrice: unitPriceKobo,
       quantity: qty,
     };
   });
 
   const order = await prisma.order.create({
     data: {
-      userId: userId ?? null,
-      email,
-      name,
-      phone,
-
-      totalAmount,
+      userId,
+      email: user.email,
+      name: user.name,
+      phone: validatedDto.phone,
+      totalAmount: totalAmountKobo,
       currency: "NGN",
-
+      status: "PENDING",
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000),
       items: {
         create: orderItemsData,
       },

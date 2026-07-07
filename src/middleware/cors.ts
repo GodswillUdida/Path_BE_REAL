@@ -15,10 +15,7 @@ const ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
   process.env.FRONTEND_URL,                              // Primary production URL
   "http://localhost:3000",
   "https://accountant-pathfinder.vercel.app",
-  "https://dvcyq7-3000.csb.app",
-  "https://jckxpr-3000.csb.app",
-  "https://jckxpr-3001.csb.app",
-  "https://sturdy-spoon-x5px4xv6v6x53465-3000.app.github.dev",
+  "*"
 ].filter(Boolean) as string[]);
 
 const isDevelopment = process.env.NODE_ENV !== "production";
@@ -50,13 +47,9 @@ export const corsOptions: CorsOptions = {
     "Authorization",         // For any Bearer token flows
     "X-Requested-With",      // Convention for AJAX identification
     "X-CSRF-Token",          // Ready for CSRF protection
-    "Access-Control-Allow-Origin"
-    // ❌ Removed: "Origin" — browsers set this automatically, never user-land
-    // ❌ Removed: "Accept" — standard header, no need to explicitly allow
+    "Access-Control-Allow-Origin",
+    "x-device-fingerprint", // Custom header for device fingerprinting
   ],
-
-  // ❌ Removed: exposedHeaders: ["Set-Cookie"] — forbidden header, causes issues
-  // ❌ Removed: optionsSuccessStatus: 204 — 200 is safer across all clients
 };
 
 export default corsOptions;

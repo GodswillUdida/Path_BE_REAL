@@ -1,21 +1,30 @@
 FROM node:20-alpine
+# FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package*.json ./
+# Install system deps (if needed later e.g. openssl for prisma)
+RUN apk add --no-cache openssl netcat-openbsd
 
-# Install deps (local dev)
-RUN npm install
+# Copy only dependency files first (cache optimization)
+COPY package.json package-lock.json ./
 
-# Install global dev tools
-RUN npm install -g ts-node-dev prisma
+# Install deps deterministically
+RUN npm ci
 
-# Copy everything AFTER deps
+# Copy rest of the app
 COPY . .
 
-# Make entrypoint runnable
+# Ensure entrypoint is executable
 RUN chmod +x ./entrypoint.dev.sh
 
 ENV NODE_ENV=development
+
+# Use non-root user (optional but clean)
+# RUN addgroup -S app && adduser -S app -G app
+RUN addgroup -S app && adduser -S app -G app \
+    && chown -R app:app /app
+
+USER app
 
 CMD ["./entrypoint.dev.sh"]

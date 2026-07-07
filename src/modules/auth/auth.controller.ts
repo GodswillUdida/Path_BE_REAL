@@ -9,18 +9,13 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   verifyEmailSchema,
-  guestOtpSendSchema,
   paginationSchema,
   resendVerificationEmailSchema,
   resetPasswordVerifySchema,
+  requestMagicLinkSchema,
+  verifyMagicLinkSchema,
 } from "./auth.schema";
 import { RefreshTokenPayload, verifyRefreshToken } from "../../lib/jwt";
-import {
-  completeGuestProfileSchema,
-  sendCheckoutOtpSchema,
-  verifyCheckoutOtpSchema,
-  verifyMagicLoginSchema,
-} from "./checkout.schema";
 import { ACCESS_COOKIE_NAME, CLEAR_COOKIE_OPTIONS, extractMeta, issueTokens, REFRESH_COOKIE_NAME } from "./config";
 import { GoogleProfile } from "./types";
 
@@ -65,11 +60,10 @@ export const googleCallbackController = asyncHandler(async (req, res) => {
   );
 });
 
-
 export const registerController = asyncHandler(
   async (req: Request, res: Response) => {
-    const { name, email, password } = registerSchema.parse(req.body);
-    const user = await authService.createUser(name, email, password);
+    const dto = registerSchema.parse(req.body);
+    const user = await authService.createUser(dto);
 
     res.status(201).json({
       success: true,
@@ -88,12 +82,12 @@ export const verifyEmailController = asyncHandler(
       extractMeta(req),
     );
 
-    return res.status(201).json({
-      message: "User verified Successfully",
-      data: verifiedUser
-    })
+    // return res.status(201).json({
+    //   message: "User verified Successfully",
+    //   data: verifiedUser
+    // })
 
-    // issueTokens(res, verifiedUser, 200);
+    issueTokens(res, verifiedUser, 200);
   },
 );
 
@@ -122,59 +116,26 @@ export const loginController = asyncHandler(
     return issueTokens(res, result, 200);
   },
 );
-// ─── Magic Link ───────────────────────────────────────────────────────────────
 
-export const sendMagicLoginController = asyncHandler(
-  async (req: Request, res: Response) => {
-    const { email } = guestOtpSendSchema.parse(req.body); // { email: z.string().email() }
-    // await sendMagicLogin(email);
+// ───── MAGIC TOKEN ───────────────────────────────────────────────────
 
-    res
-      .status(200)
-      .json({ success: true, message: "Magic link sent to your email" });
-  },
-);
+// export const requestMagicLinkController = asyncHandler(
+//   async (req: Request, res: Response) => {
+//     const { email } = requestMagicLinkSchema.parse(req.body);
+//     const result = await authService.requestMagicLink(email);
+//     res.status(200).json({ success: true, ...result });
+//   },
+// );
 
-// ─── Guest OTP ────────────────────────────────────────────────────────────────
+// export const verifyMagicLoginController = asyncHandler(
+//   async (req: Request, res: Response) => {
+//     const { token } = verifyMagicLinkSchema.parse(req.body);
+//     const result = await authService.verifyMagicLogin(token);
+//     return issueTokens(res, result, 200); // sets cookies + returns accessToken
+//   },
+// );
 
-export const sendCheckoutOtpController = asyncHandler(
-  async (req: Request, res: Response) => {
-    const userId = (req as any).user?.id ?? null; // authGuard is optional on this route
-    const { email } = sendCheckoutOtpSchema.parse(req.body);
-    const result = await authService.sendCheckoutOtp(email, userId);
-    res.status(200).json({ success: true, ...result });
-  },
-);
-
-export const verifyCheckoutOtpController = asyncHandler(
-  async (req: Request, res: Response) => {
-    const { email, code } = verifyCheckoutOtpSchema.parse(req.body);
-    await authService.verifyCheckoutOtp(email, code);
-    // After OTP we just confirm — profile step comes next
-    res.status(200).json({
-      success: true,
-      message: "OTP verified. Please complete your profile.",
-    });
-  },
-);
-
-export const completeGuestProfileController = asyncHandler(
-  async (req: Request, res: Response) => {
-    const dto = completeGuestProfileSchema.parse(req.body);
-    const user = await authService.completeGuestProfile(dto);
-
-    issueTokens(res, user, 201)
-    // res.status(200).json({ success: true, user });
-  },
-);
-
-export const verifyMagicLoginController = asyncHandler(
-  async (req: Request, res: Response) => {
-    const { email, token } = verifyMagicLoginSchema.parse(req.body);
-    const result = await authService.verifyMagicLogin(email, token);
-    return issueTokens(res, result, 200); // sets cookies + returns accessToken
-  },
-);
+// ────── REFRESH TOKEN ───────────────────────────────────────────────────
 
 export const refreshTokenController = asyncHandler(
   async (req: Request, res: Response) => {

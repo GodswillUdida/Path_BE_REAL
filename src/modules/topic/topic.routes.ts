@@ -3,7 +3,7 @@ import * as ctrl from "./topic.controller";
 import { authGuard } from "../../middleware/authGuard";
 import { roleGuard } from "../../middleware/roleGuard";
 import { createTopicRateLimiter } from "../../middleware/Ratelimiter.middleware";
-import { uploadVideo } from "../../config/multer";
+// import { uploadVideo } from "../../config/multer";
 
 const r = Router({ mergeParams: true });
 
@@ -16,7 +16,7 @@ r.post(
   createTopicRateLimiter,
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
-  uploadVideo.single("video"),
+  // uploadVideo.single("video"),
   ctrl.createTopicController,
 );
 

@@ -1,18 +1,22 @@
 import "express";
 import type { Multer } from "multer";
 
-declare global {
-  namespace Express {
-    interface Request {
-      file?: Multer.File;
-      files?: Multer.File[];
-      user?: {
-        id: string;
-        role?: string;
-      };
-    }
-  }
-}
+// export interface MulterFiles {
+//   videoPreview?: Express.Multer.File[];
+//   thumbnail?: Express.Multer.File[];
+// }
+
+export type MulterFiles = {
+  videoPreview?: Express.Multer.File[];
+  thumbnail?: Express.Multer.File[];
+};
+
+export type MediaInput = {
+  thumbnailFile?: Express.Multer.File;
+  videoFile?: Express.Multer.File;
+  thumbnailUrl?: string;
+  videoUrl?: string;
+};
 
 declare module "express-serve-static-core" {
   interface Request {

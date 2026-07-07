@@ -1,20 +1,27 @@
 {
   "name": "accountant-pathfinder-backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "Backend API for the Pathfinder application, providing user authentication, profile management, and payment processing functionalities.",
   "main": "index.js",
   "scripts": {
     "dev": "prisma generate && tsx watch src/server.ts",
-    "migrate:deploy": "prisma migrate deploy",
     "build": "tsc --build",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
+    "prisma:seed": "prisma db seed",
+    "db:reset": "prisma migrate reset",
+    "db:push": "prisma db push",
+    "db:seed": "prisma db seed",
+    "migrate:deploy": "prisma migrate deploy",
     "dev:docker": "docker compose -f docker-compose.dev.yml up --build",
     "dev:docker:logs": "docker compose -f docker-compose.dev.yml logs -f pathfinder-api",
     "prod:docker": "docker compose -f docker-compose.yml up --build -d",
     "prod:docker:logs": "docker compose -f docker-compose.yml logs -f pathfinder-api"
+  },
+  "prisma": {
+    "seed": "tsx src/prisma/seed.ts"
   },
   "keywords": [],
   "author": "Godswill Udida",
@@ -26,6 +33,7 @@
     "@types/passport-google-oauth20": "~2.0.17",
     "axios": "^1.15.0",
     "bcryptjs": "^3.0.3",
+    "bullmq": "~5.79.1",
     "cloudinary": "^2.9.0",
     "compression": "^1.8.1",
     "connect-redis": "~9.0.0",

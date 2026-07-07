@@ -10,7 +10,7 @@ services:
     networks:
       - backend
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -31,7 +31,7 @@ services:
     networks:
       - backend
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -52,11 +52,11 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    volumes:
-      - .:/app
-      - /app/node_modules
+    # volumes:
+    #   - .:/app
+    #   - /app/node_modules
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
     networks:
       - backend
     command: >
@@ -66,18 +66,11 @@ services:
         npm start
       "
     healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "require('http').get('http://localhost:5000/health')",
-        ]
+      test: [ "CMD", "node", "-e", "require('http').get('http://localhost:5000/health')" ]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
-
+      # start_period: 40s
   # nginx:
   #   image: nginx:stable-alpine
   #   container_name: nginx

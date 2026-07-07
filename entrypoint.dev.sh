@@ -1,20 +1,43 @@
-echo "Waiting for Postgres..."
-until npx wait-port postgres:5432 > /dev/null 2>&1; do
-  sleep 1
-done
-echo "Postgres is ready"
+#!/bin/sh
 
-echo "Waiting for Redis..."
-until npx wait-port redis:6379 > /dev/null 2>&1; do
-  sleep 1
-done
-echo "Redis is ready"
+set -e  # exit immediately if a command fails
 
-echo "Generating Prisma client..."
+echo "🚀 Starting Pathfinder API (Dev)..."
+
+MAX_RETRIES=30
+RETRY_COUNT=0
+
+wait_for_service() {
+  SERVICE_NAME=$1
+  HOST=$2
+  PORT=$3
+
+  echo "⏳ Waiting for $SERVICE_NAME at $HOST:$PORT..."
+
+  while ! nc -z $HOST $PORT; do
+    RETRY_COUNT=$((RETRY_COUNT+1))
+
+    if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+      echo "❌ $SERVICE_NAME not available after $MAX_RETRIES attempts. Exiting."
+      exit 1
+    fi
+
+    sleep 1
+  done
+
+  echo "✅ $SERVICE_NAME is ready"
+  RETRY_COUNT=0
+}
+
+# Wait for dependencies
+wait_for_service "Postgres" "postgres" 5432
+wait_for_service "Redis" "redis" 6379
+
+echo "🔧 Generating Prisma client..."
 npx prisma generate
 
-echo "Running migrations..."
+echo "🗄️ Running migrations..."
 npx prisma migrate deploy
 
-echo "Starting dev server..."
-npm run dev
+echo "🔥 Starting dev server..."
+exec npm run dev

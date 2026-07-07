@@ -4,7 +4,7 @@ import { authGuard } from "../../middleware/authGuard";
 
 const r = Router();
 
-r.post("/", createOrderController);
+r.post("/", authGuard, createOrderController);
 
 r.get("/orders", authGuard, getMyOrders);
 

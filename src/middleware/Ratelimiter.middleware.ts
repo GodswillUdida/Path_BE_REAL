@@ -41,3 +41,27 @@ export const createTopicRateLimiter = rateLimit({
     message: "Too many topic creation attempts. Please try again in a minute.",
   },
 });
+
+/** 10 attempts per 15 min per IP — covers credential brute-force. */
+export const credentialLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many attempts. Please try again later.",
+  },
+});
+
+/** 5 attempts per 15 min per IP — covers OTP/magic-link spam. */
+export const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many requests. Please try again later.",
+  },
+});

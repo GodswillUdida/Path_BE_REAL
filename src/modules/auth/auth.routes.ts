@@ -23,43 +23,9 @@ import * as authController from "./auth.controller";
 import { authGuard } from "../../middleware/authGuard";
 import { sessionGuard } from "../../middleware/sessionGuard";
 import { roleGuard } from "../../middleware/roleGuard";
-import passport from "../auth/google.strategy";
-import crypto from "crypto";
-import { generalRateLimiter } from "../../middleware/Ratelimiter.middleware";
+import { credentialLimiter, otpLimiter } from "../../middleware/Ratelimiter.middleware";
 
 const r = Router();
-
-// ─── Targeted Rate Limiters ───────────────────────────────────────────────────
-//
-// These complement the broad /api limiter in app.ts. The narrow window and low
-// ceiling on credential and OTP endpoints make brute-force attacks impractical
-// without blocking legitimate use.
-
-/** 10 attempts per 15 min per IP — covers credential brute-force. */
-const credentialLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many attempts. Please try again later.",
-  },
-});
-
-/** 5 attempts per 15 min per IP — covers OTP/magic-link spam. */
-const otpLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many requests. Please try again later.",
-  },
-});
-
-// ─── Public: Credentials ──────────────────────────────────────────────────────
 
 r.post("/register", credentialLimiter, authController.registerController);
 r.post("/login", credentialLimiter, authController.loginController);
@@ -84,70 +50,53 @@ r.get(
 );
 r.post("/reset-password", otpLimiter, authController.resetPasswordController);
 
-// ─── Public: Google OAuth (Redirect Flow) ─────────────────────────────────────
-//
-//  Step 1 — Browser visits GET /api/auth/google
-//           → redirected to Google's consent screen
-//
-//  Step 2 — Google redirects to GET /api/auth/google/callback?code=…
-//           → server exchanges code, sets cookie, redirects to frontend
 
-r.get("/google", (req, res, next) => {
-  // Generate a cryptographically random state value
-  const state = crypto.randomBytes(24).toString("base64url");
+// r.get("/google", (req, res, next) => {
+//   // Generate a cryptographically random state value
+//   const state = crypto.randomBytes(24).toString("base64url");
 
-  // Set it as a cookie BEFORE redirecting to Google
-  res.cookie("oauth_state", state, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "none", // must be lax, not strict — cross-origin redirect won't send strict cookies
-    maxAge: 5 * 60 * 1000, // 5 minutes
-    path: "/",
-  });
+//   // Set it as a cookie BEFORE redirecting to Google
+//   res.cookie("oauth_state", state, {
+//     httpOnly: true,
+//     secure: process.env.NODE_ENV === "production",
+//     sameSite: "none", // must be lax, not strict — cross-origin redirect won't send strict cookies
+//     maxAge: 5 * 60 * 1000, // 5 minutes
+//     path: "/",
+//   });
 
-  // Pass the same value to Google as the state param
-  passport.authenticate("google", {
-    scope: ["openid", "profile", "email"],
-    state,
-    session: false,
-  })(req, res, next);
-});
+//   // Pass the same value to Google as the state param
+//   passport.authenticate("google", {
+//     scope: ["openid", "profile", "email"],
+//     state,
+//     session: false,
+//   })(req, res, next);
+// });
 
-r.get(
-  "/google/callback",
-  passport.authenticate("google", {
-    session: false,
-    failureRedirect: `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
-  }),
-  authController.googleCallbackController,
-);
+// r.get(
+//   "/google/callback",
+//   passport.authenticate("google", {
+//     session: false,
+//     failureRedirect: `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
+//   }),
+//   authController.googleCallbackController,
+// );
 
-// ─── Public: Magic Link ───────────────────────────────────────────────────────
 
-// r.post("/magic-login/send",   otpLimiter, authController.sendMagicLoginController);
-r.post(
-  "/magic-login/verify",
-  otpLimiter,
-  authController.verifyMagicLoginController,
-);
+// r.post(
+//   "/magic-link/request",
+//   otpLimiter,
+//   authController.requestMagicLinkController,
+// );
 
-// ─── Public: Guest OTP & Login ────────────────────────────────────────────────
-
-r.post(
-  "/checkout/otp/send",
-  otpLimiter,
-  authController.sendCheckoutOtpController,
-);
-r.post(
-  "/checkout/otp/verify",
-  otpLimiter,
-  authController.verifyCheckoutOtpController,
-);
-r.post(
-  "/checkout/complete",
-  credentialLimiter,
-  authController.completeGuestProfileController,
-);
+// Token in POST body — never in the URL.
+// URL params are written to: nginx access logs, proxy logs, browser history,
+// Referer headers, and any APM/tracing tool you have running.
+// A token in any of those is a live credential leak.
+// r.post(
+//   "/magic-link/verify",
+//   otpLimiter,
+//   authController.verifyMagicLoginController,
+// );
 
 // ─── Authenticated: stateful session required ─────────────────────────────────
 
@@ -167,7 +116,6 @@ r.delete("/sessions/:id", sessionGuard, authController.revokeSessionController);
 
 r.get(
   "/users",
-  generalRateLimiter,
   authGuard,
   roleGuard("admin", "superadmin"),
   authController.getAllUsersController,

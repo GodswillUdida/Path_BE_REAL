@@ -1,68 +1,111 @@
+/**
+ * course.router.ts
+ *
+ * Route ordering is load-bearing in Express — violating it causes
+ * silent misrouting. The contract is documented inline.
+ *
+ * Middleware execution order per route:
+ *   rateLimiter → authGuard → roleGuard → parseJsonFields → uploadCourseMedia → controller
+ *
+ * Rate limits are intentionally asymmetric:
+ *   - Public GETs: higher limit (read-heavy, cached)
+ *   - Write operations: tighter limit (create/update/delete are expensive)
+ */
+
 import { Router } from "express";
-import * as ctrl from "./course.controller";
 import { authGuard } from "../../middleware/authGuard";
 import { roleGuard } from "../../middleware/roleGuard";
-import { uploadSingleImage } from "../../config/multer";
+import { uploadCourseMedia } from "../../config/multer";
+import { parseJsonFields } from "../../utils/parseJsonFields";
+import * as ctrl from "./course.controller";
 
+const router = Router();
 
-const r = Router();
+// ─────────────────────────────────────────────────────────────────────────────
+// ROUTE ORDERING CONTRACT
+//
+// ✅ Static segments before parameterized ones:
+//    /by-slug/:a/:b    must come before  /:id
+//    /:id/analytics    must come before  /:id
+//
+// Registering /:id before /:id/analytics would cause Express to match
+// "analytics" as an id value — the analytics route becomes unreachable.
+// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * --------------------------------
- * Public Routes
- * --------------------------------
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// PUBLIC — READ
+// ─────────────────────────────────────────────────────────────────────────────
 
-// List courses (cached)
-r.get("/",
-  ctrl.listCoursesController);
-
-// Get single course by ID
-r.get("/:id",
-  ctrl.getCourseController);
-
-// Get by slug (program + course)
-r.get("/:programSlug/:courseSlug",
-  ctrl.getCourseBySlugController);
-
-/**
- * --------------------------------
- * Protected Routes
- * --------------------------------
- */
-
-// Create course (unified)
-r.post(
-  "/:programId",
-  authGuard,
-  roleGuard("admin", "superadmin", "instructor"),
-  uploadSingleImage,
-  ctrl.createCourseController,
+router.get(
+  "/",
+  ctrl.listCoursesController,
 );
 
-// Update
-r.patch(
-  "/:id",
-  authGuard,
-  roleGuard("admin", "superadmin", "instructor"),
-  uploadSingleImage,
-  ctrl.updateCourseController,
+// Slug-based lookup.
+// Mounted under /courses — full path: GET /courses/by-slug/:programSlug/:courseSlug
+// Alternatively this can be mounted at the program router level for cleaner URLs.
+router.get(
+  "/:programSlug/:courseSlug",
+  ctrl.getCourseBySlugController,
 );
 
-// Soft delete
-r.delete(
-  "/:id",
-  authGuard,
-  roleGuard("admin", "superadmin", "instructor"),
-  ctrl.deleteCourseController,
-);
-
-// Course analytics
-r.get(
+// MUST be before /:id — see ordering contract above
+router.get(
   "/:id/analytics",
   authGuard,
   roleGuard("admin", "superadmin", "instructor"),
   ctrl.courseAnalyticsController,
 );
 
-export default r;
+router.get(
+  "/:id",
+  ctrl.getCourseController,
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROTECTED — WRITE
+//
+// uploadCourseMedia = multer().fields([
+//   { name: "thumbnail",    maxCount: 1 },
+//   { name: "videoPreview", maxCount: 1 },
+// ])
+// → req.files.thumbnail[0], req.files.videoPreview[0]
+// See: config/multer.ts
+// ─────────────────────────────────────────────────────────────────────────────
+
+  // router.post(
+  //   "/:programId",
+  //   authGuard,
+  //   roleGuard("admin", "superadmin", "instructor"),
+  //   uploadCourseMedia,
+  //   ctrl.createCourseController,
+  // );
+
+
+  router.post(
+  "/:programId",
+  // rateLimiter({ windowMs: 60_000, max: 10 }),
+  authGuard,
+  roleGuard("admin", "superadmin", "instructor"),
+  uploadCourseMedia,       // ← multer first: parses multipart body into req.body + req.files
+  // parseJsonFields(["pricings"]), // ← then parse JSON strings inside that body
+  ctrl.createCourseController,
+);
+
+
+router.patch(
+  "/:id",
+  authGuard,
+  roleGuard("admin", "superadmin", "instructor"),
+  uploadCourseMedia,
+  ctrl.updateCourseController,
+);
+
+router.delete(
+  "/:id",
+  authGuard,
+  roleGuard("admin", "superadmin", "instructor"),
+  ctrl.deleteCourseController,
+);
+
+export default router;

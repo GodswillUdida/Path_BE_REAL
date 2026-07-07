@@ -1,5 +1,9 @@
-import env from "dotenv";
-env.config();
+import { config } from "dotenv";
+config();
+
+const CLOUDINARY_ENV = {
+  
+}
 
 let cloudinaryInstance: typeof import("cloudinary").v2 | null = null;
 

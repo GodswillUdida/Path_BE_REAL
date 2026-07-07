@@ -15,7 +15,7 @@ const password = z
   .regex(/[0-9]/, "Must include number")
   .max(128, "Password too long");
 
-const token = z.string("Token is required").min(8, "Token cannot be empty");
+const token = z.string("Token is required").min(1, "Token is empty");
 
 export const registerSchema = z.object({
   name: z.string().min(3).max(128, "Name too long"),
@@ -52,24 +52,11 @@ export const resetPasswordVerifySchema = z.object({
 
 // ─── Magic Link ───────────────────────────────────────────────────────────────
 
-export const magicLoginVerifySchema = z.object({
-  email,
+export const verifyMagicLinkSchema = z.object({
   token,
 });
 
-export const guestOtpSendSchema = z.object({
-  email,
-});
-
-export const guestOtpVerifySchema = z.object({
-  email,
-  code: z
-    .string("OTP code is required")
-    .length(6, "OTP must be exactly 6 digits")
-    .regex(/^\d+$/, "OTP must contain digits only"),
-});
-
-export const guestLoginSchema = z.object({
+export const requestMagicLinkSchema = z.object({
   email,
 });
 
@@ -82,10 +69,12 @@ export const refreshTokenSchema = z.object({}).strict(); // empty for cookie-bas
 
 export type RegisterDTO = z.infer<typeof registerSchema>;
 export type LoginDTO = z.infer<typeof loginSchema>;
-export type GuestLoginDTO = z.infer<typeof guestLoginSchema>;
 export type VerifyEmailDTO = z.infer<typeof verifyEmailSchema>;
 export type ForgotPasswordDTO = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordDTO = z.infer<typeof resetPasswordSchema>;
 export type ResetPasswordVerifyDTO = z.infer<typeof resetPasswordVerifySchema>;
-export type GuestOtpSendDTO = z.infer<typeof guestOtpSendSchema>;
-export type GuestOtpVerifyDTO = z.infer<typeof guestOtpVerifySchema>;
+export type RequestMagicLinkDTO = z.infer<typeof requestMagicLinkSchema>;
+export type VerifyMagicLinkDTO = z.infer<typeof verifyMagicLinkSchema>;
+
+// export type GuestLoginDTO = z.infer<typeof guestLoginSchema>;
+// export type GuestOtpVerifyDTO = z.infer<typeof guestOtpVerifySchema>;

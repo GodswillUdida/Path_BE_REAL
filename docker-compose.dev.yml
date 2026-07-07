@@ -1,9 +1,7 @@
 services:
   redis:
     image: redis:7-alpine
-    container_name: redis
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
     volumes:
       - redis_data:/data
     healthcheck:
@@ -11,16 +9,14 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - app_network
 
   postgres:
     image: postgres:16
-    container_name: postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: godswill
-      POSTGRES_DB: accountant_pathfinder_be
-    ports:
-      - "5432:5432"
+    restart: unless-stopped
+    env_file:
+      - .env
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -28,36 +24,36 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - app_network
 
   pathfinder-api:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: pathfinder-api
+    restart: unless-stopped
     ports:
       - "5000:5000"
       - "5555:5555"
     volumes:
-      - .:/app
-      - /app/node_modules
+      - .:/app:delegated
+      - node_modules:/app/node_modules
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://postgres:godswill@postgres:5432/accountant_pathfinder_be?schema=public
-      REDIS_URL: redis://redis:6379
-      NODE_ENV: development
-      FRONTEND_URL: http://localhost:5173
-      JWT_ACCESS_SECRET: super-access-secret
-      JWT_REFRESH_SECRET: super-secret-refresh
-      REFRESH_TOKEN_SECRET: super-secret-refresh
-      REFRESH_COOKIE_NAME: refresh_token
-      RESEND_API_KEY: your-key
-      MAIL_FROM: udidagodswill7@gmail.com
-      ADMIN_EMAIL: udidagodswill7@gmail.com
+    env_file:
+      - .env
+    command: >
+      sh -c "npx prisma migrate deploy && npm run dev"
+    networks:
+      - app_network
 
 volumes:
   redis_data:
   pg_data:
+  node_modules:
+
+networks:
+  app_network:

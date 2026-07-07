@@ -1,36 +1,35 @@
-# Use a lightweight Node.js image
-FROM node:20-alpine
+FROM node:20-alpine AS builder
 
-# Create app directory
 WORKDIR /app
 
-# Install OS dependencies required by Prisma
 RUN apk add --no-cache openssl
-#RUN apt-get update && apt-get install -y openssl
 
-# Install only prod dependencies first for layer caching
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
-# Copy Prisma schema & generate client
 COPY prisma ./prisma/
 RUN npx prisma generate
 
-# Copy entire project files
 COPY . .
-
-# Copy EJS views to built directory
-COPY src/views ./dist/views
-
-# Build TypeScript
 RUN npm run build
 
-# Set environment to production explicitly
+
+# -----------------------------
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache openssl
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/node_modules ./node_modules
+
 ENV NODE_ENV=production
 
-# Expose correct port for API
 EXPOSE 5000
 
-# Start the app
-# CMD ["npm", "run", "dev"]
-CMD ["npm", "start"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]

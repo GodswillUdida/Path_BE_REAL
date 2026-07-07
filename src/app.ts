@@ -24,6 +24,9 @@ import topicRoutes from "./modules/topic/topic.routes";
 import enrollmentRoutes from "./modules/enrollment/enrollment.routes";
 import orderRoutes from "./modules/order/order.routes";
 import paymentRoutes from "./modules/payment/payment.routes";
+import progresessRoutes from "./modules/progress/progress.routes";
+import certificateRoutes from "./modules/certificate/certificate.routes";
+import intakeRoutes from './modules/intake/intake.routes';
 
 const app: Application = express();
 const isProduction = process.env.NODE_ENV === "production";
@@ -64,15 +67,15 @@ app.use(cookieParser(COOKIE_SECRET));
 /*                               RATE LIMITING                                */
 /* -------------------------------------------------------------------------- */
 
-app.use(
-  "/api",
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
-    standardHeaders: true,
-    legacyHeaders: false,
-  }),
-);
+// app.use(
+//   "/api",
+//   rateLimit({
+//     windowMs: 15 * 60 * 1000,
+//     max: 100,
+//     standardHeaders: true,
+//     legacyHeaders: false,
+//   }),
+// );
 
 /* -------------------------------------------------------------------------- */
 /*                         WEBHOOK ROUTES (raw body)                          */
@@ -120,13 +123,11 @@ app.get("/health", async (_req, res) => {
     const { default: prisma } = await import("./lib/prisma");
     await prisma.$queryRaw`SELECT 1`;
     res.status(200).json({
-      status: "ok",
+      status: "Database is healthy",
       timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      environment: process.env.NODE_ENV ?? "production",
     });
   } catch {
-    res.status(503).json({ status: "unhealthy" });
+    res.status(503).json({ status: "Database is unhealthy" });
   }
 });
 
@@ -140,7 +141,16 @@ app.get("/health/redis", async (req, res) => {
   }
 });
 
-app.get("/", (_req, res) => res.status(200).send("OK"));
+app.get("/", async (_req, res) => {
+  res.status(200).json({
+    status: true,
+    message: "Welcome to Accountant Pathfinder API ✔🚀, Explore 🌍",
+    data: {
+      service: "pathfinder-api",
+      "version": "1.0"
+    }
+  })
+});
 
 /* -------------------------------------------------------------------------- */
 /*                               API ROUTES                                   */
@@ -156,7 +166,10 @@ app.use(`${API}/topics`, topicRoutes);
 app.use(`${API}/enrollments`, enrollmentRoutes);
 app.use(`${API}/orders`, orderRoutes);
 app.use(`${API}/payments`, paymentRoutes);
-app.use(`${API}/docs`, swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use(`${API}/progress`, progresessRoutes);
+app.use(`${API}/certificate`, certificateRoutes);
+app.use(`${API}/intake`, intakeRoutes);
+// app.use(`${API}/docs`, swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 /* -------------------------------------------------------------------------- */
 /*                               ERROR HANDLER                                */

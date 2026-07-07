@@ -15,7 +15,7 @@ export const createOrderController = asyncHandler(
   async (req: Request, res: Response) => {
     const userId = req.user?.id || req.user?.userId;
 
-    const order = await createOrder(req.body, userId);
+    const order = await createOrder(req.body, userId as string);
 
     res.status(201).json({
       success: true,

@@ -5,17 +5,22 @@ import {
   verifyPaymentController, // ← new
   paystackWebhookController,
 } from "./payment.controller";
+import { authGuard } from "../../middleware/authGuard";
+import { otpLimiter } from "../../middleware/Ratelimiter.middleware";
 
 const r = Router();
 
 // Public payment routes (match your frontend API_BASE calls)
-r.post("/paystack/initialize", initializePaymentController);
-r.get("/verify", verifyPaymentController); // ← new (used by /checkout/success)
+r.post("/paystack/initialize", authGuard, initializePaymentController);
+r.get("/verify",
+  authGuard,
+  // otpLimiter,
+  verifyPaymentController);
 
 // Webhook – raw body parser applied ONLY to this route (correct & secure)
 r.post(
   "/webhook/paystack",
-  raw({ type: "application/json", limit: "5mb" }), // use your BODY_LIMIT here
+  raw({ type: "application/json", limit: "1mb" }), // use your BODY_LIMIT here
   paystackWebhookController,
 );
 

@@ -165,6 +165,34 @@ export const sendOtpEmail = async ({ to, name, code }: SendOtpInput) => {
   await sendCoreEmail(to, "Your Pathfinder Verification Code", html);
 };
 
+type SendMagicLinkInput = {
+  to: string;
+  name?: string;
+  url: string;
+};
+
+export const sendMagicLinkEmail = async ({ to, name, url }: SendMagicLinkInput) => {
+
+  const urlBase = isProduction ? FRONTEND_URL : "http://localhost:3000/api/v1/auth";
+  const fullUrl = `${urlBase}/magic-login?token=${url}`;
+
+  const html = await renderEmailTemplate("magicLinkEmail", {
+    email: to,
+    name: name ?? "",
+    url: fullUrl,
+  });
+  await sendCoreEmail(to, "Your Magic Login Link", html);
+};  
+
+export const sendAccountCreationEmail = async (to: string, name: string, password: string) => {
+  const html = await renderEmailTemplate("accountCreation", {
+    email: to,
+    name: name ?? "",
+    password,
+  });
+  await sendCoreEmail(to, "Your Pathfinder Account has been created", html);
+};
+
 // Password Reset Email
 export const sendPasswordResetEmail = async (
   to: string,

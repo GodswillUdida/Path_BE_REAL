@@ -10,6 +10,7 @@ interface VerifiedTokenPayload {
 export type AccessTokenPayload = {
   userId: string;
   role?: string;
+  emailVerified?: boolean;
 };
 
 export type RefreshTokenPayload = {

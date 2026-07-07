@@ -15,7 +15,7 @@ const servers = [
 if (process.env.NODE_ENV === "production") {
   servers.push({
     url:
-      process.env.PROD_API_BASE_URL ||
+      process.env.BACKEND_URL ||
       "https://api.accountantpathfinder.com/api/v1",
     description: "Production server",
   });

@@ -45,7 +45,7 @@ router.get(
 // Mounted under /courses — full path: GET /courses/by-slug/:programSlug/:courseSlug
 // Alternatively this can be mounted at the program router level for cleaner URLs.
 router.get(
-  "/:programSlug/:courseSlug",
+  "/slug/:programSlug/:courseSlug",
   ctrl.getCourseBySlugController,
 );
 

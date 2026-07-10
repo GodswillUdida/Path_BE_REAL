@@ -67,11 +67,7 @@ import { MulterFiles } from "@/types/express";
 export const createCourseController = asyncHandler(
   async (req: Request, res: Response) => {
     const { id: instructorId } = requireActor(req);
- 
-    // pricings is already a parsed array here — parseJsonFields middleware
-    // in the router handles the multipart string → JSON conversion.
-    // If it's still a string at this point, the middleware is missing from
-    // the route definition. Check course.router.ts.
+
     const parsed = createCourseSchema.parse({
       ...req.body,
       programId: req.params.programId,

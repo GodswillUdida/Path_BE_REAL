@@ -1,42 +1,36 @@
-// src/modules/enrollment/enrollment.controller.ts
 import { Request, Response } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
-import {
-  getUserEnrollmentsService,
-  getOneEnrollmentService,
-} from "./enrollment.service";
+import { unauthorized } from "../../utils/errors";
+import { getUserEnrollmentsService, getOneEnrollmentService } from "./enrollment.service";
 
-export const getMyEnrollments = asyncHandler(
-  async (req: Request, res: Response) => {
-    const userId = req.user?.id || req.user?.userId;
+// FIXED: previously `req.user?.id || req.user?.userId` with a manual
+// hand-rolled 401 response — same ad hoc auth-guessing pattern already
+// fixed in order.controller.ts and payment.controller.ts. Normalized to
+// the same requireActor helper used everywhere else, which also ensures
+// this goes through the centralized error envelope (message/code/details)
+// rather than a hand-shaped response that happened to look similar.
+function requireActor(req: Request): { id: string; role: string } {
+  const user = req.user;
+  if (!user?.id || !user?.role) throw unauthorized("Authentication required");
+  return { id: user.id, role: user.role };
+}
 
-    if (!userId) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
-    }
+export const getMyEnrollments = asyncHandler(async (req: Request, res: Response) => {
+  const { id: userId } = requireActor(req);
 
-    const enrollments = await getUserEnrollmentsService(userId);
+  const limit = Math.min(Number(req.query.limit) || 20, 50);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
 
-    res.json({
-      success: true,
-      data: enrollments,
-    });
-  }
-);
+  const result = await getUserEnrollmentsService(userId, limit, offset);
 
-export const getOneEnrollment = asyncHandler(
-  async (req: Request, res: Response) => {
-    const userId = req.user?.id || req.user?.userId;
-    const enrollmentId = req.params.id;
+  res.json({ success: true, ...result });
+});
 
-    if (!userId) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
-    }
+export const getOneEnrollment = asyncHandler(async (req: Request, res: Response) => {
+  const { id: userId } = requireActor(req);
+  const enrollmentId = req.params.id as string;
 
-    const enrollment = await getOneEnrollmentService(enrollmentId as string, userId);
+  const enrollment = await getOneEnrollmentService(enrollmentId, userId);
 
-    res.json({
-      success: true,
-      data: enrollment,
-    });
-  }
-);
+  res.json({ success: true, data: enrollment });
+});

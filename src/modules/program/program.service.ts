@@ -1,225 +1,458 @@
 /**
  * program.service.ts
  *
- * Business logic and orchestration for the Program domain.
+ * Business logic and orchestration for Program.
  *
- * Strict rules enforced here:
- *   - No Prisma imports — all DB access via program.repository
- *   - No Redis imports — all cache access via program.cache
- *   - All public read paths are cache-through
- *   - All write paths invalidate then re-warm the cache
- *   - withMetrics wraps every operation
- *   - Slug generation happens OUTSIDE transactions (avoids long lock holds)
- *
- * Course creation from a program context is intentionally NOT here.
- * Cross-domain operations (program + course) belong in the course service,
- * which accepts an optional programId. The program router delegates
- * POST /:programId/courses to the course controller directly.
+ * Rules:
+ * - No Prisma.
+ * - No Redis.
+ * - DB through repository.
+ * - Cache through cache module.
+ * - Reads are cache-through.
+ * - Writes invalidate and re-warm when appropriate.
+ * - withMetrics wraps every public operation.
+ * - Slug generation outside transactions.
+ * - Course creation remains in course.service.
  */
 
 import { badRequest, forbidden, notFound } from "../../utils/errors";
+
 import { generateUniqueSlug } from "../../utils/slugify";
-import { uploadImageOrFail } from "../../utils/file";
+
+import { uploadImageOrFail, uploadThumbnail } from "../../utils/file";
+
 import logger from "../../utils/logger";
+
 import { withMetrics } from "../../utils/observability";
 
 import * as repo from "./program.repository";
-// import * as cache from "./program.cache";
+import * as cache from "./program.cache";
 
-import type { CreateProgramDTO, UpdateProgramDTO, ListProgramsQuery } from "./program.schema";
-import type { ProgramDetail } from "./program.repository";
+import type {
+  CreateProgramDTO,
+  UpdateProgramDTO,
+  ListProgramsQuery,
+  ReorderProgramCourseDTO,
+} from "./program.schema";
+
+import type { ProgramDetail, ProgramSummary } from "./program.repository";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PARAM TYPES
+// TYPES
 // ─────────────────────────────────────────────────────────────────────────────
+
+export type ProgramActor = {
+  id: string;
+  role: string;
+};
 
 export type CreateProgramParams = {
+  actor: ProgramActor;
   data: CreateProgramDTO;
   imageFile?: Express.Multer.File;
 };
 
 export type UpdateProgramParams = {
   id: string;
-  actorRole: string;
+  actor: ProgramActor;
   data: UpdateProgramDTO;
   imageFile?: Express.Multer.File;
 };
 
 export type DeleteProgramParams = {
   id: string;
-  actorRole: string;
+  actor: ProgramActor;
+};
+
+export type RestoreProgramParams = {
+  id: string;
+  actor: ProgramActor;
+};
+
+export type ReorderProgramCourseParams = {
+  programId: string;
+  actor: ProgramActor;
+  data: ReorderProgramCourseDTO;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CREATE
-//
-// Uniqueness is enforced at TWO layers:
-//   1. Application-level check (fast, gives clean error message)
-//   2. DB-level unique constraint on `title` (prevents race conditions)
-//
-// Slug generation is outside any transaction — it may hit the DB for
-// uniqueness, and holding a transaction open during that adds lock contention.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function createProgram({
+  actor,
   data,
   imageFile,
 }: CreateProgramParams): Promise<ProgramDetail> {
   return withMetrics("program.create", async () => {
-    // ── 1. Resolve image — before any DB work ──────────────────────────────
+    enforceAdminOnly(actor, "create programs");
+
     const image = imageFile
-      ? await uploadImageOrFail(imageFile)
+      ? await uploadThumbnail(imageFile)
       : (data.image ?? null);
 
-    // ── 2. Title uniqueness check ──────────────────────────────────────────
     const titleConflict = await repo.findProgramByTitle(data.title);
-    if (titleConflict) throw badRequest("A program with this title already exists");
 
-    // ── 3. Slug — outside transaction ──────────────────────────────────────
+    if (titleConflict) {
+      throw badRequest("A program with this title already exists");
+    }
+
     const slug = await generateUniqueSlug(data.slug ?? data.title, "program");
 
-    // ── 4. Insert (no transaction needed — single atomic write) ────────────
-    const program = await repo.insertProgram({ ...data, image: image ?? undefined }, slug);
+    const program = await repo.insertProgram(
+      {
+        ...data,
+        image: image ?? undefined,
+      },
+      slug,
+    );
 
-    // ── 5. Warm cache ──────────────────────────────────────────────────────
-    // await cache.setCachedProgramDetail(program);
+    await cache.setCachedProgram(program);
 
-    logger.info("program.created", { programId: program.id });
+    await cache.invalidateProgram(program.id, undefined, program.slug);
+
+    logger.info("program.created", {
+      programId: program.id,
+      actorId: actor.id,
+    });
+
     return program;
   });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET BY ID — cache-through
+// GET
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function getProgram(id: string): Promise<ProgramDetail> {
   return withMetrics("program.get", async () => {
-    // const cached = await cache.getCachedProgramDetail(id);
-    // if (cached) return cached;
+    const cached = await cache.getCachedProgramDetail(id);
+
+    if (cached) {
+      return cached;
+    }
 
     const program = await repo.findProgramById(id);
-    if (!program) throw notFound("Program not found");
 
-    // await cache.setCachedProgramDetail(program);
+    if (!program) {
+      throw notFound("Program not found");
+    }
+
+    await cache.setCachedProgram(program);
+
     return program;
   });
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET BY SLUG — cache-through (hot public path)
-// ─────────────────────────────────────────────────────────────────────────────
 
 export async function getProgramBySlug(slug: string): Promise<ProgramDetail> {
   return withMetrics("program.getBySlug", async () => {
-    // const cached = await cache.getCachedProgramBySlug(slug);
-    // if (cached) return cached;
+    const cached = await cache.getCachedProgramBySlug(slug);
+
+    if (cached) {
+      return cached;
+    }
 
     const program = await repo.findProgramBySlug(slug);
-    if (!program) throw notFound("Program not found");
 
-    // await cache.setCachedProgramDetail(program); // sets both id + slug keys
+    if (!program) {
+      throw notFound("Program not found");
+    }
+
+    await cache.setCachedProgram(program);
+
     return program;
   });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LIST — cache-through, paginated
+// LIST
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function listPrograms(query: ListProgramsQuery) {
+export async function listPrograms(query: ListProgramsQuery): Promise<{
+  data: ProgramSummary[];
+  meta: ReturnType<typeof buildMeta>;
+}> {
   return withMetrics("program.list", async () => {
-    // const cached = await cache.getCachedProgramList(query);
-    // if (cached) {
-    //   return { data: cached.data, meta: buildMeta(query, cached.total) };
-    // }
+    const cached = await cache.getCachedProgramList(query);
 
-    const { data, total } = await repo.paginatePrograms(query);
-    // await cache.setCachedProgramList(query, { data, total });
+    if (cached) {
+      return {
+        data: cached.data,
+        meta: buildMeta(query, cached.total),
+      };
+    }
 
-    return { data, meta: buildMeta(query, total) };
+    const result = await repo.paginatePrograms(query);
+
+    await cache.setCachedProgramList(query, result);
+
+    return {
+      data: result.data,
+      meta: buildMeta(query, result.total),
+    };
   });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UPDATE
-//
-// Title uniqueness check + update are NOT in the same transaction by design:
-// the uniqueness check is a best-effort guard; the DB unique constraint is
-// the authoritative guard against races. If two concurrent updates slip
-// through, the DB constraint catches the second one and the error middleware
-// translates the Prisma P2002 into a 409.
-//
-// Only admins/superadmins can update programs — instructors operate on
-// courses within programs, not the programs themselves.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function updateProgram({
   id,
-  actorRole,
+  actor,
   data,
   imageFile,
 }: UpdateProgramParams): Promise<ProgramDetail> {
   return withMetrics("program.update", async () => {
-    enforceAdminOnly(actorRole, "update programs");
+    enforceAdminOnly(actor, "update programs");
 
     const existing = await repo.findProgramExists(id);
-    if (!existing) throw notFound("Program not found");
 
-    // ── Image resolution ───────────────────────────────────────────────────
-    let image: string | undefined;
-    if (imageFile) image = await uploadImageOrFail(imageFile);
-    else if (data.image) image = data.image;
-
-    // ── Title uniqueness ───────────────────────────────────────────────────
-    if (data.title) {
-      const conflict = await repo.findProgramByTitle(data.title, id);
-      if (conflict) throw badRequest("A program with this title already exists");
+    if (!existing) {
+      throw notFound("Program not found");
     }
 
-    // ── Slug ───────────────────────────────────────────────────────────────
-    let slug = existing.slug;
-    if (data.slug) slug = await generateUniqueSlug(data.slug, "program", id);
-    else if (data.title) slug = await generateUniqueSlug(data.title, "program", id);
+    let image: string | null | undefined;
 
-    // ── Write ──────────────────────────────────────────────────────────────
-    const { slug: _s, image: _i, ...scalarUpdates } = data;
+    if (imageFile) {
+      image = await uploadImageOrFail(imageFile);
+    } else if (data.image !== undefined) {
+      image = data.image;
+    }
+
+    if (data.title !== undefined && data.title !== existing.title) {
+      const conflict = await repo.findProgramByTitle(data.title, id);
+
+      if (conflict) {
+        throw badRequest("A program with this title already exists");
+      }
+    }
+
+    let slug = existing.slug;
+
+    if (data.slug !== undefined) {
+      slug = await generateUniqueSlug(data.slug, "program", id);
+    } else if (data.title !== undefined && data.title !== existing.title) {
+      slug = await generateUniqueSlug(data.title, "program", id);
+    }
+
+    const { slug: _ignoredSlug, image: _ignoredImage, ...scalarUpdates } = data;
+
     const updated = await repo.updateProgramById(id, {
       ...scalarUpdates,
       slug,
-      ...(image !== undefined && { image }),
+      ...(image !== undefined ? { image } : {}),
     });
 
-    // ── Cache ──────────────────────────────────────────────────────────────
-    // await cache.invalidateProgram(id, existing.slug);
-    // await cache.setCachedProgramDetail(updated);
+    await cache.invalidateProgram(id, existing.slug, updated.slug);
 
-    logger.info("program.updated", { programId: id });
+    await cache.setCachedProgram(updated);
+
+    logger.info("program.updated", {
+      programId: id,
+      actorId: actor.id,
+      slugChanged: existing.slug !== updated.slug,
+    });
+
     return updated;
   });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SOFT DELETE
+// PUBLISH
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function publishProgram({
+  id,
+  actor,
+}: DeleteProgramParams): Promise<ProgramDetail> {
+  return withMetrics("program.publish", async () => {
+    enforceAdminOnly(actor, "publish programs");
+
+    const existing = await repo.findProgramExists(id);
+
+    if (!existing) {
+      throw notFound("Program not found");
+    }
+
+    if (existing && (await repo.findProgramById(id))?.status === "PUBLISHED") {
+      return getProgram(id);
+    }
+
+    // Keep actual publish-readiness rules here.
+    // Add course/content validation as the LMS publish requirements
+    // become explicit.
+    const published = await repo.publishProgram(id);
+
+    await cache.invalidateProgram(id, existing.slug, published.slug);
+
+    await cache.setCachedProgram(published);
+
+    logger.info("program.published", {
+      programId: id,
+      actorId: actor.id,
+    });
+
+    return published;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ARCHIVE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function archiveProgram({
+  id,
+  actor,
+}: DeleteProgramParams): Promise<ProgramDetail> {
+  return withMetrics("program.archive", async () => {
+    enforceAdminOnly(actor, "archive programs");
+
+    const existing = await repo.findProgramExists(id);
+
+    if (!existing) {
+      throw notFound("Program not found");
+    }
+
+    const archived = await repo.archiveProgram(id);
+
+    await cache.invalidateProgram(id, existing.slug, archived.slug);
+
+    await cache.setCachedProgram(archived);
+
+    logger.info("program.archived", {
+      programId: id,
+      actorId: actor.id,
+    });
+
+    return archived;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function deleteProgram({
   id,
-  actorRole,
+  actor,
 }: DeleteProgramParams): Promise<void> {
-  enforceAdminOnly(actorRole, "delete programs");
+  return withMetrics("program.delete", async () => {
+    enforceAdminOnly(actor, "delete programs");
 
-  const existing = await repo.findProgramExists(id);
-  if (!existing) throw notFound("Program not found");
+    const existing = await repo.findProgramExists(id);
 
-  await repo.softDeleteProgram(id);
-  // await cache.invalidateProgram(id, existing.slug);
+    if (!existing) {
+      throw notFound("Program not found");
+    }
 
-  logger.info("program.deleted", { programId: id });
+    await repo.softDeleteProgram(id);
+
+    await cache.invalidateProgram(id, existing.slug);
+
+    logger.info("program.deleted", {
+      programId: id,
+      actorId: actor.id,
+    });
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// INTERNAL HELPERS
+// RESTORE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function restoreProgram({
+  id,
+  actor,
+}: RestoreProgramParams): Promise<ProgramDetail> {
+  return withMetrics("program.restore", async () => {
+    enforceAdminOnly(actor, "restore programs");
+
+    const existing = await repo.findDeletedProgramById(id);
+
+    if (!existing) {
+      throw notFound("Deleted program not found");
+    }
+
+    const titleConflict = await repo.findActiveProgramByTitle(
+      existing.title,
+      id,
+    );
+
+    if (titleConflict) {
+      throw badRequest("A program with this title already exists");
+    }
+
+    const slugConflict = await repo.findActiveProgramBySlug(existing.slug, id);
+
+    if (slugConflict) {
+      throw badRequest("A program with this slug already exists");
+    }
+
+    await cache.invalidateProgram(id, existing.slug);
+
+    const restored = await repo.restoreProgram(id);
+
+    await cache.setCachedProgram(restored);
+
+    logger.info("program.restored", {
+      programId: id,
+      actorId: actor.id,
+    });
+
+    return restored;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REORDER
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function reorderProgramCourse({
+  programId,
+  actor,
+  data,
+}: ReorderProgramCourseParams): Promise<ProgramDetail> {
+  return withMetrics("program.reorderCourse", async () => {
+    enforceAdminOnly(actor, "reorder program courses");
+
+    const program = await repo.findProgramExists(programId);
+
+    if (!program) {
+      throw notFound("Program not found");
+    }
+
+    const membership = await repo.findProgramCourse(programId, data.courseId);
+
+    if (!membership) {
+      throw notFound("Course is not assigned to this program");
+    }
+
+    await repo.reorderProgramCourse(programId, data.courseId, data.position);
+
+    await cache.invalidateProgram(programId, program.slug);
+
+    const updated = await repo.findProgramById(programId);
+
+    if (!updated) {
+      throw notFound("Program not found");
+    }
+
+    await cache.setCachedProgram(updated);
+
+    logger.info("program.course_reordered", {
+      programId,
+      courseId: data.courseId,
+      requestedPosition: data.position,
+      actorId: actor.id,
+    });
+
+    return updated;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildMeta(query: ListProgramsQuery, total: number) {
@@ -227,16 +460,15 @@ function buildMeta(query: ListProgramsQuery, total: number) {
     total,
     limit: query.limit,
     offset: query.offset,
-    pages: Math.ceil(total / query.limit),
+    pages: query.limit > 0 ? Math.ceil(total / query.limit) : 0,
     hasMore: query.offset + query.limit < total,
   };
 }
 
-/**
- * Programs are admin/superadmin territory.
- * Instructors create courses within programs — not programs themselves.
- */
-function enforceAdminOnly(role: string, action: string): void {
-  const allowed = role === "admin" || role === "superadmin";
-  if (!allowed) throw forbidden(`Only admins may ${action}`);
+function enforceAdminOnly(actor: ProgramActor, action: string): void {
+  const allowed = actor.role === "admin" || actor.role === "superadmin";
+
+  if (!allowed) {
+    throw forbidden(`Only admins may ${action}`);
+  }
 }

@@ -1,14 +1,11 @@
 import { Router } from 'express';
-import { Queue } from 'bullmq';
-// import { IntakeRepository } from './intake.repo';
 import { authGuard } from '@/middleware/authGuard';
 import { roleGuard } from '@/middleware/roleGuard';
 import prisma from '@/lib/prisma';
 import { createIntakeControllers } from './intake.controller';
 
 const router = Router();
-// const emailQueue = new Queue('email');
-// const repo = new IntakeRepository(prisma);
+
 const {
   registerApplicantController,
   listApplicantsController,

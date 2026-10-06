@@ -5,8 +5,10 @@
   "main": "index.js",
   "scripts": {
     "dev": "prisma generate && tsx watch src/server.ts",
-    "build": "tsc --build",
+    "dev:worker": " tsx watch src/workers/index.ts",
     "start": "node dist/server.js",
+    "start:worker": "node dist/workers/index.js",
+    "build": "tsc --build",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
@@ -21,13 +23,15 @@
     "prod:docker:logs": "docker compose -f docker-compose.yml logs -f pathfinder-api"
   },
   "prisma": {
-    "seed": "tsx src/prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts"
   },
   "keywords": [],
   "author": "Godswill Udida",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@bull-board/api": "~8.1.2",
+    "@bull-board/express": "~8.1.2",
     "@prisma/client": "6.19.1",
     "@types/multer": "^2.1.0",
     "@types/passport-google-oauth20": "~2.0.17",
@@ -42,6 +46,7 @@
     "dotenv": "^17.4.2",
     "ejs": "^5.0.2",
     "express": "^5.2.1",
+    "express-basic-auth": "~1.2.1",
     "express-rate-limit": "^8.3.2",
     "google-auth-library": "~10.6.2",
     "googleapis": "^171.4.0",
@@ -64,6 +69,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@faker-js/faker": "^10.5.0",
     "@types/compression": "^1.8.1",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
@@ -77,6 +83,7 @@
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
     "prisma": "6.19.1",
+    "tsconfig-paths": "^4.2.0",
     "tsx": "~4.21.0",
     "wait-port": "^1.1.0"
   }

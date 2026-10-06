@@ -7,70 +7,136 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Admin {
-  id String @id @default(uuid())
-}
+/**
+ * |--------------------------------------------------------------------------
+ * | ARCHITECTURE NOTES
+ * |--------------------------------------------------------------------------
+ * |
+ * | This application is a SINGLE ORGANIZATION / SINGLE EDUCATION BUSINESS.
+ * |
+ * | The domain hierarchy is:
+ * |
+ * |   Program
+ * |      ↓
+ * |   ProgramCourse
+ * |      ↓
+ * |   Course
+ * |      ↓
+ * |   Module
+ * |      ↓
+ * |   Topic
+ * |      ↓
+ * |   VideoAsset
+ * |
+ * | Commercial / access hierarchy:
+ * |
+ * |   Course
+ * |      ↓
+ * |   CoursePricing
+ * |      ↓
+ * |   Order
+ * |      ↓
+ * |   OrderItem
+ * |      ↓
+ * |   Enrollment
+ * |
+ * | Core rules:
+ * |
+ * | 1. Program organizes courses. It is NOT the purchasable product.
+ * | 2. Course is the purchasable learning product.
+ * | 3. CoursePricing is the commercial offer/access plan.
+ * | 4. Order/Payment represent commerce.
+ * | 5. Enrollment represents CURRENT learner access.
+ * | 6. Progress belongs to Enrollment.
+ * | 7. VideoAsset is provider-independent.
+ * | 8. Bunny is the default media provider, but AWS, Cloudflare and Mux
+ * |    are first-class supported providers.
+ * | 9. Topic.durationSeconds is the curriculum duration cache.
+ * | 10. Module.totalDurationSeconds and Course.totalDurationSeconds are
+ * |     denormalized aggregates maintained by the service layer.
+ * |
+ * | FUTURE:
+ * | - If the business becomes multi-tenant, introduce Organization and
+ * |   organization-scoped ownership. Do NOT add it speculatively now.
+ * | - If the platform later needs true curriculum versioning, add a
+ * |   published curriculum/version model instead of mutating historical
+ * |   learning structures.
+ * | - If the platform later needs multiple access grants per enrollment,
+ * |   introduce EnrollmentAccessGrant. Do not add it until renewal/audit
+ * |   requirements justify it.
+ * |
+ * |--------------------------------------------------------------------------
+ */
+
+// ============================================================
+// INTAKE / APPLICANT DOMAIN
+// ============================================================
 
 model Applicant {
-  id            String           @id @default(uuid())
-  fullName      String
-  email         String
-  phone         String
-  address       String
+  id String @id @default(uuid())
 
-  lectureCenter String?
+  fullName String
+  email    String
+  phone    String
+  address  String
+
+  lectureCenter  String?
   previousCenter String?
 
-  isNewStudent  Boolean @default(true)
-  level         String?
+  isNewStudent Boolean @default(true)
+  level        String?
 
-  // relations
-  papers        ApplicantPaper[]
+  papers ApplicantPaper[]
 
   careerChallenges String?
   referredBy       String?
 
-  // relations
-  employment   EmploymentInfo?
-  sponsor      SponsorInfo?
+  employment EmploymentInfo?
+  sponsor    SponsorInfo?
 
-  documents    String[] @default([])
+  documents String[] @default([])
 
-  status       ApplicantStatus @default(PENDING)
+  status ApplicantStatus @default(PENDING)
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model ApplicantPaper {
-  id           String    @id @default(uuid())
-  applicantId  String
-  paperName    String
+  id          String @id @default(uuid())
+  applicantId String
+  paperName   String
 
-  applicant    Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  applicant Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  @@index([applicantId])
 }
 
 model EmploymentInfo {
-  id           String   @id @default(uuid())
-  applicantId  String   @unique
+  id          String @id @default(uuid())
+  applicantId String @unique
 
-  placeOfWork  String?
-  position     String?
+  placeOfWork String?
+  position    String?
 
-  applicant    Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  applicant Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
 }
 
 model SponsorInfo {
-  id             String   @id @default(uuid())
-  applicantId    String   @unique
+  id          String @id @default(uuid())
+  applicantId String @unique
 
-  name           String?
-  phone          String?
-  email          String?
-  location       String?
-  workplace      String?
+  name      String?
+  phone     String?
+  email     String?
+  location  String?
+  workplace String?
 
-  applicant      Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  applicant Applicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
 }
 
 enum ApplicantStatus {
@@ -80,44 +146,77 @@ enum ApplicantStatus {
   REJECTED
 }
 
-model User {
-  id                  String       @id @default(uuid())
-  name                String?
-  email               String       @unique
-  profileImage        String?
-  phone               String?
-  role                Role         @default(student)
-  emailVerified       Boolean      @default(false)
-  verificationToken   String?      @unique
-  verificationExpires DateTime?
-  resetToken          String?      @unique
-  resetTokenExpires   DateTime?
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
-  deletedAt           DateTime?
-  carts               Cart[]
-  courses             Course[]     @relation("InstructorCourses")
-  enrollments         Enrollment[]
-  orders              Order[]
-  payments            Payment[]
-  accounts            Account[]
-  sessions            Session[]
-  // checkoutSessions    CheckoutSession[]
+// ============================================================
+// IDENTITY / AUTH
+// ============================================================
 
-  @@index([email])
+model User {
+  id           String  @id @default(uuid())
+  name         String?
+  email        String  @unique
+  profileImage String?
+  phone        String?
+
+  role Role @default(student)
+
+  emailVerified Boolean @default(false)
+
+  verificationToken   String?   @unique
+  verificationExpires DateTime?
+
+  resetToken        String?   @unique
+  resetTokenExpires DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  carts          Cart[]
+  courses        Course[]        @relation("InstructorCourses")
+  enrollments    Enrollment[]
+  orders         Order[]
+  payments       Payment[]
+  accounts       Account[]
+  sessions       Session[]
+  adminAuditLogs AdminAuditLog[]
+
+  @@index([email, verificationToken,verificationExpires])
   @@index([deletedAt])
   @@map("users")
 }
 
+model AdminAuditLog {
+  id String @id @default(uuid())
+
+  adminId String
+  admin   User   @relation(fields: [adminId], references: [id], onDelete: Restrict)
+
+  action     String
+  targetType String
+  targetId   String
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([adminId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
 model Account {
-  id         String   @id @default(uuid())
-  userId     String
+  id     String @id @default(uuid())
+  userId String
+
   provider   String
   providerId String
-  password   String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  password String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerId])
   @@index([userId])
@@ -125,72 +224,40 @@ model Account {
 }
 
 model Otp {
-  id        String   @id @default(cuid())
-  email     String
-  code      String
+  id String @id @default(uuid())
+
+  email String
+  code  String
+
   expiresAt DateTime
   used      Boolean  @default(false)
   attempts  Int      @default(0)
+
   createdAt DateTime @default(now())
 
   @@index([email])
+  @@index([expiresAt])
 }
 
-// model CheckoutSession {
-//   id       String  @id @default(uuid())
-//   email    String
-//   userId   String?
-//   courseId String
-//   amount   Int
-//   currency String  @default("NGN")
-
-//   status CheckoutStatus @default(INITIATED)
-
-//   otpVerified Boolean @default(false)
-
-//   expiresAt DateTime
-//   createdAt DateTime @default(now())
-//   updatedAt DateTime @updatedAt
-
-//   user User? @relation(fields: [userId], references: [id])
-
-//   @@index([email])
-//   @@index([status])
-// }
-
-// enum CheckoutStatus {
-//   INITIATED
-//   OTP_VERIFIED
-//   PAYMENT_PENDING
-//   PAYMENT_SUCCESS
-//   PAYMENT_FAILED
-//   EXPIRED
-// }
-
-// model MagicLoginToken {
-//   id        String   @id @default(cuid())
-//   email     String
-//   tokenHash String
-//   expiresAt DateTime
-//   used      Boolean  @default(false)
-//   createdAt DateTime @default(now())
-
-//   @@index([email])
-// }
-
 model Session {
-  id          String    @id @default(uuid())
-  userId      String
-  tokenId     String    @unique
-  tokenHash   String    @unique
+  id String @id @default(uuid())
+
+  userId String
+
+  tokenId     String  @unique
+  tokenHash   String  @unique
   userAgent   String?
   ipAddress   String?
   fingerprint String?
-  expiresAt   DateTime
-  revokedAt   DateTime?
-  provider    String    @default("credentials")
-  createdAt   DateTime  @default(now())
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  provider String @default("credentials")
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
@@ -199,242 +266,937 @@ model Session {
 }
 
 model IdempotencyKey {
-  id         String   @id @default(uuid())
-  key        String
-  scope      String
+  id String @id @default(uuid())
+
+  key   String
+  scope String
+
   response   Json?
   statusCode Int?
-  createdAt  DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  /**
+   * FUTURE:
+   * Add expiresAt when you introduce scheduled cleanup of old
+   * idempotency records. Do not rely on an application process reading
+   * every historical key forever.
+   */
 
   @@unique([key, scope])
+  @@index([createdAt])
+}
+
+// ============================================================
+// CURRICULUM DOMAIN
+// ============================================================
+
+/**
+ * Program
+ * ↓
+ * ProgramCourse
+ * ↓
+ * Course
+ * ↓
+ * Module
+ * ↓
+ * Topic
+ * ↓
+ * VideoAsset
+ * IMPORTANT:
+ * Course MUST NOT have programId/program relation.
+ * ProgramCourse is the only Program ↔ Course relationship.
+ */
+
+enum ProgramStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
 }
 
 model Program {
-  id          String       @id @default(uuid())
-  title       String       @unique
+  id          String  @id @default(uuid())
+  title       String  @unique
   description String
   image       String?
-  slug        String       @unique
-  status      CourseStatus @default(DRAFT)
-  price       Float?
-  currency    String       @default("NGN")
-  deletedAt   DateTime?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  courses     Course[]
+  slug        String  @unique
+
+  status ProgramStatus @default(DRAFT)
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  courses ProgramCourse[]
+
+  /**
+   * FUTURE:
+   * publishedAt / publishedById can be added when publishing workflow
+   * becomes a first-class audited workflow. The current status field is
+   * sufficient while publishing is simple.
+   */
 
   @@index([slug])
   @@index([deletedAt])
+  @@index([status, deletedAt])
 }
 
-model Course {
-  id           String          @id @default(uuid())
-  title        String
-  slug         String          @unique
-  description  String
-  thumbnail    String?
-  videoPreview String?
-  level        String?
-  tags         String[]
-  duration     Int?
-  status       CourseStatus    @default(DRAFT)
-  instructorId String?
-  programId    String?
-  deletedAt    DateTime?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  carts        Cart[]
-  instructor   User?           @relation("InstructorCourses", fields: [instructorId], references: [id])
-  program      Program?        @relation(fields: [programId], references: [id])
-  pricings     CoursePricing[]
-  enrollments  Enrollment[]
-  modules      Module[]
+model ProgramCourse {
+  id String @id @default(uuid())
 
-  @@index([slug])
-  @@index([programId])
-  @@index([deletedAt])
-}
+  programId String
+  courseId  String
 
-model CoursePricing {
-  id           String       @id @default(uuid())
-  courseId     String
-  name         String?
-  price        Float
-  currency     String       @default("NGN")
-  durationDays Int
-  isActive     Boolean      @default(true)
-  createdAt    DateTime     @default(now())
-  carts        Cart[]
-  course       Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  enrollments  Enrollment[]
-  orderItems   OrderItem[]
+  position Int @default(0)
 
-  @@unique([courseId, durationDays])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
+
+  /**
+   * FUTURE:
+   * Add fields such as isRequired or curriculumLabel only if the
+   * organization actually needs program-specific course behavior.
+   * Keep that metadata here rather than polluting Course.
+   */
+
+  @@unique([programId, courseId])
+  @@unique([programId, position])
+  @@index([programId, position])
   @@index([courseId])
 }
 
+model Course {
+  id String @id @default(uuid())
+
+  title       String
+  slug        String @unique
+  code        String @unique
+  description String
+
+  thumbnail    String?
+  videoPreview String?
+
+  level CourseLevel @default(BEGINNER)
+  tags  String[]
+
+  status CourseStatus @default(DRAFT)
+
+  /**
+   * TRUE:
+   * this organization issues its own certificate for course completion.
+   * FALSE:
+   * the course is tutoring / exam-preparation / external-certification
+   * oriented and completion does not imply an organizational credential.
+   */
+  issuesCertificate Boolean @default(false)
+
+  instructorId String?
+
+  instructor User? @relation("InstructorCourses", fields: [instructorId], references: [id], onDelete: SetNull)
+
+  /**
+   * Denormalized aggregate:
+   * SUM(Module.totalDurationSeconds)
+   * Service-managed only.
+   * Never accept arbitrary client values for this field.
+   */
+  totalDurationSeconds Int @default(0)
+
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  carts       Cart[]
+  programs    ProgramCourse[]
+  pricings    CoursePricing[]
+  enrollments Enrollment[]
+  modules     Module[]
+
+  /**
+   * FUTURE:
+   * If courses can have multiple instructors, replace instructorId with
+   * CourseInstructor. Do this when the requirement appears rather than
+   * carrying a join table unnecessarily today.
+   * FUTURE:
+   * If course analytics become heavy, add separate read-optimized
+   * analytics/projection tables. Do not turn the Course row into an
+   * analytics warehouse.
+   */
+
+  @@index([title])
+  @@index([slug])
+  @@index([code])
+  @@index([instructorId])
+  @@index([deletedAt])
+  @@index([status, deletedAt])
+  @@index([level])
+}
+
+// ============================================================
+// COURSE PRICING / ACCESS OFFERS
+// ============================================================
+
+model CoursePricing {
+  id       String @id @default(uuid())
+  courseId String
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
+
+  name String?
+
+  price    Decimal @db.Decimal(10, 2)
+  isFree   Boolean @default(false)
+  currency String  @default("NGN")
+
+  /**
+   * CANONICAL ACCESS DURATION.
+   * 7      = 7 days
+   * 14     = 14 days
+   * 30     = 30 days
+   * 90     = 90 days
+   * 365    = 1 year
+   * null   = lifetime
+   * DO NOT introduce a separate duration enum.
+   * This must remain the single source of truth.
+   */
+  accessDurationDays Int?
+
+  /**
+   * Stable ordering for admin/storefront presentation.
+   * Example:
+   * 7 days      → 1
+   * 14 days     → 2
+   * 30 days     → 3
+   * 90 days     → 4
+   * Lifetime    → 5
+   */
+  sortOrder Int @default(0)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  carts       Cart[]
+  enrollments Enrollment[]
+  orderItems  OrderItem[]
+
+  /**
+   * IMPORTANT POSTGRESQL CONSTRAINTS
+   * Prisma DSL currently does not express WHERE predicates for partial
+   * unique indexes. Add these manually to the generated migration:
+   * CREATE UNIQUE INDEX course_pricing_one_lifetime_per_course
+   * ON "CoursePricing" ("courseId")
+   * WHERE "accessDurationDays" IS NULL
+   * AND "isActive" = true;
+   * CREATE UNIQUE INDEX course_pricing_one_active_duration_per_course
+   * ON "CoursePricing" ("courseId", "accessDurationDays")
+   * WHERE "isActive" = true
+   * AND "accessDurationDays" IS NOT NULL;
+   * This gives:
+   * - only one active lifetime offer per course
+   * - only one active 7-day offer per course
+   * - only one active 14-day offer per course
+   * - etc.
+   * - historical/inactive pricing can remain stored
+   * FUTURE:
+   * Add effectiveFrom/effectiveTo only when scheduled price changes are
+   * actually needed. Do not make pricing temporal before the business
+   * requires it.
+   */
+
+  @@index([courseId])
+  @@index([courseId, isActive])
+  @@index([courseId, accessDurationDays])
+  @@index([courseId, sortOrder])
+}
+
+// ============================================================
+// COURSE CURRICULUM
+// ============================================================
+
 model Module {
-  id          String    @id @default(uuid())
+  id          String  @id @default(uuid())
   title       String
   description String?
-  slug        String    @unique @default("")
-  courseId    String
-  position    Int       @default(0)
-  views       Int       @default(0)
-  completions Int       @default(0)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @default(now())
-  deletedAt   DateTime?
-  course      Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  topics      Topic[]
 
+  slug     String
+  courseId String
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  position Int @default(0)
+
+  /**
+   * Denormalized aggregate:
+   * SUM(Topic.durationSeconds)
+   * Only active/non-deleted topics should be included.
+   * Service-managed only.
+   */
+  totalDurationSeconds Int @default(0)
+
+  views       Int @default(0)
+  completions Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deletedAt DateTime?
+
+  topics Topic[]
+
+  /**
+   * FUTURE:
+   * Module analytics such as views/completions should eventually move
+   * into event/analytics projections if traffic becomes significant.
+   * Keeping small counters here is acceptable for the current product.
+   */
+
+  @@unique([courseId, slug])
   @@index([courseId, position])
+  @@index([courseId, deletedAt])
 }
 
 model Topic {
-  id              String     @id @default(uuid())
-  title           String
-  slug            String     @unique
-  bunnyVideoId    String?    @unique
-  videoStatus     String?
+  id String @id @default(uuid())
+
+  title String
+  slug  String
+
+  moduleId String
+
+  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  position Int @default(0)
+
+  /**
+   * Authoritative curriculum duration cache.
+   * For video topics:
+   * VideoAsset.durationSeconds
+   * ↓
+   * Topic.durationSeconds
+   * ↓
+   * Module.totalDurationSeconds
+   * ↓
+   * Course.totalDurationSeconds
+   * For non-video topics this can remain 0 unless the learning system
+   * later supports explicit reading/activity durations.
+   */
+  durationSeconds Int @default(0)
+
+  videoAsset VideoAsset?
+  resources  TopicResource[]
+  progress   Progress[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deletedAt DateTime?
+
+  /**
+   * FUTURE:
+   * Add Topic.type when the product formally supports multiple learning
+   * primitives such as ARTICLE, FILE, QUIZ, ASSIGNMENT, etc.
+   * Do not add a type enum merely to prepare for hypothetical features.
+   */
+
+  @@unique([moduleId, slug])
+  @@unique([moduleId, position])
+  @@index([moduleId, deletedAt, position])
+}
+
+// ============================================================
+// VIDEO / MEDIA
+// ============================================================
+
+enum VideoProvider {
+  BUNNY
+  AWS
+  CLOUDFLARE
+  MUX
+}
+
+enum VideoStatus {
+  QUEUED
+  PROCESSING
+  UPLOADED
+  READY
+  FAILED
+}
+
+/**
+ * Provider-independent media record.
+ * Topic owns the relationship.
+ * VideoAsset owns provider infrastructure.
+ * Current rule:
+ * One Topic → zero or one current VideoAsset.
+ * Re-upload/retry updates the same VideoAsset rather than creating
+ * multiple competing "current" assets.
+ * FUTURE:
+ * If media version history becomes a real requirement, introduce
+ * VideoAssetVersion rather than destroying/replacing the historical row.
+ */
+model VideoAsset {
+  id String @id @default(uuid())
+
+  topicId String @unique
+
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  /**
+   * Provider abstraction:
+   * BUNNY      = default video delivery
+   * AWS        = typically S3/CloudFront-based pipeline
+   * CLOUDFLARE = Stream
+   * MUX        = Mux Video
+   */
+  provider VideoProvider @default(BUNNY)
+
+  /**
+   * Provider-side primary identifier.
+   * Examples:
+   * Bunny      → video GUID
+   * Cloudflare → Stream UID
+   * Mux        → asset ID
+   * AWS        → object key / media pipeline identifier
+   * Provider-specific values beyond this identifier belong in
+   * providerData.
+   */
+  providerAssetId String?
+
+  status VideoStatus @default(QUEUED)
+
+  /**
+   * Media metadata returned by the provider/processing pipeline.
+   */
   durationSeconds Int?
   thumbnailUrl    String?
-  fileSizeBytes   Int?
-  videoWidth      Int?
-  videoHeight     Int?
-  resources       Json?
-  idempotencyKey  String?    @unique
-  moduleId        String
-  position        Int        @default(0)
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  deletedAt       DateTime?
-  progress        Progress[]
-  module          Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
 
-  @@index([bunnyVideoId, moduleId, position])
+  fileSizeBytes BigInt?
+  width         Int?
+  height        Int?
+
+  /**
+   * Provider-specific metadata that does not justify first-class
+   * columns in the domain.
+   * Examples:
+   * {
+   * "bucket": "...",
+   * "region": "...",
+   * "playbackIds": [...],
+   * "libraryId": "...",
+   * "streamUid": "..."
+   * }
+   */
+  providerData Json?
+
+  retryCount Int @default(0)
+
+  lastError String?
+
+  /**
+   * Used to make uploads/creation requests idempotent.
+   */
+  idempotencyKey String? @unique
+
+  /**
+   * Set when the media asset becomes actually playable/ready.
+   * This is intentionally not called uploadedAt because upload and
+   * readiness are different lifecycle events.
+   */
+  readyAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /**
+   * IMPORTANT:
+   * Do NOT persist a long-lived playbackUrl here.
+   * Playback URLs may be:
+   * - signed
+   * - temporary
+   * - provider-specific
+   * - generated differently per request/user
+   * The media service should resolve playback dynamically from:
+   * provider + providerAssetId + providerData
+   * FUTURE:
+   * If you need multiple renditions/playback profiles, introduce a
+   * provider-specific playback service rather than adding columns such as
+   * hlsUrl, dashUrl, signedUrl, etc. to this table.
+   */
+
+  @@unique([provider, providerAssetId])
+  @@index([status])
+  @@index([provider])
+  @@index([providerAssetId])
+}
+
+// ============================================================
+// TOPIC RESOURCES
+// ============================================================
+
+enum ResourceType {
+  PDF
+  EXCEL
+  WORD
+  TEMPLATE
+  LINK
+}
+
+// enum ResourceType {
+//   FILE
+//   LINK
+// }
+
+enum ResourceStatus {
+  QUEUED
+  PROCESSING
+  READY
+  FAILED
+}
+
+model TopicResource {
+  id String @id @default(uuid())
+
+  topicId String
+  topic   Topic  @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  type  ResourceType
+  title String
+
+  storageKey String?
+  url        String?
+
+  mimeType  String?
+  sizeBytes Int?
+
+  status     ResourceStatus @default(QUEUED)
+  retryCount Int            @default(0)
+  lastError  String?
+  readyAt    DateTime?
+
+  position Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([topicId, position])
+  @@index([status])
+}
+
+// ============================================================
+// LEARNING ACCESS
+// ============================================================
+
+enum EnrollmentStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
 }
 
 model Enrollment {
-  id                 String        @id @default(uuid())
-  userId             String
-  courseId           String
-  pricingId          String
-  orderItemId        String        @unique
-  paymentStatus      PaymentStatus @default(PENDING)
-  paymentRef         String?
-  startedAt          DateTime      @default(now())
-  expiresAt          DateTime
-  completedAt        DateTime?
-  progressPercentage Float         @default(0)
-  orderId            String?
-  certificate        Certificate?
-  course             Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  order              Order?        @relation(fields: [orderId], references: [id])
-  orderItem          OrderItem     @relation(fields: [orderItemId], references: [id])
-  pricing            CoursePricing @relation(fields: [pricingId], references: [id])
-  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  payments           Payment[]
-  progressRecords    Progress[]
+  id String @id @default(uuid())
 
-  @@unique([userId, courseId, pricingId])
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
+
+  pricingId String
+
+  pricing CoursePricing @relation(fields: [pricingId], references: [id], onDelete: Restrict)
+
+  /**
+   * Provenance:
+   * The OrderItem that originally created this enrollment.
+   * Renewals do NOT create a second Enrollment.
+   * They update this same row.
+   * Full purchase history lives in Order/OrderItem/Payment.
+   */
+  orderItemId String @unique
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+
+  orderId String?
+
+  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  /**
+   * Access state ONLY.
+   * Payment state belongs to Order/Payment.
+   */
+  status EnrollmentStatus @default(ACTIVE)
+
+  startedAt DateTime @default(now())
+
+  /**
+   * NULL = lifetime access.
+   * For temporary access:
+   * expiresAt = access end
+   * Access should be evaluated using:
+   * status
+   * + startedAt
+   * + expiresAt
+   */
+  expiresAt DateTime?
+
+  /**
+   * IMPORTANT:
+   * No isLifetime column.
+   * Lifetime is represented by:
+   * expiresAt = NULL
+   * This avoids having:
+   * isLifetime = true
+   * expiresAt = a date
+   * which would create contradictory states.
+   */
+
+  completedAt DateTime?
+
+  /**
+   * Denormalized progress read model.
+   * Progress records remain authoritative.
+   * This value is maintained by progress services.
+   */
+  progressPercentage Float @default(0)
+
+  certificate     Certificate?
+  progressRecords Progress[]
+
+  /**
+   * FUTURE:
+   * If access becomes more complex (scholarships, grants, admin overrides,
+   * promotional periods, multiple purchases, pause/resume, etc.), introduce:
+   * EnrollmentAccessGrant
+   * and keep Enrollment as the current effective access projection.
+   * Do NOT introduce that model until the business genuinely requires
+   * multiple independent access grants.
+   */
+
+  /**
+   * One current access record per learner/course.
+   * Renewals:
+   * UPDATE this row.
+   * Tier upgrades:
+   * UPDATE this row.
+   * This preserves a single progress history for the learner/course.
+   */
+  @@unique([userId, courseId])
   @@index([userId, courseId])
-  @@index([expiresAt])
+  @@index([status, expiresAt])
+  @@index([orderId])
 }
 
+// ============================================================
+// LEARNING PROGRESS
+// ============================================================
+
 model Progress {
-  id             String     @id @default(uuid())
-  enrollmentId   String
-  topicId        String
-  completed      Boolean    @default(false)
-  watchedSeconds Int?       @default(0)
-  lastWatchedAt  DateTime?
-  updatedAt      DateTime   @updatedAt
-  enrollment     Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
-  topic          Topic      @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  id String @id @default(uuid())
+
+  enrollmentId String
+  topicId      String
+
+  completed Boolean @default(false)
+
+  /**
+   * Watched time is useful as a derived display metric.
+   * watchedRanges is the authoritative representation of coverage.
+   */
+  watchedSeconds Int? @default(0)
+
+  /**
+   * Example:
+   * [[0,120],[150,420]]
+   * Intervals should be merged by the service layer.
+   */
+  watchedRanges Json? @default("[]")
+
+  lastWatchedAt DateTime?
+
+  /**
+   * Optional cached topic duration at the time progress was recorded.
+   * Service logic should prefer Topic.durationSeconds when recalculating
+   * current course progress.
+   */
+  duration Int?
+
+  updatedAt DateTime @updatedAt
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  /**
+   * FUTURE:
+   * If you need detailed learner activity analytics, do not keep appending
+   * raw events into Progress. Add an append-only learning event model or
+   * external analytics pipeline.
+   */
 
   @@unique([enrollmentId, topicId])
 }
 
+// ============================================================
+// CART
+// ============================================================
+
 model Cart {
-  id        String        @id @default(uuid())
-  userId    String
+  id String @id @default(uuid())
+
+  userId String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   pricingId String
-  quantity  Int           @default(1)
-  price     Float
-  createdAt DateTime      @default(now())
-  courseId  String?
-  course    Course?       @relation(fields: [courseId], references: [id])
-  pricing   CoursePricing @relation(fields: [pricingId], references: [id], onDelete: Cascade)
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  pricing CoursePricing @relation(fields: [pricingId], references: [id], onDelete: Cascade)
+
+  /**
+   * Course is derivable through CoursePricing.
+   * Deliberately NOT stored here as a second FK because:
+   * Cart.courseId != CoursePricing.courseId
+   * would create invalid contradictory state.
+   * If you need the Course:
+   * cart.pricing.course
+   */
+
+  quantity Int @default(1)
+
+  /**
+   * Checkout snapshot.
+   * The cart price should be treated as the current selected offer price
+   * when the cart is created/updated.
+   * OrderItem is the final immutable purchase snapshot.
+   */
+  price Decimal @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+
+  /**
+   * FUTURE:
+   * If guest carts become a requirement, support a secure anonymous cart
+   * token rather than making userId nullable without a defined ownership
+   * model.
+   */
+  course   Course? @relation(fields: [courseId], references: [id])
+  courseId String?
 
   @@unique([userId, pricingId])
 }
 
+// ============================================================
+// ORDERS / COMMERCE
+// ============================================================
+
 model Order {
-  id          String        @id @default(uuid())
-  userId      String
-  email       String?
-  name        String?
-  phone       String?
-  totalAmount Float
-  currency    String        @default("NGN")
-  status      PaymentStatus @default(PENDING)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  expiresAt   DateTime?
+  id String @id @default(uuid())
+
+  userId String?
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  idempotencyKey String?
+
+  /**
+   * Guest checkout snapshot.
+   * These remain even if an order is later associated with a User.
+   */
+  email String?
+  name  String?
+  phone String?
+
+  totalAmount Decimal @db.Decimal(10, 2)
+
+  /**
+   * Derived business convenience field for UI/reporting.
+   * A zero-value order is still represented explicitly as a free order.
+   */
+  isFreeOrder Boolean @default(false)
+
+  currency String @default("NGN")
+
+  status PaymentStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  expiresAt DateTime?
+
   enrollments Enrollment[]
-  user        User?         @relation(fields: [userId], references: [id])
   items       OrderItem[]
   payments    Payment[]
 
+  /**
+   * FUTURE — HIGH PRIORITY WHEN CHECKOUT MATURES:
+   * Separate payment state from order lifecycle:
+   * OrderStatus:
+   * PENDING
+   * PAID
+   * CANCELLED
+   * REFUNDED
+   * OrderFulfillmentStatus:
+   * PENDING
+   * PROCESSING
+   * FULFILLED
+   * FAILED
+   * This is preferable once order fulfillment becomes more complex than
+   * the current single-course/simple-checkout flow.
+   * Do not mix gateway payment state and order lifecycle forever.
+   */
+
   @@index([userId])
   @@index([email])
+  @@index([isFreeOrder])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model OrderItem {
-  id         String        @id @default(uuid())
-  orderId    String
-  pricingId  String
-  unitPrice  Float
-  quantity   Int           @default(1)
-  createdAt  DateTime      @default(now())
+  id String @id @default(uuid())
+
+  orderId String
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  pricingId String
+
+  pricing CoursePricing @relation(fields: [pricingId], references: [id], onDelete: Restrict)
+
+  /**
+   * Immutable commercial snapshot.
+   * These values represent what the customer purchased, not what the
+   * pricing record says today.
+   */
+  unitPrice Decimal @db.Decimal(10, 2)
+
+  quantity Int @default(1)
+
+  createdAt DateTime @default(now())
+
   enrollment Enrollment?
-  order      Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  pricing    CoursePricing @relation(fields: [pricingId], references: [id])
+
+  /**
+   * FUTURE — RECOMMENDED BEFORE SERIOUS ORDER HISTORY REPORTING:
+   * Add immutable snapshot fields such as:
+   * productName
+   * pricingName
+   * courseTitle
+   * courseSlug
+   * accessDurationDays
+   * currency
+   * This ensures historical orders remain human-readable even if the
+   * current Course/CoursePricing records are renamed or removed.
+   */
 
   @@index([orderId])
   @@index([pricingId])
 }
 
+// ============================================================
+// CERTIFICATES
+// ============================================================
+
 model Certificate {
-  id                    String     @id @default(uuid())
-  enrollmentId          String     @unique
-  issuedAt              DateTime   @default(now())
-  url                   String
-  verification          String     @unique
+  id String @id @default(uuid())
+
+  enrollmentId String @unique
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+
+  issuedAt DateTime @default(now())
+
+  url String
+
+  verification String @unique
+
+  /**
+   * Historical snapshot.
+   * The course title may change after issuance.
+   */
   courseTitleAtIssuance String
-  enrollment            Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  /**
+   * FUTURE:
+   * Add learnerNameAtIssuance and certificateNumber before production
+   * certificate issuance becomes legally/operationally important.
+   * Also add revokedAt/revocationReason rather than deleting certificates.
+   */
 }
 
-model Payment {
-  id           String        @id @default(uuid())
-  userId       String?
-  reference    String        @unique
-  enrollmentId String?
-  orderId      String
-  amount       Float
-  currency     String        @default("NGN")
-  status       PaymentStatus @default(PENDING)
-  gateway      String
-  metadata     Json?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @default(now())
-  enrollment   Enrollment?   @relation(fields: [enrollmentId], references: [id])
-  order        Order         @relation(fields: [orderId], references: [id])
-  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+// ============================================================
+// PAYMENTS
+// ============================================================
 
+model Payment {
+  id String @id @default(uuid())
+
+  userId String?
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  /**
+   * Internal/gateway transaction reference generated for the payment.
+   */
+  reference String @unique
+
+  /**
+   * Gateway event/webhook ID.
+   * Used for webhook idempotency when gateways retry events.
+   */
+  gatewayEventId String? @unique
+
+  /**
+   * Payment belongs to an ORDER, not an ENROLLMENT.
+   * One payment may cover multiple OrderItems and therefore multiple
+   * course enrollments.
+   */
+  orderId String
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  amount   Decimal        @db.Decimal(10, 2)
+  currency String         @default("NGN")
+  status   PaymentStatus  @default(PENDING)
+  gateway  PaymentGateway
+
+  /**
+   * Raw gateway payload retained for reconciliation/debugging.
+   * Never expose directly through normal learner APIs.
+   */
+  rawPayload Json?
+  metadata   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /**
+   * FUTURE:
+   * If gateway reconciliation becomes sophisticated, add a dedicated
+   * PaymentEvent model for every webhook event rather than overwriting
+   * one Payment row's raw payload.
+   */
+
+  @@index([reference])
   @@index([orderId])
+  @@index([userId])
+  @@index([status])
+  @@index([gateway, status, createdAt])
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum PaymentGateway {
+  PAYSTACK
+  FLUTTERWAVE
+  STRIPE
 }
 
 enum CourseStatus {
@@ -457,33 +1219,9 @@ enum PaymentStatus {
   REFUNDED
 }
 
-enum RequestStatus {
-  PENDING
-  CONTACTED
-  REGISTERED
-  REJECTED
-}
-
 enum CourseLevel {
   BEGINNER
   INTERMEDIATE
   ADVANCED
-}
-
-enum CourseCategory {
-  ACCOUNTING
-  MARKETING
-  PROGRAMMING
-  DESIGN
-  BUSINESS
-}
-
-enum CoursePricingDuration {
-  ONE_DAY
-  SEVEN_DAYS
-  THIRTY_DAYS
-  SIXTY_DAYS
-  NINETY_DAYS
-  ONE_YEAR
-  LIFETIME
+  PROFESSIONAL
 }

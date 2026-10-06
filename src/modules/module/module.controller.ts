@@ -1,37 +1,22 @@
-import { NextFunction, Request, Response } from "express";
+import { Request, Response } from "express";
 import * as svc from "./module.service";
 import {
   createModuleSchema,
   listModulesQuerySchema,
   moduleParamsSchema,
+  moduleIdParamsSchema,
   updateModuleSchema,
 } from "./module.schema";
 import { asyncHandler } from "../../utils/asyncHandler";
-
-// export const createModuleController = async (req: Request, res: Response) => {
-//   const { courseId } = req.params;
-//   if (!courseId) throw badRequest("courseId is required");
-
-//   const body = createModuleSchema.parse(req.body);
-//   const mod = await svc.createModule({
-//     ...body,
-//     description: body.description ?? undefined,
-//     courseId
-//   });
-//   res.status(201).json({ success: true, module: mod });
-// };
+import { unauthorized } from "../../utils/errors";
 
 export const createModuleController = asyncHandler(
   async (req: Request, res: Response) => {
-
+    const actor = requireActor(req);
     const { courseId } = moduleParamsSchema.parse(req.params);
-
     const body = createModuleSchema.parse(req.body);
 
-    const module = await svc.createModule({
-      ...body,
-      courseId,
-    });
+    const module = await svc.createModule({ ...body, courseId, actor });
 
     res.status(201).json({
       success: true,
@@ -43,42 +28,52 @@ export const createModuleController = asyncHandler(
 
 export const listModulesController = asyncHandler(
   async (req: Request, res: Response) => {
+    // Previously unvalidated — a malformed courseId just silently returned
+    // an empty result set instead of a clean 400. Now validated the same
+    // way createModuleController already validates it.
+    const { courseId } = moduleParamsSchema.parse(req.params);
     const query = listModulesQuerySchema.parse(req.query);
-    const courseId = req.params.courseId;
-    const modules = await svc.listModulesForCourse(courseId as string, query);
+
+    const modules = await svc.listModulesForCourse(courseId, query);
     res.json({ success: true, ...modules });
   },
 );
 
-// export const getModuleController = asyncHandler(
-//   async (req: Request, res: Response) => {
-//     const module = await svc.getModule(req.params.id);
-
-//     // Increment views for analytics
-//     await svc.incrementModuleView(module.id);
-
-//     res.json({ success: true, data: module });
-//   },
-// );
-
 export const updateModuleController = asyncHandler(
   async (req: Request, res: Response) => {
-    const parsed = updateModuleSchema.parse(req.body);
-    const updated = await svc.updateModule(req.params.id as string, parsed);
+    const actor = requireActor(req);
+    const { id } = moduleIdParamsSchema.parse(req.params);
+    const data = updateModuleSchema.parse(req.body);
+
+    const updated = await svc.updateModule({ id, actor, data });
     res.json({ success: true, data: updated });
   },
 );
 
 export const deleteModuleController = asyncHandler(
   async (req: Request, res: Response) => {
-    await svc.deleteModule(req.params.id as string);
+    const actor = requireActor(req);
+    const { id } = moduleIdParamsSchema.parse(req.params);
+
+    await svc.deleteModule({ id, actor });
     res.json({ success: true, message: "Module deleted (soft)" });
   },
 );
 
 export const completeModuleController = asyncHandler(
   async (req: Request, res: Response) => {
-    const completions = await svc.incrementModuleCompletion(req.params.id as string);
+    const { id } = moduleIdParamsSchema.parse(req.params);
+    const completions = await svc.incrementModuleCompletion(id);
     res.json({ success: true, completions });
   },
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function requireActor(req: Request): { id: string; role: string } {
+  const user = req.user;
+  if (!user?.id || !user?.role) throw unauthorized("Authentication required");
+  return { id: user.id, role: user.role };
+}

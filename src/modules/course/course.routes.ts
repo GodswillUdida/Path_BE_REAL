@@ -5,106 +5,105 @@
  * silent misrouting. The contract is documented inline.
  *
  * Middleware execution order per route:
- *   rateLimiter → authGuard → roleGuard → parseJsonFields → uploadCourseMedia → controller
+ *   authGuard → roleGuard → upload (if any) → controller
  *
- * Rate limits are intentionally asymmetric:
+ * Rate limits can be layered in front per-route when needed:
  *   - Public GETs: higher limit (read-heavy, cached)
- *   - Write operations: tighter limit (create/update/delete are expensive)
+ *   - Writes / status transitions: tighter limit
  */
 
 import { Router } from "express";
 import { authGuard } from "../../middleware/authGuard";
 import { roleGuard } from "../../middleware/roleGuard";
 import { uploadCourseMedia } from "../../config/multer";
-import { parseJsonFields } from "../../utils/parseJsonFields";
 import * as ctrl from "./course.controller";
 
 const router = Router();
 
+const staff = roleGuard("admin", "superadmin", "instructor");
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ROUTE ORDERING CONTRACT
 //
-// ✅ Static segments before parameterized ones:
-//    /by-slug/:a/:b    must come before  /:id
-//    /:id/analytics    must come before  /:id
+// Static segments before parameterized ones:
+//   /slug/...     before  /:id
+//   /:id/analytics before /:id
+//   /:id/publish  before  /:id  (method differs, but keep nested paths first)
 //
-// Registering /:id before /:id/analytics would cause Express to match
-// "analytics" as an id value — the analytics route becomes unreachable.
+// POST /:programId is a write route with a different method than GET /:id,
+// so they do not collide — still keep all GET /:id/* nested routes above GET /:id.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PUBLIC — READ
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── PUBLIC — READ ───────────────────────────────────────────────────────────
 
-router.get(
-  "/",
-  ctrl.listCoursesController,
-);
+router.get("/", ctrl.listCoursesController);
 
-// Slug-based lookup.
-// Mounted under /courses — full path: GET /courses/by-slug/:programSlug/:courseSlug
-// Alternatively this can be mounted at the program router level for cleaner URLs.
+// Full path examples (when mounted at /courses):
+//   GET /courses/slug/:programSlug/:courseSlug
+//   GET /courses/slug/:courseSlug
 router.get(
   "/slug/:programSlug/:courseSlug",
-  ctrl.getCourseBySlugController,
+  ctrl.getCourseBySlugAndProgramController,
 );
 
-// MUST be before /:id — see ordering contract above
+router.get("/slug/:courseSlug", ctrl.getCourseBySlugController);
+
 router.get(
   "/:id/analytics",
   authGuard,
-  roleGuard("admin", "superadmin", "instructor"),
+  staff,
   ctrl.courseAnalyticsController,
 );
 
-router.get(
-  "/:id",
-  ctrl.getCourseController,
-);
+// Status transitions — nested under /:id, registered before plain /:id writes
+router.post("/:id/publish", authGuard, staff, ctrl.publishCourseController);
+router.post("/:id/unpublish", authGuard, staff, ctrl.unpublishCourseController);
+router.post("/:id/archive", authGuard, staff, ctrl.archiveCourseController);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PROTECTED — WRITE
+router.get("/:id", ctrl.getCourseController);
+
+// ─── PROTECTED — WRITE ───────────────────────────────────────────────────────
 //
 // uploadCourseMedia = multer().fields([
 //   { name: "thumbnail",    maxCount: 1 },
 //   { name: "videoPreview", maxCount: 1 },
 // ])
 // → req.files.thumbnail[0], req.files.videoPreview[0]
-// See: config/multer.ts
-// ─────────────────────────────────────────────────────────────────────────────
 
-  // router.post(
-  //   "/:programId",
-  //   authGuard,
-  //   roleGuard("admin", "superadmin", "instructor"),
-  //   uploadCourseMedia,
-  //   ctrl.createCourseController,
-  // );
-
-
-  router.post(
+/** Create a course linked to a program: POST /courses/:programId */
+router.post(
   "/:programId",
-  // rateLimiter({ windowMs: 60_000, max: 10 }),
   authGuard,
-  roleGuard("admin", "superadmin", "instructor"),
-  uploadCourseMedia,       // ← multer first: parses multipart body into req.body + req.files
-  // parseJsonFields(["pricings"]), // ← then parse JSON strings inside that body
+  staff,
+  uploadCourseMedia,
   ctrl.createCourseController,
 );
 
+/**
+ * Optional: standalone create without a program.
+ * Uncomment only if you mount a static path that cannot collide with /:programId
+ * e.g. POST /courses/standalone  — never POST / after POST /:programId.
+ */
+// router.post(
+//   "/standalone",
+//   authGuard,
+//   staff,
+//   uploadCourseMedia,
+//   ctrl.createCourseController,
+// );
 
 router.patch(
   "/:id",
   authGuard,
-  roleGuard("admin", "superadmin", "instructor"),
-  uploadCourseMedia,
+  staff,
+  uploadCourseMedia, // same fields as create — thumbnail + optional videoPreview
   ctrl.updateCourseController,
 );
 
 router.delete(
   "/:id",
   authGuard,
-  roleGuard("admin", "superadmin", "instructor"),
+  staff,
   ctrl.deleteCourseController,
 );
 

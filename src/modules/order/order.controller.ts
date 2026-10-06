@@ -1,55 +1,76 @@
+/**
+ * @file order.controller.ts
+ * @description Production-grade controller managing client checkout routing boundaries.
+ */
+
 import { Request, Response } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
+import { CreateOrderSchema } from "./order.schema";
+import { createOrder, getOneOrderService, getUserOrders } from "./order.service";
+import { unauthorized } from "@/utils/errors";
 
-import {
-  createOrder,
-  getOneOrderService,
-  getUserOrders,
-} from "./order.service";
-
-/**
- * Create Order (financial intent only)
- */
+/* ==========================================================================
+   CREATE INTENT ROUTINE
+   ========================================================================== */
 
 export const createOrderController = asyncHandler(
   async (req: Request, res: Response) => {
-    const userId = req.user?.id || req.user?.userId;
+    const { id: userId } = requireActor(req);
 
-    const order = await createOrder(req.body, userId as string);
+    // 1. Parse and validate payload structural schemas at the ingestion wall
+    const body = CreateOrderSchema.parse(req.body);
+
+    //2. Safely acquire idempotency lock
+    const idempotencyKey = req.headers["x-idempotency-key"] as string | undefined;
+
+    console.log("Received request to create order with body:", body, "and idempotencyKey:", idempotencyKey); // Debugging log to verify inputs  
+
+    // 2. Delegate execution down into the domain service layer
+    const order = await createOrder(body, userId, idempotencyKey);
 
     res.status(201).json({
       success: true,
-      message: "Order created successfully – proceed to payment",
+      message: "Order created successfully — proceed to payment verification",
       data: order,
     });
   },
 );
 
-/**
- * Get all orders for logged-in user
- */
+/* ==========================================================================
+   LIST CURRENT USER'S ORDERS
+   ========================================================================== */
+
 export const getMyOrders = asyncHandler(async (req: Request, res: Response) => {
-  const userId = req.user!.userId || req.user!.id;
+  const { id: userId } = requireActor(req);
 
-  const orders = await getUserOrders(userId);
+  // Enforce rigid pagination limits to protect database throughput thresholds
+  const limit = Math.min(Number(req.query.limit) || 20, 50);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
 
-  res.json({
-    success: true,
-    data: orders,
-  });
+  const result = await getUserOrders(userId, limit, offset);
+
+  res.json({ success: true, ...result });
 });
 
-/**
- * Get single order (with auth check inside service)
- */
+/* ==========================================================================
+   GET ONE RECORD LOOKUP
+   ========================================================================== */
+
 export const getOneOrder = asyncHandler(async (req: Request, res: Response) => {
-  const userId = req.user!.userId || req.user!.id;
-  const orderId = req.params.id;
+  const { id: userId } = requireActor(req);
+  const orderId = req.params.id as string;
 
-  const order = await getOneOrderService(orderId as string, userId);
+  const order = await getOneOrderService(orderId, userId);
 
-  res.json({
-    success: true,
-    data: order,
-  });
+  res.json({ success: true, data: order });
 });
+
+/* ==========================================================================
+   INTERNAL SYSTEM INFRASTRUCTURE HELPERS
+   ========================================================================== */
+
+function requireActor(req: Request): { id: string; role: string } {
+  const user = req.user;
+  if (!user?.id || !user?.role) throw unauthorized("Authentication required");
+  return { id: user.id, role: user.role };
+}

@@ -13,11 +13,10 @@
  *   - Cache invalidation is explicit: call invalidateCourse() on any write
  */
 
-// import redis from "../../lib/redis";
-// import redis from "@/config/redis";
-// import logger from "../../utils/logger";
-// import type { CourseDetail, CourseListItem } from "./course.repository";
-// import type { ListCoursesQuery } from "./course.schema";
+import type { CourseDetail, CourseListItem } from "./course.repository";
+import redis from "@/config/redis";
+import type { ListCoursesQuery } from "./course.schema";
+import logger from "@/utils/logger";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIG
@@ -40,78 +39,78 @@ function detailKey(id: string)   { return `${NS}:detail:${id}`; }
 function slugKey(slug: string)   { return `${NS}:slug:${slug}`; }
 function analyticsKey(id: string){ return `${NS}:analytics:${id}`; }
 
-// function listKey(query: ListCoursesQuery): string {
-//   // Stable key from sorted query params — order-independent
-//   const parts = Object.entries(query)
-//     .sort(([a], [b]) => a.localeCompare(b))
-//     .map(([k, v]) => `${k}=${v ?? ""}`)
-//     .join(":");
-//   return `${NS}:list:${parts}`;
-// }
+function listKey(query: ListCoursesQuery): string {
+  // Stable key from sorted query params — order-independent
+  const parts = Object.entries(query)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v ?? ""}`)
+    .join(":");
+  return `${NS}:list:${parts}`;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INTERNALS
 // ─────────────────────────────────────────────────────────────────────────────
 
-// async function cacheGet<T>(key: string): Promise<T | null> {
-//   try {
-//     const raw = await redis.get(key);
-//     if (!raw) return null;
-//     return JSON.parse(raw) as T;
-//   } catch (err) {
-//     logger.warn("cache.get failed — degrading to DB");
-//     return null;
-//   }
-// }
+async function cacheGet<T>(key: string): Promise<T | null> {
+  try {
+    const raw = await redis.get(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch (err) {
+    logger.warn("cache.get failed — degrading to DB");
+    return null;
+  }
+}
 
-// async function cacheSet<T>(key: string, value: T, ttl: number): Promise<void> {
-//   try {
-//     await redis.set(key, JSON.stringify(value), "EX", ttl);
-//   } catch (err) {
-//     logger.warn("cache.set failed — continuing without cache");
-//   }
-// }
+async function cacheSet<T>(key: string, value: T, ttl: number): Promise<void> {
+  try {
+    await redis.set(key, JSON.stringify(value), "EX", ttl);
+  } catch (err) {
+    logger.warn("cache.set failed — continuing without cache");
+  }
+}
 
-// async function cacheDel(...keys: string[]): Promise<void> {
-//   try {
-//     if (keys.length) await redis.del(...keys);
-//   } catch (err) {
-//     logger.warn("cache.del failed — stale cache may persist until TTL");
-//   }
-// }
+async function cacheDel(...keys: string[]): Promise<void> {
+  try {
+    if (keys.length) await redis.del(...keys);
+  } catch (err) {
+    logger.warn("cache.del failed — stale cache may persist until TTL");
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC API
 // ─────────────────────────────────────────────────────────────────────────────
 
-// export async function getCachedCourseDetail(id: string): Promise<CourseDetail | null> {
-//   return cacheGet<CourseDetail>(detailKey(id));
-// }
+export async function getCachedCourseDetail(id: string): Promise<CourseDetail | null> {
+  return cacheGet<CourseDetail>(detailKey(id));
+}
 
-// export async function setCachedCourseDetail(course: CourseDetail): Promise<void> {
-//   // Cache under both id and slug — slug-based lookups are hot (public course pages)
-//   await Promise.all([
-//     cacheSet(detailKey(course.id),   course, TTL.DETAIL),
-//     cacheSet(slugKey(course.slug),   course, TTL.DETAIL),
-//   ]);
-// }
+export async function setCachedCourseDetail(course: CourseDetail): Promise<void> {
+  // Cache under both id and slug — slug-based lookups are hot (public course pages)
+  await Promise.all([
+    cacheSet(detailKey(course.id),   course, TTL.DETAIL),
+    cacheSet(slugKey(course.slug),   course, TTL.DETAIL),
+  ]);
+}
 
-// export async function getCachedCourseBySlug(slug: string): Promise<CourseDetail | null> {
-//   return cacheGet<CourseDetail>(slugKey(slug));
-// }
+export async function getCachedCourseBySlug(slug: string): Promise<CourseDetail | null> {
+  return cacheGet<CourseDetail>(slugKey(slug));
+}
 
-// export async function getCachedCourseList(
-//   query: ListCoursesQuery,
-// ): Promise<{ data: CourseListItem[]; total: number } | null> {
-//   return cacheGet(listKey(query));
-// }
+export async function getCachedCourseList(
+  query: ListCoursesQuery,
+): Promise<{ data: CourseListItem[]; total: number } | null> {
+  return cacheGet(listKey(query));
+}
 
-// export async function setCachedCourseList(
-//   query: ListCoursesQuery,
-//   value: { data: CourseListItem[]; total: number },
-// ): Promise<void> {
-//   return cacheSet(listKey(query), value, TTL.LIST);
-// }
+export async function setCachedCourseList(
+  query: ListCoursesQuery,
+  value: { data: CourseListItem[]; total: number },
+): Promise<void> {
+  return cacheSet(listKey(query), value, TTL.LIST);
+}
 
 export type AnalyticsPayload = {
   courseId:         string;
@@ -120,13 +119,13 @@ export type AnalyticsPayload = {
   totalRevenue:     number;
 };
 
-// export async function getCachedAnalytics(id: string): Promise<AnalyticsPayload | null> {
-//   return cacheGet<AnalyticsPayload>(analyticsKey(id));
-// }
+export async function getCachedAnalytics(id: string): Promise<AnalyticsPayload | null> {
+  return cacheGet<AnalyticsPayload>(analyticsKey(id));
+}
 
-// export async function setCachedAnalytics(payload: AnalyticsPayload): Promise<void> {
-//   return cacheSet(analyticsKey(payload.courseId), payload, TTL.ANALYTICS);
-// }
+export async function setCachedAnalytics(payload: AnalyticsPayload): Promise<void> {
+  return cacheSet(analyticsKey(payload.courseId), payload, TTL.ANALYTICS);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INVALIDATION
@@ -139,21 +138,21 @@ export type AnalyticsPayload = {
 // over-invalidation has minimal impact.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// export async function invalidateCourse(id: string, slug: string): Promise<void> {
-//   const keysToDelete = [detailKey(id), slugKey(slug), analyticsKey(id)];
+export async function invalidateCourse(id: string, slug: string): Promise<void> {
+  const keysToDelete = [detailKey(id), slugKey(slug), analyticsKey(id)];
 
-//   // Scan and delete all list cache keys for this namespace
-//   try {
-//     const listPattern = `${NS}:list:*`;
-//     let cursor = "0";
-//     do {
-//       const [nextCursor, keys] = await redis.scan(cursor, "MATCH", listPattern, "COUNT", 100);
-//       cursor = nextCursor;
-//       if (keys.length) keysToDelete.push(...keys);
-//     } while (cursor !== "0");
-//   } catch (err) {
-//     logger.warn("cache.invalidate scan failed — list cache may be stale");
-//   }
+  // Scan and delete all list cache keys for this namespace
+  try {
+    const listPattern = `${NS}:list:*`;
+    let cursor = "0";
+    do {
+      const [nextCursor, keys] = await redis.scan(cursor, "MATCH", listPattern, "COUNT", 100);
+      cursor = nextCursor;
+      if (keys.length) keysToDelete.push(...keys);
+    } while (cursor !== "0");
+  } catch (err) {
+    logger.warn("cache.invalidate scan failed — list cache may be stale");
+  }
 
-//   await cacheDel(...keysToDelete);
-// }
+  await cacheDel(...keysToDelete);
+}

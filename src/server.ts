@@ -1,13 +1,42 @@
+/**
+ * @file server.ts
+ * @description Process entry point and lifecycle orchestrator for Pathfinder.
+ *
+ * Supports:
+ * - API process
+ * - Background worker process
+ *
+ * Responsibilities:
+ * - Validate runtime configuration
+ * - Establish shared infrastructure
+ * - Start HTTP API or worker runtime
+ * - Handle graceful shutdown
+ * - Drain network traffic
+ * - Stop workers
+ * - Close queue/Redis connections
+ * - Disconnect Prisma
+ */
+
 import "dotenv/config";
-import app from "./app";
+
+import { promisify } from "node:util";
+
 import prisma from "./lib/prisma";
 import logger from "./utils/logger";
 import { validateEnv } from "./utils/validateEnv";
+import { closeAllQueues } from "./lib/queues/create-queue";
+import { shutdownWorkers } from "./lib/queues/create-worker";
+import { markShuttingDown } from "./lib/lifecycle";
 
-// ---------------------------------------------------------------------------
-// Environment validation — crash immediately if critical vars are absent.
-// Fail loudly at boot rather than silently at runtime.
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// Types
+// -----------------------------------------------------------------------------
+
+type ProcessType = "api" | "worker";
+
+// -----------------------------------------------------------------------------
+// Configuration
+// -----------------------------------------------------------------------------
 
 validateEnv([
   "PORT",
@@ -17,110 +46,403 @@ validateEnv([
   "PAYSTACK_SECRET_KEY",
   "JWT_ACCESS_SECRET",
   "JWT_REFRESH_SECRET",
+  "BUNNY_STREAM_API_KEY",
+  "BUNNY_STREAM_LIBRARY_ID",
+  "BUNNY_STREAM_SIGNING_KEY",
+  "QUEUE_BOARD_USER",
+  "QUEUE_BOARD_PASSWORD",
+  "QUEUE_BOARD_PORT",
+  "UPLOAD_TMP_DIR",
 ]);
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
+function parsePositiveInt(
+  value: string | undefined,
+  name: string,
+): number {
+  if (!value) {
+    throw new Error(`${name} is required`);
+  }
 
-const PORT = Number(process.env.PORT) || 5000;
-const IS_PROD = process.env.NODE_ENV === "production";
+  const parsed = Number(value);
 
-// Render's load balancer idle timeout is ~75s.
-// Node's default keepAliveTimeout is 5s — this mismatch causes 502s.
-// Set both higher than the load balancer to prevent the race condition.
-const KEEP_ALIVE_TIMEOUT_MS = 90_000; // 90s — above Render's 75s
-const HEADERS_TIMEOUT_MS = 95_000; // Must be > keepAliveTimeout
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
 
-// How long to wait for in-flight requests to complete on shutdown
-const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10_000;
+  return parsed;
+}
 
-let server: ReturnType<typeof app.listen> | null = null;
+function parseProcessType(value: string | undefined): ProcessType {
+  const processType = value ?? "api";
 
-// ---------------------------------------------------------------------------
-// Graceful shutdown
-// ---------------------------------------------------------------------------
+  if (processType !== "api" && processType !== "worker") {
+    throw new Error(
+      `Invalid PROCESS_TYPE "${processType}". Expected "api" or "worker".`,
+    );
+  }
 
-const shutdown = async (signal: string): Promise<never> => {
-  logger.warn(`[Server] ${signal} received — initiating graceful shutdown`);
+  return processType;
+}
 
-  // Stop accepting new connections immediately
+const PORT = parsePositiveInt(process.env.PORT, "PORT");
+
+const PROCESS_TYPE = parseProcessType(
+  process.env.PROCESS_TYPE,
+);
+
+const HTTP_KEEP_ALIVE_TIMEOUT_MS = parsePositiveInt(
+  process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS ?? "55000",
+  "HTTP_KEEP_ALIVE_TIMEOUT_MS",
+);
+
+const HTTP_HEADERS_TIMEOUT_MS = parsePositiveInt(
+  process.env.HTTP_HEADERS_TIMEOUT_MS ?? "60000",
+  "HTTP_HEADERS_TIMEOUT_MS",
+);
+
+const HTTP_REQUEST_TIMEOUT_MS = parsePositiveInt(
+  process.env.HTTP_REQUEST_TIMEOUT_MS ?? "300000",
+  "HTTP_REQUEST_TIMEOUT_MS",
+);
+
+const SHUTDOWN_TIMEOUT_MS = parsePositiveInt(
+  process.env.SHUTDOWN_TIMEOUT_MS ??
+    (PROCESS_TYPE === "worker" ? "60000" : "20000"),
+  "SHUTDOWN_TIMEOUT_MS",
+);
+
+// -----------------------------------------------------------------------------
+// Runtime state
+// -----------------------------------------------------------------------------
+
+let server: ReturnType<(typeof import("node:http"))["createServer"]> | null =
+  null;
+
+let shutdownPromise: Promise<void> | null = null;
+
+// -----------------------------------------------------------------------------
+// Error serialization
+// -----------------------------------------------------------------------------
+
+function serializeError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+
+  return {
+    message: String(error),
+  };
+}
+
+// -----------------------------------------------------------------------------
+// HTTP shutdown helper
+// -----------------------------------------------------------------------------
+
+async function closeHttpServer(): Promise<void> {
+  if (!server || !server.listening) {
+    return;
+  }
+
+  const httpServer = server;
+
+  logger.info("[Server] Stopping HTTP listener...");
+
+  const closePromise = promisify(httpServer.close.bind(httpServer))();
+
+  // Node >= 19 handles idle keep-alive connections during close().
+  // Calling this explicitly remains useful for compatibility.
+  httpServer.closeIdleConnections();
+
+  await closePromise;
+
+  logger.info("[Server] HTTP server closed.");
+}
+
+// -----------------------------------------------------------------------------
+// Shutdown orchestration
+// -----------------------------------------------------------------------------
+
+async function shutdown(signal: string): Promise<void> {
+  if (shutdownPromise) {
+    logger.warn(
+      `[Server] ${signal} received while shutdown is already running.`,
+    );
+
+    return shutdownPromise;
+  }
+
+  shutdownPromise = performShutdown(signal);
+
+  return shutdownPromise;
+}
+
+async function performShutdown(signal: string): Promise<void> {
+  markShuttingDown();
+
+  logger.warn(
+    `[Server] ${signal} received. Beginning graceful shutdown.`,
+  );
+
   const shutdownTimer = setTimeout(() => {
-    logger.error("[Server] Graceful shutdown timed out — forcing exit");
-    process.exit(1);
-  }, GRACEFUL_SHUTDOWN_TIMEOUT_MS);
+    logger.error(
+      `[Server] Graceful shutdown exceeded ${SHUTDOWN_TIMEOUT_MS}ms. Forcing termination.`,
+    );
 
-  // Prevent the timer itself from keeping the process alive
-  shutdownTimer.unref();
-
-  try {
-    // 1. Stop accepting new HTTP requests
-    if (server) {
-      await new Promise<void>((resolve, reject) =>
-        server!.close((err) => (err ? reject(err) : resolve())),
-      );
-      logger.info("[Server] HTTP server closed — no new connections accepted");
+    if (server?.listening) {
+      server.closeAllConnections();
     }
 
-    // 2. Disconnect database (returns connection to pool)
-    await prisma.$disconnect();
-    logger.info("[Server] Database connection pool released");
-
-    logger.info("[Server] Shutdown complete");
-    process.exit(0);
-  } catch (err) {
-    logger.error("[Server] Error during shutdown", err);
     process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+
+  shutdownTimer.unref();
+
+  let shutdownFailed = false;
+
+  try {
+    // -------------------------------------------------------------------------
+    // Phase 1 — Stop accepting new HTTP traffic
+    // -------------------------------------------------------------------------
+
+    try {
+      await closeHttpServer();
+    } catch (error) {
+      shutdownFailed = true;
+
+      logger.error(
+        "[Server] Failed to close HTTP server cleanly.",
+        serializeError(error),
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 2 — Stop background job consumption
+    // -------------------------------------------------------------------------
+
+    if (PROCESS_TYPE === "worker") {
+      try {
+        logger.info("[Server] Stopping background workers...");
+
+        await shutdownWorkers();
+
+        logger.info("[Server] Background workers stopped.");
+      } catch (error) {
+        shutdownFailed = true;
+
+        logger.error(
+          "[Server] Failed to stop workers cleanly.",
+          serializeError(error),
+        );
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 3 — Close queue / Redis connections
+    // -------------------------------------------------------------------------
+
+    try {
+      logger.info("[Server] Closing queue connections...");
+
+      await closeAllQueues();
+
+      logger.info("[Server] Queue connections closed.");
+    } catch (error) {
+      shutdownFailed = true;
+
+      logger.error(
+        "[Server] Failed to close queue connections cleanly.",
+        serializeError(error),
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 4 — Disconnect database
+    // -------------------------------------------------------------------------
+
+    try {
+      logger.info("[Server] Disconnecting Prisma...");
+
+      await prisma.$disconnect();
+
+      logger.info("[Server] Prisma disconnected.");
+    } catch (error) {
+      shutdownFailed = true;
+
+      logger.error(
+        "[Server] Failed to disconnect Prisma cleanly.",
+        serializeError(error),
+      );
+    }
+  } finally {
+    clearTimeout(shutdownTimer);
+
+    logger.info(
+      `[Server] Shutdown sequence completed for process type: ${PROCESS_TYPE}.`,
+    );
+
+    process.exit(shutdownFailed ? 1 : 0);
   }
-};
+}
 
-// ---------------------------------------------------------------------------
-// Process-level error handlers
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// Fatal process-level failures
+// -----------------------------------------------------------------------------
 
-// Unhandled promise rejections — log and exit.
-// Continuing after an unhandled rejection is undefined behavior in Node.js.
-process.on("unhandledRejection", (reason: unknown) => {
-  logger.error("[Server] Unhandled promise rejection — forcing exit", reason);
+process.on(
+  "unhandledRejection",
+  (reason: unknown) => {
+    logger.error(
+      "[Server] Unhandled promise rejection.",
+      serializeError(reason),
+    );
+
+    void shutdown("UNHANDLED_REJECTION");
+  },
+);
+
+process.on(
+  "uncaughtException",
+  (error: Error) => {
+    logger.error(
+      "[Server] Uncaught exception. Process cannot safely continue.",
+      serializeError(error),
+    );
+
+    void shutdown("UNCAUGHT_EXCEPTION");
+  },
+);
+
+// -----------------------------------------------------------------------------
+// Operating-system signals
+// -----------------------------------------------------------------------------
+
+process.on("SIGINT", () => {
+  void shutdown("SIGINT");
+});
+
+process.on("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});
+
+// -----------------------------------------------------------------------------
+// API bootstrap
+// -----------------------------------------------------------------------------
+
+async function startApi(): Promise<void> {
+  const { default: app } = await import("./app");
+  const { createServer } = await import("node:http");
+
+  server = createServer(app);
+
+  server.keepAliveTimeout = HTTP_KEEP_ALIVE_TIMEOUT_MS;
+  server.headersTimeout = HTTP_HEADERS_TIMEOUT_MS;
+  server.requestTimeout = HTTP_REQUEST_TIMEOUT_MS;
+
+  if ("keepAliveTimeoutBuffer" in server) {
+    server.keepAliveTimeoutBuffer = 1000;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const httpServer = server!;
+
+    const onError = (error: NodeJS.ErrnoException) => {
+      httpServer.off("listening", onListening);
+
+      if (error.code === "EADDRINUSE") {
+        logger.error(
+          `[Server] Port ${PORT} is already in use.`,
+          serializeError(error),
+        );
+      } else {
+        logger.error(
+          "[Server] HTTP server failed to start.",
+          serializeError(error),
+        );
+      }
+
+      reject(error);
+    };
+
+    const onListening = () => {
+      httpServer.off("error", onError);
+
+      logger.info(
+        `[Server] API process listening on port ${PORT} (${process.env.NODE_ENV}).`,
+      );
+
+      resolve();
+    };
+
+    httpServer.once("error", onError);
+    httpServer.once("listening", onListening);
+
+    httpServer.listen(PORT, "0.0.0.0");
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Worker bootstrap
+// -----------------------------------------------------------------------------
+
+async function startWorker(): Promise<void> {
+  logger.info(
+    "[Server] Initializing background worker runtime...",
+  );
+
+  await import("./workers/index");
+
+  logger.info(
+    "[Server] Background worker runtime is active.",
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Application bootstrap
+// -----------------------------------------------------------------------------
+
+async function start(): Promise<void> {
+  logger.info(
+    `[Server] Booting Pathfinder process: ${PROCESS_TYPE}`,
+  );
+
+  // Prisma connects lazily, but explicit startup connection allows
+  // infrastructure failures to be detected before accepting work.
+  await prisma.$connect();
+
+  logger.info(
+    "[Server] Database connection established.",
+  );
+
+  if (PROCESS_TYPE === "worker") {
+    await startWorker();
+    return;
+  }
+
+  await startApi();
+}
+
+// -----------------------------------------------------------------------------
+// Fatal startup failure
+// -----------------------------------------------------------------------------
+
+start().catch(async (error) => {
+  logger.error(
+    "[Server] Fatal startup failure.",
+    serializeError(error),
+  );
+
+  try {
+    await prisma.$disconnect();
+  } catch (disconnectError) {
+    logger.error(
+      "[Server] Failed to disconnect Prisma after startup failure.",
+      serializeError(disconnectError),
+    );
+  }
+
   process.exit(1);
 });
-
-// Uncaught synchronous exceptions — always fatal
-process.on("uncaughtException", (err: Error) => {
-  logger.error("[Server] Uncaught exception — forcing exit", err);
-  process.exit(1);
-});
-
-// Register shutdown signals in ALL environments.
-// In dev, this ensures Prisma connections close cleanly on Ctrl+C,
-// preventing connection pool exhaustion during active development.
-["SIGINT", "SIGTERM"].forEach((signal) => {
-  process.on(signal, () => void shutdown(signal));
-});
-
-// ---------------------------------------------------------------------------
-// Boot
-// ---------------------------------------------------------------------------
-
-logger.info("[Server] Booting Pathfinder API...");
-  
-server = app.listen(PORT, "0.0.0.0", () => {
-  prisma
-    .$connect() 
-    .then(() => logger.info("[Server] Database connected"))
-  logger.info(`[Server] Listening on port ${PORT} (${process.env.NODE_ENV})`);
-});
-
-// Fix the Render 502 race condition:
-// keepAliveTimeout must exceed the load balancer's idle timeout (75s on Render)
-server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
-
-// headersTimeout must be strictly greater than keepAliveTimeout
-// to prevent a second race condition on slow header parsing
-server.headersTimeout = HEADERS_TIMEOUT_MS;
-
-// Apply a global request timeout — any request that doesn't complete
-// within this window gets a 408 rather than hanging forever.
-// Protects against slow Paystack calls, DB lock waits, etc.
-// Note: set this higher than your slowest expected operation (e.g., webhook processing)
-server.requestTimeout = 30_000; // 30s — adjust based on your slowest endpoint

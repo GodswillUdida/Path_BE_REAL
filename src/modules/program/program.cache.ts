@@ -1,142 +1,232 @@
-// /**
-//  * program.cache.ts
-//  *
-//  * Redis caching layer for the Program domain.
-//  *
-//  * TTL decisions:
-//  *   DETAIL  — 10 min: program metadata changes rarely (title, description, image)
-//  *   LIST    — 3 min:  list pages can tolerate slight staleness
-//  *
-//  * All operations are wrapped in try/catch.
-//  * A Redis failure NEVER propagates to the caller — we degrade to DB silently.
-//  *
-//  * Invalidation is explicit — called from the service on every write.
-//  * List keys are busted via SCAN since we don't know which pages
-//  * a given program appeared on.
-//  */
+/**
+ * Redis caching boundary for Program.
+ *
+ * Redis is never authoritative.
+ * Every Redis failure degrades to the database path.
+ */
 
-// import logger from "@/utils/logger";
-// import { ListProgramsQuery } from "./program.schema";
-// import { ProgramDetail, ProgramSummary } from "./program.repository";
-// import redis from "@/config/redis";
+import redis from "../../config/redis";
+import logger from "../../utils/logger";
 
-// // ─────────────────────────────────────────────────────────────────────────────
-// // CONFIG
-// // ─────────────────────────────────────────────────────────────────────────────
+import type { ListProgramsQuery } from "./program.schema";
 
-// const CACHE_VERSION = "v1";
-// const NS = `lms:program:${CACHE_VERSION}`;
+import type { ProgramDetail, ProgramSummary } from "./program.repository";
 
-// const TTL = {
-//     DETAIL: 60 * 10, // 10 minutes
-//     LIST: 60 * 3,  // 3 minutes
-// } as const;
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────────────────────────────────────
 
-// // ─────────────────────────────────────────────────────────────────────────────
-// // KEY BUILDERS
-// // ─────────────────────────────────────────────────────────────────────────────
+const CACHE_VERSION = "v1";
+const NS = `lms:program:${CACHE_VERSION}`;
 
-// const detailKey = (id: string) => `${NS}:detail:${id}`;
-// const slugKey = (slug: string) => `${NS}:slug:${slug}`;
+const TTL = {
+  DETAIL: 60 * 10,
+  LIST: 60 * 3,
+} as const;
 
-// function listKey(query: ListProgramsQuery): string {
-//     const stable = Object.entries(query)
-//         .sort(([a], [b]) => a.localeCompare(b))
-//         .map(([k, v]) => `${k}=${v ?? ""}`)
-//         .join(":");
-//     return `${NS}:list:${stable}`;
-// }
+// ─────────────────────────────────────────────────────────────────────────────
+// KEYS
+// ─────────────────────────────────────────────────────────────────────────────
 
-// // ─────────────────────────────────────────────────────────────────────────────
-// // INTERNALS
-// // ─────────────────────────────────────────────────────────────────────────────
+const detailKey = (id: string) => `${NS}:detail:${id}`;
 
-// async function cacheGet<T>(key: string): Promise<T | null> {
-//     try {
-//         const raw = await redis.get(key);
-//         return raw ? (JSON.parse(raw) as T) : null;
-//     } catch (err) {
-//         logger.warn("program.cache.get failed — degrading to DB", { key, err });
-//         return null;
-//     }
-// }
+const slugKey = (slug: string) => `${NS}:slug:${encodeURIComponent(slug)}`;
 
-// async function cacheSet<T>(key: string, value: T, ttl: number): Promise<void> {
-//     try {
-//         await redis.set(key, JSON.stringify(value), "EX", ttl);
-//     } catch (err) {
-//         logger.warn("program.cache.set failed — continuing without cache", { key, err });
-//     }
-// }
+const listKey = (query: ListProgramsQuery) => {
+  const stable = Object.entries(query)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(
+      ([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(String(value ?? ""))}`,
+    )
+    .join("&");
 
-// async function cacheDel(...keys: string[]): Promise<void> {
-//     try {
-//         if (keys.length) await redis.del(...keys);
-//     } catch (err) {
-//         logger.warn("program.cache.del failed — stale entries will expire via TTL", { keys, err });
-//     }
-// }
+  return `${NS}:list:${stable}`;
+};
 
-// // ─────────────────────────────────────────────────────────────────────────────
-// // PUBLIC API — DETAIL
-// // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// INTERNAL
+// ─────────────────────────────────────────────────────────────────────────────
 
-// export async function getCachedProgramDetail(id: string): Promise<ProgramDetail | null> {
-//     return cacheGet<ProgramDetail>(detailKey(id));
-// }
+async function cacheGet<T>(key: string): Promise<T | null> {
+  try {
+    const raw = await redis.get(key);
 
-// export async function getCachedProgramBySlug(slug: string): Promise<ProgramDetail | null> {
-//     return cacheGet<ProgramDetail>(slugKey(slug));
-// }
+    if (!raw) {
+      return null;
+    }
 
-// /** Write-through: cache under both id and slug keys simultaneously. */
-// export async function setCachedProgramDetail(program: ProgramDetail): Promise<void> {
-//     await Promise.all([
-//         cacheSet(detailKey(program.id), program, TTL.DETAIL),
-//         cacheSet(slugKey(program.slug), program, TTL.DETAIL),
-//     ]);
-// }
+    try {
+      return JSON.parse(raw) as T;
+    } catch (err) {
+      logger.warn("program.cache.parse.failed", { key, err });
 
-// // ─────────────────────────────────────────────────────────────────────────────
-// // PUBLIC API — LIST
-// // ─────────────────────────────────────────────────────────────────────────────
+      try {
+        await redis.del(key);
+      } catch {
+        // Best effort only.
+      }
 
-// export type ProgramListPayload = { data: ProgramSummary[]; total: number };
+      return null;
+    }
+  } catch (err) {
+    logger.warn("program.cache.get.failed", { key, err });
 
-// export async function getCachedProgramList(
-//     query: ListProgramsQuery,
-// ): Promise<ProgramListPayload | null> {
-//     return cacheGet<ProgramListPayload>(listKey(query));
-// }
+    return null;
+  }
+}
 
-// export async function setCachedProgramList(
-//     query: ListProgramsQuery,
-//     payload: ProgramListPayload,
-// ): Promise<void> {
-//     return cacheSet(listKey(query), payload, TTL.LIST);
-// }
+async function cacheSet<T>(key: string, value: T, ttl: number): Promise<void> {
+  try {
+    await redis.set(key, JSON.stringify(value), "EX", ttl);
+  } catch (err) {
+    logger.warn("program.cache.set.failed", { key, err });
+  }
+}
 
-// // ─────────────────────────────────────────────────────────────────────────────
-// // INVALIDATION
-// //
-// // Called on every write (create, update, delete).
-// // Busts detail keys (id + slug) and all list cache pages via SCAN.
-// // ─────────────────────────────────────────────────────────────────────────────
+async function cacheDelete(keys: string[]): Promise<void> {
+  if (keys.length === 0) {
+    return;
+  }
 
-// export async function invalidateProgram(id: string, slug: string): Promise<void> {
-//     const toDelete = [detailKey(id), slugKey(slug)];
+  try {
+    await redis.del(...keys);
+  } catch (err) {
+    logger.warn("program.cache.delete.failed", {
+      keyCount: keys.length,
+      err,
+    });
+  }
+}
 
-//     try {
-//         const pattern = `${NS}:list:*`;
-//         let cursor = "0";
-//         do {
-//             const [next, keys] = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
-//             cursor = next;
-//             if (keys.length) toDelete.push(...keys);
-//         } while (cursor !== "0");
-//     } catch (err) {
-//         logger.warn("program.cache.invalidate scan failed — list TTL will handle expiry", { err });
-//     }
+// ─────────────────────────────────────────────────────────────────────────────
+// DETAIL
+// ─────────────────────────────────────────────────────────────────────────────
 
-//     await cacheDel(...toDelete);
-// }
+export async function getCachedProgramDetail(
+  id: string,
+): Promise<ProgramDetail | null> {
+  return cacheGet<ProgramDetail>(detailKey(id));
+}
+
+export async function getCachedProgramBySlug(
+  slug: string,
+): Promise<ProgramDetail | null> {
+  return cacheGet<ProgramDetail>(slugKey(slug));
+}
+
+export async function setCachedProgram(program: ProgramDetail): Promise<void> {
+  await Promise.all([
+    cacheSet(detailKey(program.id), program, TTL.DETAIL),
+    cacheSet(slugKey(program.slug), program, TTL.DETAIL),
+  ]);
+}
+
+// Backward-compatible alias.
+export const setCachedProgramDetail = setCachedProgram;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LIST
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ProgramListPayload = {
+  data: ProgramSummary[];
+  total: number;
+};
+
+export async function getCachedProgramList(
+  query: ListProgramsQuery,
+): Promise<ProgramListPayload | null> {
+  return cacheGet<ProgramListPayload>(listKey(query));
+}
+
+export async function setCachedProgramList(
+  query: ListProgramsQuery,
+  payload: ProgramListPayload,
+): Promise<void> {
+  await cacheSet(listKey(query), payload, TTL.LIST);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LIST INVALIDATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function invalidateProgramLists(): Promise<void> {
+  try {
+    const pattern = `${NS}:list:*`;
+
+    let cursor = "0";
+
+    do {
+      const [nextCursor, keys] = await redis.scan(
+        cursor,
+        "MATCH",
+        pattern,
+        "COUNT",
+        100,
+      );
+
+      cursor = nextCursor;
+
+      if (keys.length > 0) {
+        await cacheDelete(keys);
+      }
+    } while (cursor !== "0");
+  } catch (err) {
+    logger.warn("program.cache.list.invalidate.failed", { err });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROGRAM INVALIDATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function invalidateProgram(
+  id: string,
+  previousSlug?: string,
+  currentSlug?: string,
+): Promise<void> {
+  const keys = [detailKey(id)];
+
+  if (previousSlug) {
+    keys.push(slugKey(previousSlug));
+  }
+
+  if (currentSlug && currentSlug !== previousSlug) {
+    keys.push(slugKey(currentSlug));
+  }
+
+  await cacheDelete(keys);
+
+  await invalidateProgramLists();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EMERGENCY / VERSION INVALIDATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function invalidateAllProgramCaches(): Promise<void> {
+  try {
+    const pattern = `${NS}:*`;
+
+    let cursor = "0";
+
+    do {
+      const [nextCursor, keys] = await redis.scan(
+        cursor,
+        "MATCH",
+        pattern,
+        "COUNT",
+        100,
+      );
+
+      cursor = nextCursor;
+
+      if (keys.length > 0) {
+        await cacheDelete(keys);
+      }
+    } while (cursor !== "0");
+  } catch (err) {
+    logger.warn("program.cache.invalidateAll.failed", { err });
+  }
+}

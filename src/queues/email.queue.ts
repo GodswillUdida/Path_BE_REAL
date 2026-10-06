@@ -1,5 +1,5 @@
 // import { Queue } from "bullmq";
-// import redis from "../utils/redisClient";
+// // import redis from "../utils/redisClient";
 
 // export type EmailJob =
 //   | { type: "verification"; email: string; token: string }

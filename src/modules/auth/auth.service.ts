@@ -1,27 +1,10 @@
 /**
  * @file auth.service.ts
- * @description Production-grade authentication service.
- *
- * Responsibilities:
- *  - User registration & email verification
- *  - Credential-based login / logout
- *  - Google OAuth 2.0 callback
- *  - Magic-link & OTP flows
- *  - Refresh-token rotation with reuse detection
- *  - Password reset lifecycle
- *  - Session management (list / revoke)
- *  - Guest checkout helper
- *
- * Design decisions:
- *  - All DB writes that touch >1 table run inside Prisma $transaction
- *  - Token reuse → full session wipe (breach-containment)
- *  - Timing-safe user enumeration guard on login
- *  - OTP/magic-link cleanup is intentionally async-background (not on hot path)
- *  - Google OAuth reuses createSessionAndTokens to avoid duplicated token logic
+ * Business logic only. All DB access goes through AuthRepository.
+ * Session creation is ALWAYS outside any interactive transaction.
  */
-
-import crypto from "crypto";
-import prisma from "../../lib/prisma";
+// import crypto from "crypto";
+// import { authRepository } from "./auth.repo";
 import {
   hashPassword,
   hashToken,
@@ -31,33 +14,35 @@ import {
 import {
   signAccessToken,
   signRefreshToken,
-  signVerifiedToken,
   verifyRefreshToken,
-  verifyVerifiedToken,
 } from "../../lib/jwt";
-import { badRequest, notFound, unauthorized } from "../../utils/errors";
+import { badRequest, unauthorized } from "../../utils/errors";
 import logger from "../../utils/logger";
-import {
-  sendAccountCreationEmail,
-  sendMagicLinkEmail,
-  sendOtpEmail,
-  sendPasswordResetEmail,
-} from "../../services/emailService";
 import { RegisterDTO, ResetPasswordDTO } from "./auth.schema";
-import { AuthResult, GoogleProfile, PaginatedUsers, SessionUser, SessionView } from "./types";
-import { DUMMY_HASH, generateMagicToken, generateOTP, generateToken, hashOTP, toPublicUser, TTL } from "./config";
+import {
+  AuthResult,
+  GoogleProfile,
+  PaginatedUsers,
+  SessionUser,
+  SessionView,
+} from "./types";
+import {
+  DUMMY_HASH,
+  generateOTP,
+  generateToken,
+  hashOTP,
+  toPublicUser,
+  TTL,
+} from "./config";
 import { RequestMeta } from "../../types/auth.types";
-// import { CompleteGuestProfileDto } from "./checkout.schema";
+import { enqueueAuthEmail } from "./email.queue";
+import { authRepository } from "./auth.repo";
 
-/** Minimum seconds a user must wait before requesting another OTP. */
-const OTP_RESEND_COOLDOWN_MS = 60_000; // 60 s
-
-/** Max OTP attempts before the record is locked. */
-const OTP_MAX_ATTEMPTS = 5;
-
+// ─── Shared session + token factory (never inside a $transaction) ────────
 export async function createSessionAndTokens(
   user: SessionUser,
   meta?: RequestMeta,
+  provider: string = "credentials",
 ): Promise<AuthResult> {
   const accessToken = signAccessToken({
     userId: user.id,
@@ -69,17 +54,15 @@ export async function createSessionAndTokens(
   const refreshToken = signRefreshToken({ userId: user.id, tokenId });
   const tokenHash = hashToken(refreshToken);
 
-  await prisma.session.create({
-    data: {
-      userId: user.id,
-      tokenId,
-      tokenHash,
-      userAgent: meta?.userAgent,
-      ipAddress: meta?.ipAddress,
-      fingerprint: meta?.fingerprint,
-      provider: "credentials",
-      expiresAt: new Date(Date.now() + TTL.REFRESH_SESSION),
-    },
+  await authRepository.createSession({
+    userId: user.id,
+    tokenId,
+    tokenHash,
+    userAgent: meta?.userAgent,
+    ipAddress: meta?.ipAddress,
+    fingerprint: meta?.fingerprint,
+    provider,
+    expiresAt: new Date(Date.now() + TTL.REFRESH_SESSION),
   });
 
   return {
@@ -88,660 +71,256 @@ export async function createSessionAndTokens(
   };
 }
 
-export const processGoogleOAuth = async (
-  profile: GoogleProfile,
-  meta: RequestMeta,
-): Promise<AuthResult> => {
-  const email = profile.emails?.[0]?.value;
-  const name = profile.displayName || email?.split("@")[0];
-  const avatar = profile.photos?.[0]?.value;
-  const googleId = profile.id;
-  const emailVerified = profile._json?.email_verified === true;
-
-  if (!email) throw badRequest("Google account has no email");
-  if (!emailVerified) throw unauthorized("Google email not verified");
-
-  // 1. Check if Google account already exists
-  const existingAccount = await prisma.account.findUnique({
-    where: {
-      provider_providerId: {
-        provider: "google",
-        providerId: googleId,
-      },
-    },
-    include: { user: true },
-  });
-
-  if (existingAccount) {
-    return createSessionAndTokens(existingAccount.user, meta);
-  }
-
-  // 2. Check if user exists by email
-  let user = await prisma.user.findUnique({
-    where: { email },
-  });
-
-  // 3. If not, create user
-  if (!user) {
-    user = await prisma.user.create({
-      data: {
-        email,
-        name,
-        accounts: {
-          create: {
-            provider: "credentials",
-            providerId: email,
-            password: null,
-          },
-        },
-        profileImage: avatar,
-        emailVerified: true,
-      },
-    });
-  }
-
-  // 4. Link Google account
-  await prisma.account.create({
-    data: {
-      userId: user.id,
-      provider: "google",
-      providerId: googleId,
-    },
-  });
-
-  return createSessionAndTokens(user, meta);
-};
-
+// ─── Registration ────────────────────────────────────────────────────────
 export async function createUser(
-  dto: RegisterDTO
+  dto: RegisterDTO,
 ): Promise<Pick<SessionUser, "id" | "name" | "email">> {
-
-  const { name, email, password } = dto;
-
-  // 1. Check existing user
-  const existing = await prisma.user.findUnique({ where: { email } });
+  const existing = await authRepository.findUserByEmail(dto.email);
   if (existing) throw badRequest("Email already registered");
 
-  // 2. Hash password and generate OTP in parallel
   const [hashedPassword, otp] = await Promise.all([
-    hashPassword(password),
+    hashPassword(dto.password),
     Promise.resolve(generateOTP()),
   ]);
 
-  console.log("Generated OTP for verification:", otp); // Log OTP for testing; remove in production!
-  // 3. Generate fresh 6-digit OTP
   const otpHash = hashOTP(otp);
   const verificationExpires = new Date(Date.now() + TTL.OTP);
 
-  const user = await prisma.user.create({
-    data: {
-      name,
-      email,
-      accounts: {
-        create: {
-          provider: "credentials",
-          providerId: email,
-          password: hashedPassword,
-        },
-      },
-      emailVerified: false,
-      verificationToken: otpHash,
-      verificationExpires,
-    },
-    select: { id: true, name: true, email: true },
+  const user = await authRepository.createCredentialsUser({
+    name: dto.name,
+    email: dto.email,
+    hashedPassword,
+    otpHash,
+    verificationExpires,
   });
 
-  // 5. Send OTP (async, non-blocking)
-  // try {
-  //   await sendOtpEmail({ to: email, name, code: otp });
-  // } catch (err) {
-  //   logger.error("Failed to send verification email", {
-  //     email,
-  //     error: (err as Error).message,
-  //     stack: (err as Error).stack,
+  enqueueAuthEmail({
+    type: "welcome",
+    to: user.email,
+    name: user.name!,
+    code: otp,
+  }).catch((err) => {
+    logger.error("Failed to enqueue verification email", {
+      userId: user.id,
+      error: err.message,
+    });
+  });
 
-  //   });
-  //   // await prisma.user.delete({ where: { id: user.id } });
-  //   await prisma.user.update({
-  //     where: { id: user.id },
-  //     data: { emailVerified: false },
-  //   });
-  //   throw new Error("Failed to send verification email");
-  // }
   return user;
-};
+}
 
+// ─── Email verification ──────────────────────────────────────────────────
 export async function verifyEmail(
   email: string,
   code: string,
   meta?: RequestMeta,
 ): Promise<AuthResult> {
   const otpHash = hashOTP(code);
+  const now = new Date();
 
-  const user = await prisma.user.findFirst({
-    where: {
-      email,
-      verificationToken: otpHash,
-      verificationExpires: { gt: new Date() },
-    },
+  // Pure DB transaction – stays well under 5 s
+  const updatedUser = await prismaTransaction(async () => {
+    const user = await authRepository.findVerificationUser(email, otpHash, now);
+    if (!user) throw badRequest("Invalid or expired verification code");
+    return authRepository.markEmailVerified(user.id);
   });
 
-  if (!user) {
-    throw badRequest("Invalid or expired verification code");
-  }
+  return createSessionAndTokens(updatedUser, meta);
+}
 
-  const updatedUser = await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      emailVerified: true,
-      verificationToken: null,
-      verificationExpires: null,
-    },
-  });
-
-  const sessionUser: SessionUser = {
-    id: updatedUser.id,
-    name: updatedUser.name,
-    email: updatedUser.email,
-    role: updatedUser.role,
-    emailVerified: true,
-    // Add other fields your SessionUser expects
-  };
-
-  return createSessionAndTokens(
-    sessionUser,
-    meta,
-  );
-};
+// helper so we can still use $transaction without leaking prisma into service
+async function prismaTransaction<T>(fn: () => Promise<T>): Promise<T> {
+  const { default: prisma } = await import("../../lib/prisma");
+  return prisma.$transaction(fn);
+}
 
 export async function resendVerificationEmail(email: string): Promise<void> {
-  const user = await prisma.user.findUnique({
-    where: { email },
-    select: { emailVerified: true, name: true },
-  });
-
+  const user = await authRepository.findUserByEmail(email);
   if (!user) throw badRequest("User not found");
   if (user.emailVerified) throw badRequest("Email is already verified");
 
   const otp = generateOTP();
   const otpHash = hashOTP(otp);
-  const verificationExpires = new Date(Date.now() + TTL.OTP);
+  const expires = new Date(Date.now() + TTL.OTP);
 
-  console.log("Resend Verification: ", otp) // Log OTP for testing; remove in production!
+  await authRepository.updateVerificationToken(email, otpHash, expires);
 
-  await prisma.user.update({
-    where: { email },
-    data: { verificationToken: otpHash, verificationExpires },
+  enqueueAuthEmail({
+    type: "welcome",
+    to: email,
+    name: user.name!,
+    code: otp,
+  }).catch((err) => {
+    logger.error("Failed to re-queue verification email", {
+      email,
+      error: err.message,
+    });
   });
+}
 
-  // try {
-  //   await sendOtpEmail({ to: email, name, code: otp });
-  // } catch (err) {
-  //   logger.error("Failed to resend verification email", {
-  //     email,
-  //     error: (err as Error).message,
-  //     stack: (err as Error).stack,
-  //   });
-  //   throw new Error("Failed to resend verification email");
-
-  // }
-};
-
+// ─── Credential login ────────────────────────────────────────────────────
 export async function authenticate(
   email: string,
   password: string,
   meta?: RequestMeta,
 ): Promise<AuthResult> {
-  const user = await prisma.user.findUnique({
-    where: { email },
-    include: {
-      accounts: {
-        where: { provider: "credentials" },
-        select: { password: true },
-      },
-    },
-  });
+  const user = await authRepository.findUserByEmail(email);
 
-  // Always do password comparison to mitigate timing attacks, even if user not found
-  const hashedPassword = user?.accounts[0]?.password || DUMMY_HASH;
-  const passwordMatch = await comparePassword(password, hashedPassword);
+  // Constant-time path even when user does not exist
+  const hashed = user?.accounts[0]?.password ?? DUMMY_HASH;
+  const match = await comparePassword(password, hashed);
 
-  if (!user || !passwordMatch) {
-    throw unauthorized("Invalid email or password");
-  }
+  if (!user || !match) throw unauthorized("Invalid email or password");
+  if (!user.emailVerified) throw unauthorized("Email not verified");
 
-  if (!user.emailVerified) {
-    throw unauthorized("Email not verified");
-  }
-
-  const { accounts: _accounts, ...sessionUser } = user;
-
-  return createSessionAndTokens(sessionUser, meta);
-};
-
-// export async function handleGoogleCallback(
-//   code: string,
-//   meta?: RequestMeta,
-// ): Promise<AuthResult> {
-//   // Step 1: Exchange code → Google access token
-//   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-//     method: "POST",
-//     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-//     body: new URLSearchParams({
-//       code,
-//       client_id: process.env.G_ID!,
-//       client_secret: process.env.G_SECRET!,
-//       redirect_uri: process.env.GOOGLE_REDIRECT_URI!,
-//       grant_type: "authorization_code",
-//     }),
-//   });
-
-//   // console.log("tokenResponse:", tokenRes);
-
-//   if (!tokenRes.ok) {
-//     const errBody = await tokenRes.json().catch(() => tokenRes.text());
-//     console.error(
-//       "Google token exchange error body:",
-//       JSON.stringify(errBody, null, 2),
-//     );
-//     throw badRequest("Failed to exchange Google authorization code");
-//     // logger.error(
-//     //   // { status: tokenRes.status },
-//     //   "Google token exchange failed",
-//     // );
-//     // throw badRequest("Failed to exchange Google authorization code");
-//   }
-
-//   const { access_token: googleAccessToken } = (await tokenRes.json()) as {
-//     access_token: string;
-//   };
-
-//   // Step 2: Fetch Google user profile
-//   const profileRes = await fetch(
-//     "https://www.googleapis.com/oauth2/v3/userinfo",
-//     {
-//       headers: { Authorization: `Bearer ${googleAccessToken}` },
-//     },
-//   );
-
-//   if (!profileRes.ok) throw badRequest("Failed to retrieve Google user info");
-
-//   const {
-//     sub: googleId,
-//     email,
-//     name,
-//     email_verified,
-//   } = (await profileRes.json()) as {
-//     sub: string;
-//     email: string;
-//     name: string;
-//     email_verified: boolean;
-//   };
-
-//   if (!email || !email_verified) {
-//     throw badRequest("Google account does not have a verified email");
-//   }
-
-//   // Step 3: Find or create local user
-//   let user = await prisma.user.findUnique({
-//     where: { email },
-//     select: {
-//       id: true,
-//       name: true,
-//       email: true,
-//       role: true,
-//       emailVerified: true,
-//       googleId: true,
-//     },
-//   });
-
-//   if (user) {
-//     if (!user.googleId) {
-//       // Link Google identity to pre-existing email account
-//       user = await prisma.user.update({
-//         where: { id: user.id },
-//         data: { googleId, provider: "google", emailVerified: true },
-//         select: {
-//           id: true,
-//           name: true,
-//           email: true,
-//           role: true,
-//           emailVerified: true,
-//           googleId: true,
-//         },
-//       });
-//     }
-//   } else {
-//     user = await prisma.user.create({
-//       data: {
-//         email,
-//         name: name || email.split("@")[0],
-//         googleId,
-//         provider: "google",
-//         emailVerified: true,
-//       },
-//       select: {
-//         id: true,
-//         name: true,
-//         email: true,
-//         role: true,
-//         emailVerified: true,
-//         googleId: true,
-//       },
-//     });
-//   }
-
-//   const { googleId: _gid, ...sessionUser } = user;
-//   return createSessionAndTokens(sessionUser, meta);
-// };
-
-// export async function requestMagicLink(
-//   email: string,
-// ): Promise<{ message: string; }> {
-
-//   const token = generateMagicToken();
-//   const tokenHash = hashToken(token);
-//   const expiresAt = new Date(Date.now() + TTL.MAGIC_LINK);
-
-//   const existingToken = await prisma.magicLoginToken.findFirst({
-//     where: { email },
-//   });
-
-//   if (existingToken) {
-//     await prisma.magicLoginToken.update({
-//       where: { id: existingToken.id },
-//       data: { tokenHash, expiresAt, used: false },
-//     });
-//   } else {
-//     await prisma.magicLoginToken.create({
-//       data: { email, tokenHash, expiresAt, used: false },
-//     });
-//   }
-
-//   console.log("Generated Magic Link Token: ", token)
-
-//   await sendMagicLinkEmail({ to: email, name: "Student", url: token }).catch((err) => {
-//     logger.error("Failed to send magic link email", {
-//       email,
-//       error: (err as Error).message,
-//       stack: (err as Error).stack,
-//     });
-//     throw new Error("Failed to send magic link email");
-//   }
-//   );
-
-//   return {
-//     message: "A magic login link has been generated and sent to your email.",
-//     // token
-//   };
-// }
-
-// export async function verifyMagicLogin(
-//   token: string,
-// ): Promise<AuthResult> {
-//   const tokenHash = hashToken(token);
-
-//   const record = await prisma.magicLoginToken.findFirst({
-//     where: {
-//       tokenHash,
-//       used: false,
-//       expiresAt: { gt: new Date() }
-//     },
-//   });
-
-//   console.log("Verifying Magic Login Token: ", token)
-//   if (!record) throw badRequest("Invalid or expired link");
-
-
-//   // Generate Six random bytes as a temporary password for the user (since magic link users won't have set a password yet).
-//   const generateedPassword = crypto.randomBytes(6).toString("hex");
-//   console.log("Generated password for magic link user: ", generateedPassword);
-
-//   const user = await prisma.user.upsert({
-//     where: { email: record.email },
-//     update: { emailVerified: true },
-//     create: {
-//       email: record.email,
-//       emailVerified: true,
-//       accounts: {
-//         create: {
-//           provider: "magic-link",
-//           providerId: record.email,
-//           password: await hashPassword(generateedPassword),
-//         },
-//       },
-//     },
-//   });
-
-
-//   await prisma.magicLoginToken.update({
-//     where: { id: record.id },
-//     data: { used: true },
-//   });
-
-//   await sendAccountCreationEmail(record.email, "Student", generateedPassword).catch((err) => {
-//     logger.error("Failed to send account creation email after magic link login", {
-//       email: record.email,
-//       error: (err as Error).message,
-//       stack: (err as Error).stack,
-//     });
-//   });
-
-//   return createSessionAndTokens(user);
-// }
-
-export async function requestPasswordReset(email: string): Promise<void> {
-  const user = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true, email: true, name: true },
-  });
-
-  if (!user) return; // silent no-op
-
-  const rawToken = generateToken();
-
-  console.log("Reset Password Token: ", rawToken)
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      resetToken: rawToken,
-      resetTokenExpires: new Date(Date.now() + TTL.RESET_TOKEN),
-    },
-  });
-
-  // sendPasswordResetEmail(user.email, user.name ?? "Student", rawToken).catch(
-  //   (err) => logger.error("Password reset email failed", err.message),
-  // );
+  const { accounts: _, ...sessionUser } = user;
+  return createSessionAndTokens(sessionUser, meta, "credentials");
 }
 
-export async function verifyPasswordResetToken(
-  token: string,
-): Promise<boolean> {
-  if (!token || token.length < 32) return false;
+// ─── Google OAuth ────────────────────────────────────────────────────────
+export async function processGoogleOAuth(
+  profile: GoogleProfile,
+  meta: RequestMeta,
+): Promise<AuthResult> {
+  const email = profile.emails?.[0]?.value;
+  const name = profile.displayName || email?.split("@")[0];
+  const avatar = profile.photos?.[0]?.value;
+  const googleId = profile.id;
+  const emailVerified = profile._json?.email_verified === true;
 
-  const user = await prisma.user.findFirst({
-    where: {
-      resetToken: token,
-      resetTokenExpires: { gt: new Date() },
-    },
-    select: { id: true },
+  if (!email) throw badRequest("Google account has no email associated.");
+  if (!emailVerified) throw unauthorized("Google email address is unverified.");
+
+  // Single short transaction that only does account/user linking
+  const user = await authRepository.findOrCreateGoogleUser({
+    email,
+    name,
+    avatar,
+    googleId,
   });
 
+  // Welcome email only for brand-new users (optional heuristic)
+  // You can add a flag from the repository if you need exact detection.
+  enqueueAuthEmail({
+    type: "welcome",
+    to: user.email,
+    name: user.name ?? "there",
+  }).catch((err) => {
+    logger.error("Failed to enqueue Google welcome email", {
+      error: err.message,
+    });
+  });
+
+  // Session creation ALWAYS outside the transaction
+  return createSessionAndTokens(user, meta, "google");
+}
+
+// ─── Password reset ──────────────────────────────────────────────────────
+export async function requestPasswordReset(email: string): Promise<void> {
+  const user = await authRepository.findUserByEmail(email);
+  if (!user) return; // silent
+
+  const rawToken = generateToken(32);
+  const tokenHash = hashToken(rawToken); // never store raw token
+
+  await authRepository.setResetToken(
+    user.id,
+    tokenHash,
+    new Date(Date.now() + TTL.RESET_TOKEN),
+  );
+
+  enqueueAuthEmail({
+    type: "password-reset",
+    to: user.email,
+    resetToken: rawToken, // send the raw one
+  }).catch((err) => {
+    logger.error("Failed to enqueue password-reset email", {
+      userId: user.id,
+      error: err.message,
+    });
+  });
+}
+
+export async function verifyPasswordResetToken(token: string): Promise<boolean> {
+  if (!token || token.length < 32) return false;
+  const tokenHash = hashToken(token);
+  const user = await authRepository.findUserByResetToken(tokenHash);
   return !!user;
 }
 
 export async function resetPassword(dto: ResetPasswordDTO): Promise<void> {
-  const { token, newPassword } = dto;
-
-  const user = await prisma.user.findFirst({
-    where: {
-      resetToken: token,
-      resetTokenExpires: { gt: new Date() },
-    },
-    select: { id: true },
-  });
-
+  const tokenHash = hashToken(dto.token);
+  const user = await authRepository.findUserByResetToken(tokenHash);
   if (!user) throw badRequest("Invalid or expired reset token");
 
-  const hashed = await hashPassword(newPassword);
-
-  await prisma.$transaction([
-    prisma.user.update({
-      where: { id: user.id },
-      data: {
-        accounts: {
-          updateMany: {
-            where: { provider: "credentials" },
-            data: { password: hashed },
-          },
-        },
-        resetToken: null,
-        resetTokenExpires: null,
-      },
-    }),
-    prisma.session.updateMany({
-      where: { userId: user.id },
-      data: { revokedAt: new Date() },
-    }),
-  ]);
+  const hashed = await hashPassword(dto.newPassword);
+  await authRepository.resetPasswordAndRevokeSessions(user.id, hashed);
 }
 
+// ─── Refresh-token rotation with reuse detection ─────────────────────────
 export async function rotateRefreshToken(
   refreshToken: string,
   meta?: RequestMeta,
 ): Promise<AuthResult> {
-  // const payload = verifyRefreshToken(refreshToken);
-
-  // if (!payload) {
-  //   throw unauthorized("Invalid refresh token");
-  // }
-
-  let payload;
+  let payload: { userId: string; tokenId: string };
   try {
     payload = verifyRefreshToken(refreshToken);
   } catch {
     throw unauthorized("Invalid refresh token");
   }
 
-  // Atomic check and revocation
-  const result = await prisma.$transaction(async (tx: { session: { findUnique: (arg0: { where: { tokenId: string; }; include: { user: boolean; }; }) => any; updateMany: (arg0: { where: { userId: any; }; data: { revokedAt: Date; }; }) => any; update: (arg0: { where: { id: any; }; data: { revokedAt: Date; }; }) => any; }; }) => {
-    const session = await tx.session.findUnique({
-      where: { tokenId: payload.tokenId },
-      include: { user: true },
-    });
+  // Pure DB transaction – revoke only
+  const session = await prismaTransaction(async () => {
+    const s = await authRepository.findSessionByTokenId(payload.tokenId);
 
-    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+    if (!s || s.revokedAt || s.expiresAt < new Date()) {
       throw unauthorized("Invalid session");
     }
 
-    // Reuse Detection: If hashes don't match, this token was already used
-    if (!compareTokenHash(refreshToken, session.tokenHash)) {
-      await tx.session.updateMany({
-        where: { userId: session.userId },
-        data: { revokedAt: new Date() },
-      });
+    // Reuse detection
+    if (!compareTokenHash(refreshToken, s.tokenHash)) {
+      await authRepository.revokeAllUserSessions(s.userId);
       throw unauthorized("Security breach detected. Please login again.");
     }
 
-    // Revoke old session
-    await tx.session.update({
-      where: { id: session.id },
-      data: { revokedAt: new Date() },
-    });
-
-    // Create new session
-    return createSessionAndTokens(session.user, meta);
+    await authRepository.revokeSession(s.id);
+    return s;
   });
 
-  return result;
+  // New session created AFTER the transaction commits
+  return createSessionAndTokens(session.user, meta, session.provider);
 }
 
+// ─── Logout / session management ─────────────────────────────────────────
 export async function logout(tokenId: string): Promise<void> {
-  await prisma.session.updateMany({
-    where: { tokenId, revokedAt: null },
-    data: { revokedAt: new Date() },
-  });
+  await authRepository.revokeByTokenId(tokenId);
 }
 
 export async function logoutAll(userId: string): Promise<void> {
-  await prisma.session.updateMany({
-    where: { userId, revokedAt: null },
-    data: { revokedAt: new Date() },
-  });
+  await authRepository.revokeAllUserSessions(userId);
 }
 
 export async function getUserSessions(userId: string): Promise<SessionView[]> {
-  return prisma.session.findMany({
-    where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      userAgent: true,
-      ipAddress: true,
-      createdAt: true,
-      expiresAt: true,
-    },
-  });
+  return authRepository.listActiveSessions(userId);
 }
 
 export async function revokeSession(
   userId: string,
   sessionId: string,
 ): Promise<void> {
-  const session = await prisma.session.findFirst({
-    where: { id: sessionId, userId, revokedAt: null },
-    select: { id: true },
-  });
-
-  if (!session) throw badRequest("Session not found or already revoked");
-
-  await prisma.session.update({
-    where: { id: sessionId },
-    data: { revokedAt: new Date() },
-  });
+  const sessions = await authRepository.listActiveSessions(userId);
+  const target = sessions.find((session: SessionView) => session.id === sessionId);
+  if (!target) throw badRequest("Session not found or already revoked");
+  await authRepository.revokeSession(sessionId);
 }
 
 export async function getUserById(id: string): Promise<SessionUser | null> {
-  return prisma.user.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      emailVerified: true,
-    },
-  });
+  return authRepository.findUserById(id);
 }
 
 export async function getAllUsers(
   page = 1,
   pageSize = 50,
 ): Promise<PaginatedUsers> {
-  const skip = (page - 1) * pageSize;
-
-  const [users, total] = await prisma.$transaction([
-    prisma.user.findMany({
-      skip,
-      take: pageSize,
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        emailVerified: true,
-      },
-    }),
-    prisma.user.count(),
-  ]);
-
-  return {
-    users,
-    total,
-    page,
-    pageSize,
-    totalPages: Math.ceil(total / pageSize),
-  };
+  return authRepository.paginateUsers(page, pageSize);
 }

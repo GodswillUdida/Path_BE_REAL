@@ -16,6 +16,13 @@ r.post(
   ctrl.createModuleController,
 );
 
+// Any authenticated learner marks completion on a module they're
+// progressing through — not instructor/admin-gated like the routes above.
+// Previously commented out and missing its handler reference entirely
+// (`authGuard,` with nothing after it) — the controller and service
+// function already existed with no route ever calling them.
+r.post("/complete/:id", authGuard, ctrl.completeModuleController);
+
 r.patch(
   "/:id",
   authGuard,
@@ -28,7 +35,5 @@ r.delete(
   roleGuard("admin", "superadmin", "instructor"),
   ctrl.deleteModuleController,
 );
-
-// r.post("/complete/:id", authGuard, );
 
 export default r;

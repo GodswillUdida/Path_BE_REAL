@@ -11,7 +11,7 @@ r.post("/", authGuard, upsertProgressController);
 r.patch("/:enrollmentId/topics/:topicId/complete", authGuard, markTopicCompleteController);
 
 r.get("/:enrollmentId", authGuard, getEnrollmentProgressController);
-
+    
 r.get(
     "/:enrollmentId/topics/:topicId",
     authGuard,

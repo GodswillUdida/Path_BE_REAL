@@ -16,6 +16,7 @@ const ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
   "http://localhost:3000",
   "http://localhost:5000",
   "https://accountant-pathfinder.vercel.app",
+  "https://pathfinder-front-5n7744fhq-udida-godswills-projects.vercel.app"
   // "*"
 ].filter(Boolean) as string[]);
 

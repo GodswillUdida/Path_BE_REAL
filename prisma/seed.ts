@@ -992,7 +992,13 @@ async function main(): Promise<void> {
   );
 }
 
-if (process.env.NODE_ENV === "production") {
+const nodeEnv = (
+  globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> };
+  }
+).process?.env?.NODE_ENV;
+
+if (nodeEnv === "production") {
   throw new Error("❌ Seeding is disabled in production");
 }
 
@@ -1001,7 +1007,9 @@ main()
     await prisma.$disconnect();
   })
   .catch(async (e: unknown) => {
-    console.error("❌ Seed failed:", e);
+    console.error("❌ Seed failed:", e);  
     await prisma.$disconnect();
-    process.exit(1);
+    (globalThis as typeof globalThis & {
+      process: { exit: (code: number) => never };
+    }).process.exit(1);
   });

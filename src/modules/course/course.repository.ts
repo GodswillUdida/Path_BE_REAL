@@ -241,10 +241,10 @@ export async function findCourseOwnership(
 
 export async function findCourseExists(
   id: string,
-): Promise<{ id: string; slug: string; thumbnail: string | null } | null> {
+): Promise<{ id: string; slug: string; thumbnail: string | null; code: string } | null> {
   return prisma.course.findUnique({
     where: { id, deletedAt: null },
-    select: { id: true, slug: true, thumbnail: true },
+    select: { id: true, slug: true, thumbnail: true, code: true },
   });
 }
 
@@ -252,14 +252,14 @@ export async function findCourseExists(
 export async function findCourseByCode(
   code: string,
   excludeId?: string,
-): Promise<{ id: string } | null> {
+): Promise<{ id: string; code: string } | null> {
   return prisma.course.findFirst({
     where: {
       code,
       deletedAt: null,
       ...(excludeId && { NOT: { id: excludeId } }),
     },
-    select: { id: true },
+    select: { id: true, code: true },
   });
 }
 

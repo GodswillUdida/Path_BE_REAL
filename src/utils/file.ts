@@ -17,9 +17,10 @@
  */
 
 import fs                        from "fs";
-import { streamUpload }          from "../config/stream";
+// import { streamUpload }          from "../config/stream";
 import logger                    from "../utils/logger";
 import { badRequest, ApiError }  from "../utils/errors";
+import { uploadImageBuffer } from "@/config/cloudinary";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -44,14 +45,14 @@ type UploadOptions = {
 
 const IMAGE_OPTIONS: UploadOptions = {
   folder:           "pathfinder/images/courses",
-  maxFileSize:      5 * 1024 * 1024,
+  maxFileSize:      1 * 1024 * 1024,
   allowedMimeTypes: new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]),
   mediaType:        "image",
 };
 
 const VIDEO_OPTIONS: UploadOptions = {
   folder:           "pathfinder/videos/courses",
-  maxFileSize:      500 * 1024 * 1024,
+  maxFileSize:      100 * 1024 * 1024,
   allowedMimeTypes: new Set(["video/mp4", "video/webm", "video/quicktime"]),
   mediaType:        "video",
 };
@@ -129,7 +130,7 @@ async function attemptUpload(
 
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     try {
-      const result = await streamUpload(buffer, options.folder);
+      const result = await uploadImageBuffer(buffer, options.folder);
 
       logger.info("file.upload.success", {
         attempt: attempt + 1,

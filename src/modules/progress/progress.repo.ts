@@ -41,6 +41,7 @@ export const ProgressRepo = {
         ...data,
         watchedSeconds: data.watchedSeconds ?? 0,
         lastWatchedAt: new Date(),
+        // completed: percentage >= COMPLETE_THRRESHOLD
       },
       update: {
         watchedSeconds: data.watchedSeconds,

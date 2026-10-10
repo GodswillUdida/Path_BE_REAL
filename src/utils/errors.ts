@@ -1,113 +1,128 @@
+/**
+ * Application HTTP errors.
+ *
+ * One type for the request boundary. Domain/infra errors (e.g. BunnyUploadError)
+ * should be mapped to ApiError before they reach the error middleware.
+ */
+
 export class ApiError extends Error {
   public readonly status: number;
-  public readonly code?: string;
+  public readonly code: string;
   public readonly details?: unknown;
 
   constructor(
     message: string,
     status = 500,
-    code?: string,
-    details?: unknown
+    code = "INTERNAL",
+    details?: unknown,
   ) {
     super(message);
-
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.details = details;
 
-    // ✅ Fix prototype chain (critical for instanceof)
     Object.setPrototypeOf(this, new.target.prototype);
-    Error.captureStackTrace(this, this.constructor);
+
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, this.constructor);
+    }
+  }
+
+  /** True for 5xx — useful when deciding whether to retry or alert. */
+  get isOperational(): boolean {
+    return this.status < 500;
   }
 
   toJSON() {
     return {
-      success: false,
+      success: false as const,
       message: this.message,
-      ...(this.code ? { code: this.code } : {}),
-      ...(this.details ? { details: this.details } : {}),
+      code: this.code,
+      ...(this.details !== undefined ? { details: this.details } : {}),
     };
   }
 }
 
-// ---
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// # ✅ Helper functions (UNCHANGED API, safer internals)
+export const badRequest = (msg = "Bad Request", details?: unknown) =>
+  new ApiError(msg, 400, "BAD_REQUEST", details);
 
-export const notFound = (msg = "Not Found"): ApiError =>
-  new ApiError(msg, 404, "NOT_FOUND");
-
-export const unauthorized = (msg = "Unauthorized"): ApiError =>
+export const unauthorized = (msg = "Unauthorized") =>
   new ApiError(msg, 401, "UNAUTHORIZED");
 
-export const forbidden = (msg = "Forbidden"): ApiError =>
+export const forbidden = (msg = "Forbidden") =>
   new ApiError(msg, 403, "FORBIDDEN");
 
-export const badRequest = (msg = "Bad Request"): ApiError =>
-  new ApiError(msg, 400, "BAD_REQUEST");
+export const notFound = (msg = "Not Found") =>
+  new ApiError(msg, 404, "NOT_FOUND");
 
-// ---
+export const conflict = (msg = "Conflict", details?: unknown) =>
+  new ApiError(msg, 409, "CONFLICT", details);
 
-// # ✅ HttpError (normalized to behave like ApiError)
+export const unprocessable = (
+  msg = "Unprocessable Entity",
+  details?: unknown,
+) => new ApiError(msg, 422, "UNPROCESSABLE", details);
 
-export class HttpError extends Error {
-  public readonly statusCode: number;
-  public readonly context?: Record<string, unknown>;
-  public readonly message: string;
+export const tooManyRequests = (msg = "Too Many Requests") =>
+  new ApiError(msg, 429, "RATE_LIMITED");
 
-  constructor(
-    statusCode: number,
-    message: string,
-    context?: Record<string, unknown>
-  ) {
+export const internal = (msg = "Internal server error") =>
+  new ApiError(msg, 500, "INTERNAL");
+
+export const serviceUnavailable = (
+  msg = "Service temporarily unavailable",
+  details?: unknown,
+) => new ApiError(msg, 503, "SERVICE_UNAVAILABLE", details);
+
+// ─── Backward-compatible alias ───────────────────────────────────────────────
+// Prefer the helpers above in new code. Kept so existing call sites
+// (HttpError.notFound(...)) keep compiling during migration.
+
+export const HttpError = {
+  badRequest,
+  unauthorized,
+  forbidden,
+  notFound,
+  conflict,
+  unprocessable,
+  internal,
+  serviceUnavailable,
+} as const;
+
+// ─── Domain / infrastructure errors ──────────────────────────────────────────
+// Not sent to clients as-is. Map at the HTTP or worker boundary.
+
+export class BunnyUploadError extends Error {
+  public readonly retryable: boolean;
+  public readonly cause?: unknown;
+
+  constructor(message: string, retryable: boolean, cause?: unknown) {
     super(message);
+    this.name = "BunnyUploadError";
+    this.retryable = retryable;
+    this.cause = cause;
 
-    this.name = "HttpError";
-    this.message = message;
-    this.statusCode = statusCode;
-    this.context = context;
-
-    // ✅ Fix prototype chain (same issue as ApiError)
     Object.setPrototypeOf(this, new.target.prototype);
-    Error.captureStackTrace(this, this.constructor);
-  }
 
-  // ─── Named constructors ─────────────────────────
-
-  static badRequest(message: string, context?: Record<string, unknown>) {
-    return new HttpError(400, message, context);
+    if (typeof Error.captureStackTrace === "function") {
+      Error.captureStackTrace(this, this.constructor);
+    }
   }
+}
 
-  static unauthorized(message = "Unauthorized") {
-    return new HttpError(401, message);
+/** Map a Bunny upload failure to an HTTP-facing ApiError. */
+export function mapBunnyUploadError(err: BunnyUploadError): ApiError {
+  if (err.retryable) {
+    return serviceUnavailable(err.message, { retryable: true });
   }
+  return badRequest(err.message);
+}
 
-  static forbidden(message = "Forbidden") {
-    return new HttpError(403, message);
-  }
+// ─── Type guard ──────────────────────────────────────────────────────────────
 
-  static notFound(message: string) {
-    return new HttpError(404, message);
-  }
-
-  static conflict(message: string) {
-    return new HttpError(409, message);
-  }
-
-  static unprocessable(message: string, context?: Record<string, unknown>) {
-    return new HttpError(422, message, context);
-  }
-
-  static internal(message = "Internal server error") {
-    return new HttpError(500, message);
-  }
-
-  toJSON() {
-    return {
-      success: false,
-      message: this.message,
-      ...(this.context ? { context: this.context } : {}),
-    };
-  }
+export function isApiError(err: unknown): err is ApiError {
+  return err instanceof ApiError;
 }

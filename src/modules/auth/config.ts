@@ -1,5 +1,5 @@
 import { CookieOptions, Request, Response } from "express";
-import crypto from "crypto"
+import crypto from "crypto";
 import { AuthResult, RequestMeta, SessionUser } from "./types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -21,8 +21,8 @@ export const generateOTP = (): string => {
   return crypto.randomInt(100000, 1000000).toString();
 };
 
-
-export const generateMagicToken = (): string => crypto.randomBytes(32).toString("hex");
+export const generateMagicToken = (): string =>
+  crypto.randomBytes(32).toString("hex");
 
 export const hashOTP = (code: string): string =>
   crypto.createHash("sha256").update(code).digest("hex");
@@ -38,7 +38,6 @@ export const toPublicUser = (user: SessionUser): Required<SessionUser> => ({
   emailVerified: user.emailVerified,
 });
 
-
 // ─── Cookie Config ────────────────────────────────────────────────────────────
 export const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME!;
 export const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME!;
@@ -46,8 +45,8 @@ const isProd = process.env.NODE_ENV === "production";
 
 const BASE_COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
-  secure: isProd,
-  sameSite: "lax",
+  secure: true,
+  sameSite: "none",
   path: "/",
   // ...(isProd && { domain: process.env.COOKIE_DOMAIN }), // only set domain in production
 };
@@ -87,12 +86,11 @@ export function issueTokens(
   result: AuthResult,
   statusCode = 200,
 ): Response {
-  res.cookie(ACCESS_COOKIE_NAME, result.tokens.accessToken, ACCESS_COOKIE_OPTIONS);
-  res.cookie(
-    REFRESH_COOKIE_NAME,
-    result.tokens.refreshToken,
-    REFRESH_COOKIE_OPTIONS,
-  );
+  const accessToken = result.tokens.accessToken;
+  const refreshToken = result.tokens.refreshToken;
+
+  res.cookie(ACCESS_COOKIE_NAME, accessToken, ACCESS_COOKIE_OPTIONS);
+  res.cookie(REFRESH_COOKIE_NAME, refreshToken, REFRESH_COOKIE_OPTIONS);
 
   return res.status(statusCode).json({
     success: true,

@@ -1,27 +1,46 @@
 import { Request, Response } from "express";
 import logger from "../../utils/logger";
 import { asyncHandler } from "../../utils/asyncHandler";
+import { unauthorized } from "../../utils/errors";
 
 import {
   initiatePaystackPayment,
   processPaymentWebhook,
   verifyPayment,
 } from "./payment.service";
-import { InitializePaymentSchema, VerifyPaymentQuerySchema } from "./payment.schema";
+import {
+  InitializePaymentSchema,
+  VerifyPaymentQuerySchema,
+} from "./payment.schema";
 
-interface AuthenticatedRequest extends Request {
-  user?: { userId: string, id: string, role: string }; // Extend as needed
+// FIXED: previously read `req.user?.userId!` (non-null-asserted, with a
+// `.userId` field that doesn't exist anywhere else in this codebase's
+// req.user shape — every other controller uses req.user.id exclusively).
+// Replaced with the same requireActor pattern used everywhere else.
+function requireActor(req: Request): { id: string; role: string } {
+  const user = req.user;
+  if (!user?.id || !user?.role) throw unauthorized("Authentication required");
+  return { id: user.id, role: user.role };
 }
 
 export const initializePaymentController = asyncHandler(
-  async (req: AuthenticatedRequest, res: Response) => {
+  async (req: Request, res: Response) => {
+    const { id: userId } = requireActor(req);
     const { orderId } = InitializePaymentSchema.parse(req.body);
 
-    const result = await initiatePaystackPayment(orderId, req.user?.userId!);
+    const result = await initiatePaystackPayment(orderId, userId);
+
+    // FIXED: message now reflects whether this was a free order (already
+    // fulfilled, nothing further needed) or a real Paystack transaction
+    // the frontend needs to redirect to. Previously this always said
+    // "redirect user to paymentLink" even when no paymentLink exists.
+    const message = result.data.requiresPayment
+      ? "Payment session initialized — redirect user to paymentLink"
+      : "Order fulfilled — no payment required";
 
     res.status(200).json({
       success: true,
-      message: "Payment session initialized – redirect user to paymentLink",
+      message,
       data: result.data,
     });
   },
@@ -30,55 +49,37 @@ export const initializePaymentController = asyncHandler(
 export const verifyPaymentController = asyncHandler(
   async (req: Request, res: Response) => {
     const { reference } = VerifyPaymentQuerySchema.parse(req.query);
-
     const result = await verifyPayment(reference);
 
+    console.log("Payment verification result for reference", reference, ":", result); // Debugging log to verify the result
+
     const message =
-      result.status === "success" ? "Payment verified successfully" :
-        result.status === "pending" ? "Payment is pending" :
-          "Payment verification failed";
+      result.status === "success"
+        ? "Payment verified successfully"
+        : result.status === "pending"
+          ? "Payment is pending"
+          : "Payment verification failed";
+
+          console.log("Payment verification message for reference", reference, ":", message); // Debugging log to verify the message
 
     res.status(200).json({
-      success: result.success,
-      message,
-      status: result.status,
+      success: true, // the HTTP request itself succeeded — separate from whether the PAYMENT succeeded
+      message: "Payment status retrieved",
+      data: {
+        success: result.success,
+        status: result.status,
+        message,
+      },
     });
+
+    // res.status(200).json({ success: result.success, message, status: result.status });
   },
 );
-//   req: Request,
-//   res: Response,
-// ) => {
-//   try {
-//     const rawBody = Buffer.isBuffer(req.body)
-//       ? req.body.toString("utf-8")
-//       : JSON.stringify(req.body);
-
-//     const signature = req.headers["x-paystack-signature"] as string | undefined;
-
-//     const result = await processPaymentWebhook(rawBody, signature);
-
-//     // Always return 200 to Paystack (prevents retries)
-//     return res.status(200).json({
-//       success: true,
-//       message: "Webhook received",
-//       ...result,
-//     });
-//   } catch (err: any) {
-//     logger.error("Paystack webhook error", {
-//       error: err.message,
-//       reference: req.body?.data?.reference,
-//       signature: req.headers["x-paystack-signature"],
-//     });
-
-//     // Never send error status — Paystack must always get 200
-//     return res.status(200).send("Webhook received");
-//   }
-// };
 
 // ─── Webhook ──────────────────────────────────────────────────────────────────
 // Not wrapped in asyncHandler — Paystack must always receive 200,
 // but we still want differentiated logging per failure type.
- 
+
 export const paystackWebhookController = async (
   req: Request,
   res: Response,
@@ -86,32 +87,32 @@ export const paystackWebhookController = async (
   const rawBody = Buffer.isBuffer(req.body)
     ? req.body.toString("utf-8")
     : JSON.stringify(req.body);
- 
   const signature = req.headers["x-paystack-signature"] as string | undefined;
- 
+
   try {
     const result = await processPaymentWebhook(rawBody, signature);
     res.status(200).json({ success: true, ...result });
   } catch (err: unknown) {
     const error = err as Error & { statusCode?: number };
     const reference = (() => {
-      try { return (JSON.parse(rawBody) as { data?: { reference?: string } }).data?.reference; }
-      catch { return undefined; }
+      try {
+        return (JSON.parse(rawBody) as { data?: { reference?: string } }).data
+          ?.reference;
+      } catch {
+        return undefined;
+      }
     })();
- 
-    // Signature failures (401) are security events — log at error level.
-    // Amount mismatches (400) are data integrity events — log at error level.
-    // Anything else is unexpected — log with stack.
+
     logger.error("Paystack webhook handler failed", {
       statusCode: error.statusCode,
       message: error.message,
       reference,
       stack: error.stack,
     });
- 
+
     // Always 200 — a non-200 causes Paystack to retry, which won't help
-    // for sig failures or amount mismatches, and may cause duplicate processing.
+    // for signature failures or amount mismatches, and may cause
+    // duplicate processing attempts.
     res.status(200).json({ success: false, message: "Webhook received" });
   }
 };
- 

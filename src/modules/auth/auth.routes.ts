@@ -18,12 +18,16 @@
  */
 
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
 import * as authController from "./auth.controller";
 import { authGuard } from "../../middleware/authGuard";
 import { sessionGuard } from "../../middleware/sessionGuard";
 import { roleGuard } from "../../middleware/roleGuard";
 import { credentialLimiter, otpLimiter } from "../../middleware/Ratelimiter.middleware";
+import crypto from "crypto";
+
+// `passport` ships without bundled TypeScript declarations in this project setup,
+// so use CommonJS require to avoid the "Could not find a declaration file" error.
+const passport = require("passport");
 
 const r = Router();
 
@@ -50,53 +54,33 @@ r.get(
 );
 r.post("/reset-password", otpLimiter, authController.resetPasswordController);
 
+// ─── Google OAuth ────────────────────────────────────────────────────────
+r.get("/google", (req, res, next) => {
+  const state = crypto.randomBytes(24).toString("base64url");
 
-// r.get("/google", (req, res, next) => {
-//   // Generate a cryptographically random state value
-//   const state = crypto.randomBytes(24).toString("base64url");
+  res.cookie("oauth_state", state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",          // safer for most setups; change to "none" only if needed
+    maxAge: 5 * 60 * 1000,
+    path: "/",
+  });
 
-//   // Set it as a cookie BEFORE redirecting to Google
-//   res.cookie("oauth_state", state, {
-//     httpOnly: true,
-//     secure: process.env.NODE_ENV === "production",
-//     sameSite: "none", // must be lax, not strict — cross-origin redirect won't send strict cookies
-//     maxAge: 5 * 60 * 1000, // 5 minutes
-//     path: "/",
-//   });
+  passport.authenticate("google", {
+    scope: ["openid", "profile", "email"],
+    state,
+    session: false,
+  })(req, res, next);
+});
 
-//   // Pass the same value to Google as the state param
-//   passport.authenticate("google", {
-//     scope: ["openid", "profile", "email"],
-//     state,
-//     session: false,
-//   })(req, res, next);
-// });
-
-// r.get(
-//   "/google/callback",
-//   passport.authenticate("google", {
-//     session: false,
-//     failureRedirect: `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
-//   }),
-//   authController.googleCallbackController,
-// );
-
-
-// r.post(
-//   "/magic-link/request",
-//   otpLimiter,
-//   authController.requestMagicLinkController,
-// );
-
-// Token in POST body — never in the URL.
-// URL params are written to: nginx access logs, proxy logs, browser history,
-// Referer headers, and any APM/tracing tool you have running.
-// A token in any of those is a live credential leak.
-// r.post(
-//   "/magic-link/verify",
-//   otpLimiter,
-//   authController.verifyMagicLoginController,
-// );
+r.get(
+  "/google/callback",
+  passport.authenticate("google", {
+    session: false,
+    failureRedirect: `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
+  }),
+  authController.googleCallbackController,
+);
 
 // ─── Authenticated: stateful session required ─────────────────────────────────
 

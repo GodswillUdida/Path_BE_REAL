@@ -1,15 +1,24 @@
 import axios from "axios";
 import crypto from "crypto";
-import prisma from "../../lib/prisma";
-import logger from "../../utils/logger";
-import { verifyPaystackSignature } from "../../lib/paymentProvider";
-import {
-  sendConfirmationEmail,
-  sendAdminNotification,
-} from "../../services/emailService";
-import { badRequest, forbidden, notFound, unauthorized } from "../../utils/errors";
+import prisma from "@/lib/prisma";
+import logger from "@/utils/logger";
+import { verifyPaystackSignature } from "@/lib/paymentProvider";
+import { sendAdminNotification, sendConfirmationEmail,  } from "@/services/emailService";
+import { badRequest, forbidden, notFound, unauthorized } from "@/utils/errors";
 import { Prisma } from "@prisma/client";
-import { findEnrollmentsForNotification, findOrderForInitiation, findPaymentByReference, markOrderPaid, markPaymentPaid } from "./payment.queries";
+import {
+  findEnrollmentsForNotification,
+  findOrderForInitiation,
+  findPaymentByReference,
+  findPendingPaymentForOrder,
+  findOrderItemsForFulfillment,
+  upsertEnrollmentForCourse,
+  findFirstTopicsForCourses,
+  createProgressRows,
+  markOrderPaid,
+  markPaymentPaid,
+} from "./payment.queries";
+import { withRetry } from "@/utils/retry";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,7 +28,6 @@ type PaymentMetadata = {
   orderId: string;
   courses: { courseId: string; title: string }[];
 };
-
 
 interface PaystackInitResponse {
   status: boolean;
@@ -39,30 +47,40 @@ interface PaystackVerifyData extends Record<string, Prisma.InputJsonValue> {
   metadata: { orderId: string };
 }
 
-/** Shape the frontend success page expects from GET /payments/verify */
 export interface VerifyPaymentResult {
   success: boolean;
   status: "success" | "pending" | "failed";
-  /**
-   * One-time magic login token. Only present when:
-   *  - payment.status === "success"
-   *  - the payer was a guest (no prior session)
-   * The frontend POSTs this to /auth/magic-login/verify to auto-login.
-   */
-  magicToken?: string;
-  email?: string;
 }
 
-/** Shape the frontend checkout page expects from POST /payments/paystack/initialize */
+/**
+ * FIXED — `requiresPayment` is new. The frontend needs to distinguish
+ * "here's a paymentLink, redirect the user to Paystack" from "this order
+ * was free, it's already fulfilled, skip straight to success." Previously
+ * this type unconditionally promised a paymentLink/reference, which made
+ * no sense for a ₦0 order — there is no Paystack transaction to redirect
+ * to. This IS a breaking response-shape change for the
+ * POST /payments/paystack/initialize endpoint — the frontend needs a
+ * corresponding update to branch on `requiresPayment` before assuming
+ * `paymentLink` exists.
+ *
+ * `magicToken`/guest-checkout support was removed from this result type —
+ * it was declared before but never actually populated by any code path
+ * (order creation requires an authenticated userId; there's no guest
+ * checkout flow implemented anywhere in this codebase currently). A type
+ * promising a field no code path ever sets is worse than no field at all.
+ * Reintroduce it deliberately if/when guest checkout is actually built.
+ */
 export interface InitiatePaymentResult {
   data: {
-    paymentLink: string;
-    reference: string;
+    requiresPayment: boolean;
+    orderId: string;
+    paymentLink?: string;
+    reference?: string;
   };
 }
 
 // ---------------------------------------------------------------------------
-// Paystack HTTP client (shared config, single place to update)
+// Paystack HTTP client
 // ---------------------------------------------------------------------------
 
 const paystackHttp = axios.create({
@@ -74,192 +92,233 @@ const paystackHttp = axios.create({
   },
 });
 
-async function withRetry(fn: () => Promise<any>, retries = 3) {
-  try {
-    return await fn();
-  } catch (err: any) {
-    if (retries === 0) throw err;
+const generateReference = (): string => `pay_${crypto.randomBytes(12).toString("hex")}`;
 
-    if (
-      err.code === "ECONNABORTED" ||
-      err.code === "ETIMEDOUT" ||
-      err.code === "ENOTFOUND"
-    ) {
-      await new Promise((res) => setTimeout(res, 500 * (4 - retries)));
-      return withRetry(fn, retries - 1);
-    }
-
-    throw err;
-  }
+function buildExistingLink(reference: string): string {
+  return `https://checkout.paystack.com/${reference}`;
 }
 
-const generateReference = (): string => {
-  return `pay_${crypto.randomBytes(12).toString("hex")}`;
-}
+// ---------------------------------------------------------------------------
+// 1. Initiate — branches on free vs paid, handles mixed carts
+// ---------------------------------------------------------------------------
 
 export const initiatePaystackPayment = async (
   orderId: string,
   userId: string,
 ): Promise<InitiatePaymentResult> => {
-
-  // 1. Fetch + validate order (NO transaction yet)
   const order = await findOrderForInitiation(orderId);
-
   if (!order) throw notFound("Order not found");
+  if (order.userId !== userId) throw forbidden("Order does not belong to this user");
 
-  if (order.userId !== userId) {
-    throw forbidden("Order does not belong to this user");
+  // FIXED: an already-PAID order previously fell into
+  // `if (order.status !== "PENDING") throw badRequest("Order is not payable")`
+  // — meaning a double-click or a page refresh after successful payment
+  // (free OR paid) surfaced as an error to a customer who has, in fact,
+  // already gotten what they paid for. Idempotent pass-through instead.
+  if (order.status === "PAID") {
+    return { data: { requiresPayment: false, orderId: order.id } };
   }
-
   if (order.status !== "PENDING") {
     throw badRequest("Order is not payable");
   }
 
-  if (order.expiresAt! < new Date()) {
+  // FIXED: `order.expiresAt!` — non-null-asserted a nullable field.
+  // order.service.ts always sets expiresAt today, but asserting it here
+  // means a future order-creation path that omits it would crash with a
+  // raw comparison against `null` rather than failing loudly or being
+  // treated as non-expiring.
+  if (order.expiresAt && order.expiresAt < new Date()) {
     throw badRequest("Order expired");
   }
 
   const email = order.user?.email ?? order.email;
   if (!email) throw badRequest("No email associated with this order");
 
-  // 2. Check existing pending payment (idempotency)
-  const existingPayment = await prisma.payment.findFirst({
-    where: {
-      orderId,
-      status: "PENDING",
-    },
-  });
+  // ── FREE CHECKOUT — skip Paystack entirely ─────────────────────────────
+  //
+  // Gate on totalAmount, not just the isFreeOrder flag — belt-and-suspenders
+  // against any future data path where isFreeOrder and totalAmount could
+  // theoretically disagree (e.g. a manually zeroed price without the
+  // isFree flag set). Paystack itself would reject a genuine ₦0 charge
+  // anyway, so this is also just avoiding a guaranteed-failing API call.
+  //
+  // No Payment row is created for a free order — PaymentGateway is a
+  // required, non-nullable enum with only PAYSTACK/FLUTTERWAVE/STRIPE as
+  // values; there's no "NONE" option, and forcing one of those onto a
+  // transaction that never touched a gateway would be actively misleading
+  // for reconciliation later. Order.isFreeOrder already exists precisely
+  // to represent this case without a Payment row. If you want an audit
+  // trail entry for free enrollments beyond the Order row itself and
+  // AdminAuditLog, that's a schema decision (e.g. a nullable gateway or a
+  // "NONE" enum value) — flagging rather than guessing at it here.
+  const isFreeCheckout = Number(order.totalAmount) <= 0;
 
+  if (isFreeCheckout) {
+    await prisma.$transaction(async (tx) => {
+      await markOrderPaid(tx, order.id);
+      await fulfillOrder(tx, order.id, userId, `free_${order.id}`);
+    });
+
+    logger.info("Free order fulfilled without payment gateway", {
+      orderId: order.id,
+      userId,
+      isFreeOrderFlag: order.isFreeOrder,
+    });
+
+    sendPostPaymentNotifications(order.id, `free_${order.id}`).catch((err) =>
+      logger.error("Post-fulfillment notification failed (free order)", { err, orderId: order.id }),
+    );
+
+    return { data: { requiresPayment: false, orderId: order.id } };
+  }
+
+  // ── PAID (or mixed) CHECKOUT — proceed via Paystack ─────────────────────
+  // Paystack is charged exactly `order.totalAmount`, which already
+  // excludes any free items' $0 contribution (computed in
+  // order.service.ts's createOrder) — a mixed cart needs no special
+  // handling here beyond this branch existing; fulfillOrder() below
+  // enrolls every OrderItem regardless of price once payment succeeds.
+
+  const existingPayment = await findPendingPaymentForOrder(orderId);
   if (existingPayment) {
     return {
       data: {
+        requiresPayment: true,
+        orderId: order.id,
         paymentLink: buildExistingLink(existingPayment.reference),
         reference: existingPayment.reference,
       },
     };
   }
 
-  // 3. Prepare payment
   const reference = generateReference();
-
-  const metadata = {
+  const metadata: PaymentMetadata = {
     orderId: order.id,
-    courses: order.items.map((i) => ({
-      courseId: i.pricing.course.id,
-      title: i.pricing.course.title,
-    })),
+    courses: order.items.map((i) => ({ courseId: i.pricing.course.id, title: i.pricing.course.title })),
   };
+
+  // FIXED — CRITICAL: previously sent `order.totalAmount` directly with a
+  // comment claiming "must already be in kobo." That was only ever true
+  // while order.service.ts ALSO (incorrectly) multiplied by 100 before
+  // persisting — a bug fixed earlier in this refactor. Order.totalAmount
+  // is now correctly stored as real currency (e.g. 45000.00 NGN). Paystack
+  // requires kobo. Without this ×100 here, a ₦45,000 course charges the
+  // customer ₦450 — a 100x undercharge. This is the exact conversion point
+  // flagged as future work when the storage-side bug was fixed.
+  const amountKobo = Math.round(Number(order.totalAmount) * 100);
 
   const paystackPayload = {
     reference,
     email,
-    amount: order.totalAmount, // must already be in kobo
+    amount: amountKobo,
     currency: order.currency,
     callback_url: `${process.env.FRONTEND_URL}/checkout/success?reference=${reference}`,
     metadata,
   };
 
-  // 4. Call Paystack (OUTSIDE transaction)
-  // const { data: response } = await paystackHttp.post<PaystackInitResponse>(
-  //   "/transaction/initialize",
-  //   paystackPayload,
-  // );
-
   const response = await withRetry(() =>
-    paystackHttp.post<PaystackInitResponse>("/transaction/initialize", paystackPayload)
+    paystackHttp.post<PaystackInitResponse>("/transaction/initialize", paystackPayload),
   );
 
-
   if (!response.data.status) {
-    throw new Error(`Paystack init failed: ${response.message}`);
+    throw new Error(`Paystack init failed: ${response.data.message}`);
   }
 
-  const paymentLink = response.data.data.authorization_url;
-
-  // 5. Persist payment (short transaction)
   await prisma.payment.create({
     data: {
-      userId: userId ?? order.userId ?? null,
+      userId,
       orderId: order.id,
       reference,
-      amount: order.totalAmount,
+      amount: order.totalAmount, // Payment.amount stores real currency, same convention as Order.totalAmount — kobo is a wire-protocol detail for Paystack only, never persisted
       currency: order.currency,
-      gateway: "paystack",
+      gateway: "PAYSTACK",
       status: "PENDING",
-      metadata: metadata as PaymentMetadata,
+      metadata: metadata as unknown as Prisma.InputJsonValue,
     },
   });
 
   return {
     data: {
-      paymentLink,
+      requiresPayment: true,
+      orderId: order.id,
+      paymentLink: response.data.data.authorization_url,
       reference,
     },
   };
 };
 
+// ---------------------------------------------------------------------------
+// 2. Verify — UX-only status peek, never fulfills (webhook/worker do that)
+// ---------------------------------------------------------------------------
 
-export const verifyPayment = async (
-  reference: string,
-): Promise<VerifyPaymentResult> => {
-
-  if (!reference) {
-    return { success: false, status: "failed" };
-  }
+export const verifyPayment = async (reference: string): Promise<VerifyPaymentResult> => {
+  if (!reference) return { success: false, status: "failed" };
 
   const payment = await findPaymentByReference(reference);
+  if (!payment) return { success: false, status: "failed" };
+  if (payment.status === "PAID") return { success: true, status: "success" };
 
-  if (!payment) {
-    return { success: false, status: "failed" };
-  }
-
-  if (payment.status === "PAID") {
-    return { success: true, status: "success" };
-  }
-
-  const recentlyChecked =
-    Date.now() - new Date(payment.updatedAt).getTime() < 5000;
-
-  if (recentlyChecked) {
-    return { success: false, status: "pending" };
-  }
+  const recentlyChecked = Date.now() - new Date(payment.updatedAt).getTime() < 5000;
+  if (recentlyChecked) return { success: false, status: "pending" };
 
   try {
-    const { data } = await paystackHttp.get<{
-      status: boolean;
-      data: PaystackVerifyData;
-    }>(`/transaction/verify/${encodeURIComponent(reference)}`);
-
-    const status = data.status
-      ? (data.data.status as "success" | "pending" | "failed")
-      : "failed";
-
-    return {
-      success: status === "success",
-      status,
-    };
-
-  } catch (err) {
-    // Never fail hard here — this endpoint is UX-only
+    const { data } = await paystackHttp.get<{ status: boolean; data: PaystackVerifyData }>(
+      `/transaction/verify/${encodeURIComponent(reference)}`,
+    );
+    const status = data.status ? (data.data.status as "success" | "pending" | "failed") : "failed";
+    return { success: status === "success", status };
+  } catch {
     return { success: false, status: "pending" };
   }
-
-  // const { data } = await paystackHttp.get<{
-  //   status: boolean;
-  //   data: PaystackVerifyData;
-  // }>(`/transaction/verify/${encodeURIComponent(reference)}`);
-
-  // const status = data.status ? (data.data.status as "success" | "pending" | "failed") : "failed";
-
-  // return {
-  //   success: status === "success",
-  //   status,
-  // }
 };
 
+// ---------------------------------------------------------------------------
+// 3. Shared fulfillment path — used by BOTH the webhook and the follow-up
+//    worker, so a lost webhook can be recovered without duplicating (or
+//    drifting from) the fulfillment logic.
+//
+// Amount verification is NOT done in here — it's specific to the webhook
+// path, where the payload is untrusted, externally-supplied input that
+// could be forged. The follow-up worker's `verifyPayment()` call already
+// goes directly to Paystack over an authenticated connection (our own
+// secret key) — there's no tampering surface to defend against there, so
+// no separate amount check is needed on that path.
+// ---------------------------------------------------------------------------
+
+async function markPaidAndFulfill(
+  reference: string,
+  providerPayload: Prisma.InputJsonValue,
+): Promise<{ alreadyProcessed: boolean; orderId: string } | null> {
+  const payment = await prisma.payment.findUnique({
+    where: { reference },
+    select: { id: true, status: true, orderId: true, userId: true, metadata: true },
+  });
+
+  if (!payment) return null;
+  if (payment.status === "PAID") return { alreadyProcessed: true, orderId: payment.orderId };
+  if (!payment.orderId || !payment.userId) {
+    logger.error("Invalid payment state — missing orderId/userId", { reference });
+    throw badRequest("Invalid payment state");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // Row lock + re-check inside the transaction — closes the race window
+    // between the read above and this write (two concurrent deliveries of
+    // the same webhook, or a webhook racing the follow-up worker).
+    const locked = await tx.payment.findUnique({ where: { id: payment.id }, select: { status: true } });
+    if (!locked || locked.status === "PAID") return;
+
+    await markPaymentPaid(tx, payment.id, providerPayload, payment.metadata);
+    await markOrderPaid(tx, payment.orderId!);
+    await fulfillOrder(tx, payment.orderId!, payment.userId!, reference);
+  });
+
+  return { alreadyProcessed: false, orderId: payment.orderId };
+}
 
 // ---------------------------------------------------------------------------
-// 3. Webhook — single source of truth for fulfillment
+// 4. Webhook — verifies signature + amount, then delegates to the shared
+//    fulfillment path above.
 // ---------------------------------------------------------------------------
 
 export const processPaymentWebhook = async (
@@ -270,145 +329,72 @@ export const processPaymentWebhook = async (
     throw unauthorized("Invalid webhook signature");
   }
 
-  // const payload = JSON.parse(rawBody);
-  const payload = JSON.parse(rawBody) as {
-    event: string;
-    data: PaystackVerifyData;
-  };
-
+  const payload = JSON.parse(rawBody) as { event: string; data: PaystackVerifyData };
   if (payload.event !== "charge.success") return { received: true };
 
   const { reference, amount: amountKobo } = payload.data;
 
-  // const payment = await findPaymentByReference(reference);
-
   const payment = await prisma.payment.findUnique({
     where: { reference },
-    select: {
-      id: true,
-      status: true,
-      amount: true,
-      orderId: true,
-      userId: true,
-      metadata: true,
-    },
+    select: { id: true, status: true, amount: true, orderId: true, userId: true },
   });
 
-  // FIX (idempotency): a duplicate webhook delivery must be silently swallowed.
-  if (!payment || payment.status === "PAID") return { received: true };
-
+  if (!payment || payment.status === "PAID") return { received: true }; // idempotent — duplicate delivery
   if (!payment.orderId || !payment.userId) {
     logger.error("Invalid payment state", { reference });
     throw badRequest("Invalid payment state");
   }
 
-  // FIX (bug): payment.amount is a Prisma Decimal — coerce to Number before
-  // arithmetic. `"1500.00" * 100` evaluates to NaN in JS, making the guard
-  // always pass silently.
+ 
   const expectedKobo = Math.round(Number(payment.amount) * 100);
   if (amountKobo !== expectedKobo) {
-    logger.error("Amount mismatch", {
-      reference,
-      expected: expectedKobo,
-      received: amountKobo,
-    });
+    logger.error("Amount mismatch", { reference, expected: expectedKobo, received: amountKobo });
     throw badRequest("Amount mismatch");
   }
 
-  // await prisma.$transaction(async (tx) => {
-  //   let userId = payment.userId;
+  const result = await markPaidAndFulfill(reference, payload.data);
+  if (!result) {
+    logger.warn("Webhook for unknown payment reference — ignoring", { reference });
+    return { received: true };
+  }
 
-  //   // Create guest user if this was a guest checkout
-  //   if (!userId) {
-  //     const order = payment.order!;
+  if (!result.alreadyProcessed) {
+    sendPostPaymentNotifications(result.orderId, reference).catch((err) =>
+      logger.error("Post-payment notification failed", { err, reference }),
+    );
+    logger.info("Payment successful", { reference, orderId: result.orderId });
+  }
 
-  //     if (!order.email) {
-  //       throw new Error("Guest checkout without email is not supported");
-  //     }
-
-  //     // FIX (security + auth): guest users need a hashed random password
-  //     // and emailVerified: true so they can receive magic links and log in.
-  //     // FIX (race condition): use upsert instead of create to handle the case
-  //     // where a duplicate webhook fires before the first transaction commits.
-  //     const guestUser = await tx.user.upsert({
-  //       where: { email: order.email },
-  //       update: {}, // already exists — don't overwrite anything
-  //       create: {
-  //         email: order.email,
-  //         name: order.name ?? order.email.split("@")[0],
-  //         accounts: {
-  //           create: {
-  //             provider: "checkout",
-  //             providerId: order.email,
-  //             password: await hashPassword(crypto.randomBytes(32).toString("hex")),
-  //           },
-  //         },
-  //         phone: order.phone ?? null,
-  //         emailVerified: true, // verified via OTP during checkout
-  //         provider: "checkout"
-  //       },
-  //     });
-
-  //     await tx.order.update({
-  //       where: { id: order.id },
-  //       data: { userId: guestUser.id },
-  //     });
-
-  //     await tx.payment.update({
-  //       where: { id: payment.id },
-  //       data: { userId: guestUser.id },
-  //     });
-
-  //     userId = guestUser.id;
-  //   }
-
-  //   // Mark payment and order as paid
-  //   await tx.payment.update({
-  //     where: { id: payment.id },
-  //     data: {
-  //       status: "PAID",
-  //       metadata: {
-  //         ...(payment.metadata as Prisma.JsonObject),
-  //         providerPayload: payload.data as Prisma.InputJsonValue,
-  //       },
-  //     },
-  //   });
-
-  //   await tx.order.update({
-  //     where: { id: payment.orderId! },
-  //     data: { status: "PAID" },
-  //   });
-
-  //   // Enroll the user in all purchased courses
-  //   await fulfillOrder(tx, payment.orderId!, userId, reference);
-  // });
-
-  // Non-blocking — failure here does not roll back the payment
-
-  await prisma.$transaction(async (tx) => {
-
-    // 🔒 Lock row (prevents race conditions)
-    const lockedPayment = await tx.payment.findUnique({
-      where: { id: payment.id },
-      select: { status: true },
-    });
-
-    if (!lockedPayment || lockedPayment.status === "PAID") {
-      return; // another webhook already processed
-    }
-
-    await markPaymentPaid(tx, payment.id, payload.data, payment.metadata);
-    await markOrderPaid(tx, payment.orderId!);
-    await fulfillOrder(tx, payment.orderId!, payment.userId!, reference);
-  });
-
-  sendPostPaymentNotifications(payment.orderId!, reference).catch((err) =>
-    logger.error("Post-payment notification failed: %o", { err, reference }),
-  );
-
-  logger.info("Payment Successful", { reference, orderId: payment.orderId });
   return { received: true };
 };
+
+// ---------------------------------------------------------------------------
+// 5. Follow-up recovery — exported for payment.worker.ts. Independently
+//    confirms status directly with Paystack (not from user input, so no
+//    amount-tamper surface) and fulfills via the same shared path.
+// ---------------------------------------------------------------------------
+
+export async function recoverPaymentIfConfirmed(reference: string): Promise<"fulfilled" | "already_paid" | "still_pending" | "not_found"> {
+  const result = await verifyPayment(reference);
+
+  if (result.status !== "success") return "still_pending";
+
+  const payment = await findPaymentByReference(reference);
+  if (!payment) return "not_found";
+
+  const fulfillment = await markPaidAndFulfill(reference, { recoveredBy: "follow-up-worker" } as unknown as Prisma.InputJsonValue);
+  if (!fulfillment) return "not_found";
+
+  if (!fulfillment.alreadyProcessed) {
+    sendPostPaymentNotifications(fulfillment.orderId, reference).catch((err) =>
+      logger.error("Post-payment notification failed (recovered)", { err, reference }),
+    );
+    logger.info("Payment recovered via follow-up worker — webhook was likely lost", { reference, orderId: fulfillment.orderId });
+    return "fulfilled";
+  }
+
+  return "already_paid";
+}
 
 // ---------------------------------------------------------------------------
 // Internal: fulfillment
@@ -420,101 +406,47 @@ async function fulfillOrder(
   userId: string,
   reference: string,
 ): Promise<void> {
-
-
-  const items = await tx.orderItem.findMany({
-    where: { orderId },
-    include:
-    {
-      pricing: {
-        select:
-        {
-          courseId: true,
-          durationDays: true
-        }
-      }
-    },
-  });
-
+  const items = await findOrderItemsForFulfillment(tx, orderId);
   if (items.length === 0) {
     logger.warn("fulfillOrder: no items", { orderId });
     return;
   }
 
-  // FIX (idempotency): skipDuplicates means retried webhooks are safe —
-  // if enrollments already exist they are silently skipped.
-  // FIX (perf): single createMany instead of Promise.all of individual creates.
-  const now = new Date();
-  const enrollmentData = items.map((item) => ({
-    userId,
-    courseId: item.pricing.courseId,
-    pricingId: item.pricingId,
-    orderItemId: item.id,
+  const results: { id: string; isNew: boolean; courseId: string }[] = [];
+  for (const item of items) {
+    const result = await upsertEnrollmentForCourse(tx, {
+      userId,
+      courseId: item.pricing.courseId,
+      pricingId: item.pricingId,
+      orderItemId: item.id,
+      orderId,
+      accessDurationDays: item.pricing.accessDurationDays,
+    });
+    results.push({ ...result, courseId: item.pricing.courseId });
+  }
+
+  logger.info("Order fulfilled", {
     orderId,
-    paymentStatus: "PAID" as const,
-    paymentRef: reference,
-    startedAt: now,
-    expiresAt: new Date(now.getTime() + item.pricing.durationDays * 86_400_000),
-  }));
-
-  // const existing = await tx.enrollment.findFirst({
-  //   where: { orderId, userId },
-  //   select: { id: true },
-  // });
-
-  // if (existing) {
-  //   logger.info("fulfillOrder skipped (already fulfilled)", { orderId });
-  //   return;
-  // }
-
-  await tx.enrollment.createMany({
-    data: enrollmentData,
-    skipDuplicates: true,
+    reference,
+    newEnrollments: results.filter((r) => r.isNew).length,
+    renewedEnrollments: results.filter((r) => !r.isNew).length,
   });
 
-  // Fetch newly created enrollments (we need their IDs for progress init)
-  const enrollments = await tx.enrollment.findMany({
-    where: { orderId, userId },
-    select: { id: true, courseId: true },
-  });
-
-  await initializeProgress(tx, enrollments);
+  // Only initialize progress for brand-new enrollments — a renewal
+  // shouldn't reset an existing learner's current-topic/progress state.
+  const newEnrollments = results.filter((r) => r.isNew);
+  await initializeProgress(tx, newEnrollments);
 }
 
-/**
- * FIX (perf): replaced N+1 serial loop with two batched queries:
- *  1. findMany to get all first topics across all courses in one round-trip
- *  2. createMany to insert all progress rows in one statement
- */
 async function initializeProgress(
   tx: Prisma.TransactionClient,
   enrollments: { id: string; courseId: string }[],
 ): Promise<void> {
-
   if (enrollments.length === 0) return;
 
   const courseIds = enrollments.map((e) => e.courseId);
+  const courses = await findFirstTopicsForCourses(tx, courseIds);
 
-  // Fetch the first topic for each course in one query
-  const courses = await tx.course.findMany({
-    where: { id: { in: courseIds } },
-    select: {
-      id: true,
-      modules: {
-        take: 1,
-        orderBy: { position: "asc" },
-        select: {
-          topics: {
-            take: 1,
-            orderBy: { position: "asc" },
-            select: { id: true },
-          },
-        },
-      },
-    },
-  });
-
-  // Build a courseId → firstTopicId map
   const firstTopicByCourse = new Map(
     courses
       .map((c) => [c.id, c.modules[0]?.topics[0]?.id] as const)
@@ -530,54 +462,43 @@ async function initializeProgress(
     }));
 
   if (progressRows.length === 0) {
-    logger.warn("initializeProgress: no valid topics found", {
-      courseIds,
-    });
+    logger.warn("initializeProgress: no valid topics found", { courseIds });
     return;
   }
 
-  if (progressRows.length > 0) {
-    await tx.progress.createMany({ data: progressRows, skipDuplicates: true });
-  }
+  await createProgressRows(tx, progressRows);
 }
 
 // ---------------------------------------------------------------------------
 // Internal: notifications
 // ---------------------------------------------------------------------------
 
-async function sendPostPaymentNotifications(
-  orderId: string,
-  _reference: string,
-): Promise<void> {
+async function sendPostPaymentNotifications(orderId: string, _reference: string): Promise<void> {
   const enrollments = await findEnrollmentsForNotification(orderId);
-
-  // await prisma.enrollment.findMany({
-  //   where: { orderId },
-  //   include: {
-  //     user: { select: { email: true, name: true, phone: true } }, // added phone
-  //     course: { select: { title: true } },
-  //     pricing: { select: { price: true, durationDays: true } }, // added durationDays
-  //   },
-  // });
-
-  // FIX (design): filter out enrollments with no email before constructing
-  // the notification work, rather than bailing out per-item inside the map.
   const notifiable = enrollments.filter((e) => !!e.user?.email);
 
   await Promise.allSettled(
     notifiable.map((e) => {
       const studentName = e.user!.name ?? e.user!.email.split("@")[0];
       const studentEmail = e.user!.email;
-      const studentPhone = e.user!.phone ?? "N/A"; // added phone with fallback
+      const studentPhone = e.user!.phone ?? "N/A";
       const courseName = e.course.title;
       const coursePrice = Number(e.pricing.price).toLocaleString("en-NG");
-      const courseDuration = `${e.pricing.durationDays} days`;
+
+  
+      const isLifetime = e.pricing.accessDurationDays === null;
+      const courseDuration = isLifetime ? "Lifetime access" : `${e.pricing.accessDurationDays} days`;
 
       const courseStartDate = new Date().toLocaleDateString("en-NG", { year: "numeric", month: "long", day: "numeric" });
-      const courseEndDate = new Date(Date.now() + e.pricing.durationDays * 86_400_000).toLocaleDateString("en-NG", { year: "numeric", month: "long", day: "numeric" });
+      const courseEndDate = isLifetime
+        ? "Never expires"
+        : new Date(Date.now() + e.pricing.accessDurationDays! * 86_400_000).toLocaleDateString("en-NG", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          });
 
       return Promise.allSettled([
-        // Confirmation to the student
         sendConfirmationEmail(studentEmail, {
           name: studentName,
           courseName,
@@ -588,8 +509,6 @@ async function sendPostPaymentNotifications(
           startDate: courseStartDate,
           endDate: courseEndDate,
         }),
-
-        // Admin notification — now passes every variable the template needs
         sendAdminNotification({
           name: studentName,
           email: studentEmail,
@@ -605,8 +524,3 @@ async function sendPostPaymentNotifications(
     }),
   );
 }
-
-function buildExistingLink(reference: string): string {
-  return `https://checkout.paystack.com/${reference}`;
-}
-

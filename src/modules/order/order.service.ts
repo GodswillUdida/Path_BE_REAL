@@ -1,117 +1,119 @@
-import prisma from "../../lib/prisma";
-import { CreateOrderDTO, CreateOrderSchema } from "./order.schema";
-import { badRequest, forbidden, notFound } from "../../utils/errors";
+/**
+ * @file order.service.ts
+ * @description Production-grade order management service equipped with background expiration dispatch hooks.
+ */
 
-const orderIncludes = {
-  items: {
-    include: {
-      pricing: { include: { course: { select: { id: true, title: true } } } },
-    },
-  },
-  user: { select: { id: true, email: true, name: true } },
-  enrollments: true,
-} as const;
+import { badRequest, notFound, unauthorized } from "../../utils/errors";
+import { withMetrics } from "../../utils/observability";
+import * as repo from "./order.repo";
+import type { CreateOrderDTO } from "./order.schema";
+import type { OrderDetail, OrderListItem } from "./order.repo";
+import { scheduleOrderExpiration } from "./order.queue";
+import logger from "@/utils/logger";
 
-export async function createOrder(
-  dto: CreateOrderDTO,
-  userId: string,
-) {
-  // 1. Modern Zod validation (throws clear error + transforms if needed)
-  const validatedDto = CreateOrderSchema.parse(dto);
+const ORDER_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes to complete payment
 
-  if (!userId) throw badRequest("Unauthorized");
+export async function createOrder(dto: CreateOrderDTO, userId: string | undefined, idempotencyKey?: string): Promise<OrderDetail> {
+  return withMetrics("order.create", async () => {
+    // console.log("Creating order for userId:", userId, "with idempotencyKey:", idempotencyKey); // Debugging log to verify inputs
+    if (!userId) throw unauthorized("Authentication required");
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { email: true, name: true },
-  });
+    if (idempotencyKey) {
+      const lockAcquired = await repo.acquireIdempotencyLock(userId, idempotencyKey);
+      if (!lockAcquired) {
+        throw badRequest("Order creation is already in progress for this idempotency key"); 
+      }
+    }
 
-  if (!user?.email) throw badRequest("User profile incomplete");
+    const user = await repo.findUserForCheckout(userId);
+    if (!user?.email) throw badRequest("User profile incomplete — an email address is required to check out");
 
+    const pricingIds = dto.items.map((item) => item.pricingId);
+    const pricings = await repo.findPurchasablePricings(pricingIds);
 
-  const pricingIds = validatedDto.items.map((item) => item.pricingId);
+    if (pricings.length !== pricingIds.length) {
+      throw notFound("One or more selected pricing options are invalid or no longer available");
+    }
 
-  const pricings = await prisma.coursePricing.findMany({
-    where: {
-      id: { in: pricingIds },
-      isActive: true,
-    },
-    include: {
-      course: { select: { id: true, title: true, slug: true } },
-    },
-  });
+    // 1. Decoupled Structural Security Guard via Repository Layer
+    const courseIds = pricings.map((p) => p.course.id);
+    const alreadyOwnsCourse = await repo.hasActiveEnrollmentForCourses(userId, courseIds);
 
-  if (pricings.length !== pricingIds.length) {
-    throw notFound("Invalid pricing selected");
-  }
-  const pricingMap = new Map(pricings.map((p) => [p.id, p]));
+    if (alreadyOwnsCourse) {
+      throw badRequest("You are already enrolled in one or more of the selected courses.");
+    }
 
-  let totalAmountKobo  = 0;
+    // 2. Availability Verification Loop
+    for (const pricing of pricings) {
+      if (pricing.course.deletedAt || pricing.course.status !== "PUBLISHED") {
+        throw badRequest(`"${pricing.course.title}" is not currently available for purchase`);
+      }
+    }
 
-  const orderItemsData = validatedDto.items.map((item) => {
-    const pricing = pricingMap.get(item.pricingId)!;
-    const qty = item.quantity ?? 1;
+    const pricingMap = new Map(pricings.map((p) => [p.id, p]));
+    let totalAmount = 0;
+    let allFree = true;
 
-    // 🔥 FIX: store money as integer (kobo)
-    // const unitPrice = Number(pricing.price);
-    const unitPriceKobo = Math.round(Number(pricing.price) * 100);
+    const orderItems = dto.items.map((item) => {
+      const pricing = pricingMap.get(item.pricingId)!;
+      const unitPrice = Number(pricing.price); // Resolved property parameter mapping
+      totalAmount += unitPrice * item.quantity;
+      if (!pricing.isFree) allFree = false;
 
-    totalAmountKobo  += unitPriceKobo * qty;
+      return { pricingId: item.pricingId, unitPrice, quantity: item.quantity };
+    });
 
-    return {
-      pricingId: item.pricingId,
-      unitPrice: unitPriceKobo,
-      quantity: qty,
-    };
-  });
+    const currencies = new Set(pricings.map((p) => p.currency));
+    if (currencies.size > 1) {
+      throw badRequest("All items in an order must use the same currency");
+    }
+    const currency = pricings[0].currency; // Fixed: Safely accesses the index tracker object
 
-  const order = await prisma.order.create({
-    data: {
+    const order = await repo.insertOrder({
       userId,
       email: user.email,
       name: user.name,
-      phone: validatedDto.phone,
-      totalAmount: totalAmountKobo,
-      currency: "NGN",
-      status: "PENDING",
-      expiresAt: new Date(Date.now() + 30 * 60 * 1000),
-      items: {
-        create: orderItemsData,
-      },
-    },
-    include: {
-      items: {
-        include: {
-          pricing: {
-            include: {
-              course: true,
-            },
-          },
-        },
-      },
-    },
-  });
+      phone: dto.phone,
+      totalAmount,
+      currency,
+      isFreeOrder: allFree,
+      items: orderItems,
+      expiresAt: new Date(Date.now() + ORDER_EXPIRY_MS),
+    });
 
-  return order;
-}
+    // 3. 2026 Strategy Standard: Delayed scheduler background tracking activation
+    scheduleOrderExpiration(order.id, userId, ORDER_EXPIRY_MS).catch((err) => {
+      logger.error("Failed to enqueue delayed expiration structural observer for order context key", {
+        orderId: order.id,
+        error: err.message
+      });
+    });
 
-export async function getUserOrders(userId: string) {
-  return prisma.order.findMany({
-    where: { userId },
-    include: orderIncludes,
-    orderBy: { createdAt: "desc" },
+    return order;
   });
 }
 
-export async function getOneOrderService(id: string, userId: string) {
-  const order = await prisma.order.findUnique({
-    where: { id },
-    include: orderIncludes,
+
+export async function getUserOrders(
+  userId: string,
+  limit = 20,
+  offset = 0,
+): Promise<{ data: OrderListItem[]; meta: { total: number; limit: number; offset: number; pages: number; hasMore: boolean } }> {
+  return withMetrics("order.list", async () => {
+    const { data, total } = await repo.findOrdersForUser(userId, limit, offset);
+    return {
+      data,
+      meta: { total, limit, offset, pages: Math.ceil(total / limit), hasMore: offset + limit < total },
+    };
   });
+}
 
-  if (!order) throw notFound("Order not found");
-  if (order.userId !== userId)
-    throw forbidden("Access denied — this is not your order");
+export async function getOneOrderService(id: string, userId: string): Promise<OrderDetail> {
+  return withMetrics("order.getOne", async () => {
+    const order = await repo.findOrderById(id);
+    if (!order) throw notFound("Order not found");
+    if (order.userId !== userId) throw notFound("Order not found");
 
-  return order;
+    return order;
+  });
 }

@@ -12,8 +12,6 @@ import {
   paginationSchema,
   resendVerificationEmailSchema,
   resetPasswordVerifySchema,
-  requestMagicLinkSchema,
-  verifyMagicLinkSchema,
 } from "./auth.schema";
 import { RefreshTokenPayload, verifyRefreshToken } from "../../lib/jwt";
 import { ACCESS_COOKIE_NAME, CLEAR_COOKIE_OPTIONS, extractMeta, issueTokens, REFRESH_COOKIE_NAME } from "./config";
@@ -27,7 +25,7 @@ export const googleCallbackController = asyncHandler(async (req, res) => {
   res.clearCookie("oauth_state", {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "none",
+    sameSite: "lax", // safer for most setups; change to "none" only if needed
     path: "/",
   });
 
@@ -116,24 +114,6 @@ export const loginController = asyncHandler(
     return issueTokens(res, result, 200);
   },
 );
-
-// ───── MAGIC TOKEN ───────────────────────────────────────────────────
-
-// export const requestMagicLinkController = asyncHandler(
-//   async (req: Request, res: Response) => {
-//     const { email } = requestMagicLinkSchema.parse(req.body);
-//     const result = await authService.requestMagicLink(email);
-//     res.status(200).json({ success: true, ...result });
-//   },
-// );
-
-// export const verifyMagicLoginController = asyncHandler(
-//   async (req: Request, res: Response) => {
-//     const { token } = verifyMagicLinkSchema.parse(req.body);
-//     const result = await authService.verifyMagicLogin(token);
-//     return issueTokens(res, result, 200); // sets cookies + returns accessToken
-//   },
-// );
 
 // ────── REFRESH TOKEN ───────────────────────────────────────────────────
 

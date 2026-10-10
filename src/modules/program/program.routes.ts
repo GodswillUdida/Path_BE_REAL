@@ -1,64 +1,104 @@
 /**
  * program.router.ts
  *
- * Mount point: /api/v1/programs
+ * Mount point:
+ *   /api/v1/programs
  *
- * ROUTE ORDERING CONTRACT
- * ───────────────────────
- * Express matches top-to-bottom. Static segments MUST precede parameterized ones.
+ * Responsibilities:
+ * - Define Program HTTP routes.
+ * - Apply authentication/authorization middleware.
+ * - Mount nested Course resources.
  *
- *   ✅ GET /by-slug/:slug   → before  /:id  (different prefix — no shadow)
- *   ✅ GET /:id             → catchall dynamic segment, registered last
+ * Domain boundaries:
  *
- * THE BUG IN THE ORIGINAL:
- *   GET /:id   and   GET /:slug   are IDENTICAL to Express.
- *   The second registration is silently unreachable.
- *   Fix: use a static prefix for the slug route (/by-slug/:slug).
+ * Program service owns:
+ *   - Program lifecycle
+ *   - Program metadata
+ *   - Publish/archive/restore
+ *   - ProgramCourse ordering
  *
- * CROSS-DOMAIN ACTIONS (course creation under a program):
- * ────────────────────────────────────────────────────────
- * Course creation is NOT handled here. It was in the original — that's a
- * domain boundary violation. The course module owns course creation.
- * The course router accepts an optional programId route param:
- *   POST /api/v1/courses/:programId
- * This router links to the course router via a nested mount point below.
+ * Course service owns:
+ *   - Course creation
+ *   - Course updates
+ *   - Course deletion
+ *   - Attaching existing courses to programs
+ *   - Detaching courses from programs
  *
- * ROLE BOUNDARIES:
- * ─────────────────
- * Programs are admin/superadmin territory.
- * Instructors create and manage courses within programs — not programs.
- * The original allowed instructors to create programs — removed.
+ * Important:
+ * Course creation under a Program is a Course-domain operation.
+ * This router therefore delegates nested course routes to course.router.
+ *
+ * Route ordering:
+ *   Static routes MUST appear before parameterized routes.
+ *
+ *   GET /by-slug/:slug
+ *   GET /:id
+ *
+ * The /by-slug prefix deliberately avoids the Express ambiguity between:
+ *
+ *   /:id
+ *   /:slug
+ *
+ * Those two patterns are identical to Express.
  */
 
-import { Router }           from "express";
-import * as ctrl            from "./program.controller";
+import { Router } from "express";
+
+import * as ctrl from "./program.controller";
+
 import { authGuard } from "@/middleware/authGuard";
 import { roleGuard } from "@/middleware/roleGuard";
 import { uploadSingleImage } from "@/config/multer";
 
-// Course router — mounted under /:programId/courses for nested resource access
-// Handles: POST /:programId/courses, GET /:programId/courses, etc.
+// Course router.
+// IMPORTANT:
+// course.router MUST be created with mergeParams: true
+// so req.params.programId survives the nested mount.
+import courseRouter from "../course/course.routes";
 
 const router = Router();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PUBLIC — READ
+// PUBLIC — PROGRAM READS
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * GET /api/v1/programs
+ *
+ * List programs.
+ *
+ * Optional query:
+ *   ?q=
+ *   ?status=
+ *   ?limit=
+ *   ?offset=
+ */
 router.get(
   "/",
   // rateLimiter({ windowMs: 60_000, max: 100 }),
   ctrl.listProgramsController,
 );
 
-// Static prefix prevents shadowing /:id — this route is always reachable
+/**
+ * GET /api/v1/programs/by-slug/:slug
+ *
+ * Get a Program using its public slug.
+ *
+ * Static prefix intentionally comes before /:id.
+ */
 router.get(
   "/by-slug/:slug",
   // rateLimiter({ windowMs: 60_000, max: 100 }),
   ctrl.getProgramBySlugController,
 );
 
-// Registered AFTER /by-slug/:slug — no conflict
+/**
+ * GET /api/v1/programs/:id
+ *
+ * Get Program by ID.
+ *
+ * Keep this after all static GET routes.
+ */
 router.get(
   "/:id",
   // rateLimiter({ windowMs: 60_000, max: 120 }),
@@ -66,18 +106,33 @@ router.get(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PROTECTED — WRITE (admin / superadmin only)
+// PROTECTED — PROGRAM CREATION / UPDATE
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * POST /api/v1/programs
+ *
+ * Create Program.
+ *
+ * Admin-only.
+ */
 router.post(
   "/",
   // rateLimiter({ windowMs: 60_000, max: 10 }),
   authGuard,
   roleGuard("admin", "superadmin"),
-  uploadSingleImage, // optional — for program cover image
+  uploadSingleImage,
   ctrl.createProgramController,
 );
 
+/**
+ * PATCH /api/v1/programs/:id
+ *
+ * Update Program metadata.
+ *
+ * This route should NOT be used as a substitute for explicit lifecycle
+ * operations such as publish/archive.
+ */
 router.patch(
   "/:id",
   // rateLimiter({ windowMs: 60_000, max: 20 }),
@@ -87,6 +142,54 @@ router.patch(
   ctrl.updateProgramController,
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PROGRAM LIFECYCLE
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/v1/programs/:id/publish
+ *
+ * Publish a Program.
+ */
+router.post(
+  "/:id/publish",
+  // rateLimiter({ windowMs: 60_000, max: 20 }),
+  authGuard,
+  roleGuard("admin", "superadmin"),
+  ctrl.publishProgramController,
+);
+
+/**
+ * POST /api/v1/programs/:id/archive
+ *
+ * Archive a Program.
+ */
+router.post(
+  "/:id/archive",
+  // rateLimiter({ windowMs: 60_000, max: 20 }),
+  authGuard,
+  roleGuard("admin", "superadmin"),
+  ctrl.archiveProgramController,
+);
+
+/**
+ * POST /api/v1/programs/:id/restore
+ *
+ * Restore a soft-deleted Program.
+ */
+router.post(
+  "/:id/restore",
+  // rateLimiter({ windowMs: 60_000, max: 20 }),
+  authGuard,
+  roleGuard("admin", "superadmin"),
+  ctrl.restoreProgramController,
+);
+
+/**
+ * DELETE /api/v1/programs/:id
+ *
+ * Soft-delete Program.
+ */
 router.delete(
   "/:id",
   // rateLimiter({ windowMs: 60_000, max: 10 }),
@@ -96,19 +199,54 @@ router.delete(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NESTED RESOURCE — COURSES UNDER A PROGRAM
-//
-// Delegates to the course router with programId available as a route param.
-// The course controller reads req.params.programId and passes it to the
-// course service — no cross-module service calls from this router.
-//
-// Full paths:
-//   POST   /programs/:programId/courses        → create course in program
-//   GET    /programs/:programId/courses        → list courses in program
-//   PATCH  /programs/:programId/courses/:id   → update course
-//   DELETE /programs/:programId/courses/:id   → delete course
+// PROGRAM CURRICULUM
 // ─────────────────────────────────────────────────────────────────────────────
 
-// router.use("/:programId/courses", courseRouter);
+/**
+ * PATCH /api/v1/programs/:id/courses/reorder
+ *
+ * Reorder Course membership within a Program.
+ *
+ * Example body:
+ *
+ * {
+ *   "courseId": "course-id",
+ *   "position": 2
+ * }
+ *
+ * Program service owns this operation because ordering belongs to the
+ * ProgramCourse curriculum relationship.
+ */
+router.patch(
+  "/:id/courses/reorder",
+  authGuard,
+  roleGuard("admin", "superadmin"),
+  ctrl.reorderProgramCourseController,
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NESTED COURSE RESOURCE
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Everything below this mount belongs to the Course domain.
+ *
+ * Example resulting endpoints:
+ *
+ * POST   /api/v1/programs/:programId/courses
+ * GET    /api/v1/programs/:programId/courses
+ * GET    /api/v1/programs/:programId/courses/:courseId
+ * PATCH  /api/v1/programs/:programId/courses/:courseId
+ * DELETE /api/v1/programs/:programId/courses/:courseId
+ *
+ * The Course router is responsible for deciding which operations require
+ * instructor/admin permissions.
+ *
+ * The Program router is only providing the parent resource context.
+ */
+router.use(
+  "/:programId/courses",
+  courseRouter,
+);
 
 export default router;

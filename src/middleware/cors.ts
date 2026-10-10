@@ -14,6 +14,7 @@ if (process.env.NODE_ENV === "production" && !process.env.FRONTEND_URL) {
 const ALLOWED_ORIGINS: ReadonlySet<string> = new Set([
   process.env.FRONTEND_URL,                              // Primary production URL
   "http://localhost:3000",
+  "http://localhost:5000",
   "https://accountant-pathfinder.vercel.app",
   "*"
 ].filter(Boolean) as string[]);

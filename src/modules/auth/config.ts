@@ -1,6 +1,6 @@
 import { CookieOptions, Request, Response } from "express";
 import crypto from "crypto";
-import { AuthResult, RequestMeta, SessionUser } from "./types";
+import { AuthResult, SessionUser } from "./types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -36,6 +36,8 @@ export const toPublicUser = (user: SessionUser): Required<SessionUser> => ({
   email: user.email,
   role: user.role,
   emailVerified: user.emailVerified,
+  profileImage: user.profileImage,
+  studentProfile: user.studentProfile || null,
 });
 
 // ─── Cookie Config ────────────────────────────────────────────────────────────
@@ -45,8 +47,8 @@ const isProd = process.env.NODE_ENV === "production";
 
 const BASE_COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
-  secure: true,
-  sameSite: "none",
+  secure: isProd,
+  sameSite: isProd ? "none" : "lax",
   path: "/",
   // ...(isProd && { domain: process.env.COOKIE_DOMAIN }), // only set domain in production
 };
@@ -73,7 +75,11 @@ export function clearAuthCookies(res: Response): void {
   res.clearCookie(REFRESH_COOKIE_NAME, clear);
 }
 
-export function extractMeta(req: Request): RequestMeta {
+export function extractMeta(req: Request): {
+  userAgent: string | undefined;
+  ipAddress: string | undefined;
+  fingerprint?: string;
+} {
   return {
     userAgent: req.headers["user-agent"],
     ipAddress: req.ip,
@@ -85,7 +91,7 @@ export function issueTokens(
   res: Response,
   result: AuthResult,
   statusCode = 200,
-): Response {
+) {
   const accessToken = result.tokens.accessToken;
   const refreshToken = result.tokens.refreshToken;
 

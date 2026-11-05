@@ -1,14 +1,18 @@
 import express from "express";
-import basicAuth from 'express-basic-auth'
+import basicAuth from "express-basic-auth";
 import { createBullBoard } from "@bull-board/api";
 import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
 import { ExpressAdapter } from "@bull-board/express";
 import { topicVideoQueue } from "../modules/topic/topic.queue";
 import { authEmailQueue } from "../modules/auth/email.queue";
 import { intakeEmailQueue } from "../modules/intake/intake.queue";
-import { courseAnalyticsQueue, courseVideoPreviewQueue } from "../modules/course/course.queue";
+import {
+  courseAnalyticsQueue,
+  courseVideoPreviewQueue,
+} from "../modules/course/course.queue";
 import { paymentFollowupQueue } from "../modules/payment/payment.queue";
 import { resourceUploadQueue } from "@/modules/topic/resource.queue";
+import { notificationQueue } from "@/modules/notifications/notifcation.queue";
 
 export function startBullBoard() {
   const app = express();
@@ -24,6 +28,7 @@ export function startBullBoard() {
       new BullMQAdapter(courseAnalyticsQueue),
       new BullMQAdapter(paymentFollowupQueue),
       new BullMQAdapter(resourceUploadQueue),
+      new BullMQAdapter(notificationQueue),
     ],
     serverAdapter,
   });
@@ -37,7 +42,9 @@ export function startBullBoard() {
   app.use(
     "/admin/queues",
     basicAuth({
-      users: { [process.env.QUEUE_BOARD_USER!]: process.env.QUEUE_BOARD_PASSWORD! },
+      users: {
+        [process.env.QUEUE_BOARD_USER!]: process.env.QUEUE_BOARD_PASSWORD!,
+      },
       challenge: true,
     }),
     serverAdapter.getRouter(),

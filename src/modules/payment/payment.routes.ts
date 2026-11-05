@@ -14,7 +14,6 @@ const r = Router();
 r.post("/paystack/initialize", authGuard, initializePaymentController);
 r.get("/verify",
   authGuard,
-  // otpLimiter,
   verifyPaymentController);
 
 // Webhook – raw body parser applied ONLY to this route (correct & secure)

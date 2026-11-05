@@ -17,13 +17,17 @@
  *   in front of the broad one — whichever limit is hit first wins.
  */
 
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import * as authController from "./auth.controller";
 import { authGuard } from "../../middleware/authGuard";
 import { sessionGuard } from "../../middleware/sessionGuard";
 import { roleGuard } from "../../middleware/roleGuard";
-import { credentialLimiter, otpLimiter } from "../../middleware/Ratelimiter.middleware";
+import {
+  credentialLimiter,
+  otpLimiter,
+} from "../../middleware/Ratelimiter.middleware";
 import crypto from "crypto";
+import { env } from "@/config/env";
 
 // `passport` ships without bundled TypeScript declarations in this project setup,
 // so use CommonJS require to avoid the "Could not find a declaration file" error.
@@ -31,16 +35,24 @@ const passport = require("passport");
 
 const r = Router();
 
-r.post("/register", credentialLimiter, authController.registerController);
-r.post("/login", credentialLimiter, authController.loginController);
-r.post("/refresh", credentialLimiter, authController.refreshTokenController);
+r.post("/register", 
+  // credentialLimiter, 
+  authController.registerController);
+r.post("/login", 
+  // credentialLimiter, 
+  authController.loginController);
+r.post("/refresh", 
+  // credentialLimiter, 
+  authController.refreshTokenController);
 
 // ─── Public: Email Verification ──────────────────────────────────────────────
 
-r.post("/verify-email", otpLimiter, authController.verifyEmailController);
+r.post("/verify-email", 
+  // otpLimiter,
+authController.verifyEmailController);
 r.post(
   "/resend-verification-email",
-  otpLimiter,
+  // otpLimiter,
   authController.resendVerificationEmailController,
 );
 
@@ -60,8 +72,8 @@ r.get("/google", (req, res, next) => {
 
   res.cookie("oauth_state", state, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",          // safer for most setups; change to "none" only if needed
+    secure: true,
+    sameSite: "none", // safer for most setups; change to "none" only if needed
     maxAge: 5 * 60 * 1000,
     path: "/",
   });
@@ -77,7 +89,7 @@ r.get(
   "/google/callback",
   passport.authenticate("google", {
     session: false,
-    failureRedirect: `${process.env.FRONTEND_URL}/auth/login?error=google_failed`,
+    failureRedirect: `${env.FRONTEND_URL}/auth/login?error=google`,
   }),
   authController.googleCallbackController,
 );

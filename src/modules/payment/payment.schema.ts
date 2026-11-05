@@ -6,7 +6,7 @@ export const InitializePaymentSchema = z.object({
 });
 
 export const VerifyPaymentQuerySchema = z.object({
-  reference: z.string().min(1, "Reference is required"),
+  reference: z.string().trim().min(1, "Reference is required").max(100, "Reference is too long"),
 });
 
 export type InitializePaymentDTO = z.infer<typeof InitializePaymentSchema>;

@@ -19,22 +19,17 @@ export function createWorker<
   processor: (job: Job<JobData, JobResult, Name>) => Promise<JobResult>,
   options: Partial<WorkerOptions> = {},
 ): Worker<JobData, JobResult, Name> {
+  const prefix = getQueuePrefix();
 
-   const prefix = getQueuePrefix();
+  const worker = new Worker<JobData, JobResult, Name>(queueName, processor, {
+    connection: createRedisConnection("worker") as any,
 
-  const worker = new Worker<JobData, JobResult, Name>(
-    queueName,
-    processor,
-    {
-      connection: createRedisConnection("worker") as any,
+    prefix,
 
-      prefix,
+    concurrency: options.concurrency ?? 5,
 
-      concurrency: options.concurrency ?? 5,
-
-      ...options,
-    },
-  );
+    ...options,
+  });
 
   worker.on("completed", (job) => {
     logger.info("Job successfully completed", {

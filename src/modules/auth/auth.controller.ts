@@ -1,4 +1,3 @@
-
 import type { Request, Response } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { unauthorized } from "../../utils/errors";
@@ -14,18 +13,24 @@ import {
   resetPasswordVerifySchema,
 } from "./auth.schema";
 import { RefreshTokenPayload, verifyRefreshToken } from "../../lib/jwt";
-import { ACCESS_COOKIE_NAME, CLEAR_COOKIE_OPTIONS, extractMeta, issueTokens, REFRESH_COOKIE_NAME } from "./config";
+import {
+  ACCESS_COOKIE_NAME,
+  CLEAR_COOKIE_OPTIONS,
+  extractMeta,
+  issueTokens,
+  REFRESH_COOKIE_NAME,
+} from "./config";
 import { GoogleProfile } from "./types";
-
 
 export const googleCallbackController = asyncHandler(async (req, res) => {
   const cookieState = req.cookies.oauth_state;
   const queryState = req.query.state as string | undefined;
+  const isProd = process.env.NODE_ENV === "production";
 
   res.clearCookie("oauth_state", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax", // safer for most setups; change to "none" only if needed
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
     path: "/",
   });
 
@@ -35,11 +40,8 @@ export const googleCallbackController = asyncHandler(async (req, res) => {
     );
   }
 
-
   // 1. Check if passport already populated req.user
-  const passportUser = req.user as unknown as
-    | GoogleProfile
-    | undefined;
+  const passportUser = req.user as GoogleProfile | undefined;
 
   if (!passportUser) {
     return res.redirect(
@@ -51,7 +53,8 @@ export const googleCallbackController = asyncHandler(async (req, res) => {
     passportUser,
     extractMeta(req),
   );
-  issueTokens(res, result)
+
+  issueTokens(res, result);
 
   return res.redirect(
     `${process.env.FRONTEND_URL}/auth/callback?status=success`,
@@ -79,12 +82,6 @@ export const verifyEmailController = asyncHandler(
       code,
       extractMeta(req),
     );
-
-    // return res.status(201).json({
-    //   message: "User verified Successfully",
-    //   data: verifiedUser
-    // })
-
     issueTokens(res, verifiedUser, 200);
   },
 );
@@ -241,7 +238,6 @@ export const verifyPasswordResetTokenController = asyncHandler(
 
     res.status(200).json({
       success: true,
-      // valid: isValid,
       message: isValid ? "Token is valid" : "Token is invalid or expired",
     });
   },

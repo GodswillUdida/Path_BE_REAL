@@ -17,6 +17,9 @@ import { swaggerSpec } from "./config/swagger";
 import { corsOptions } from "./middleware/cors";
 import { errorHandler } from "./middleware/error";
 import logger from "./utils/logger";
+const passport = require("passport");
+import { configureGoogleStrategy } from "./modules/auth/google.strategy";
+
 
 // Route Module Imports
 import authRoutes from "./modules/auth/auth.routes";
@@ -67,6 +70,10 @@ if (isProduction) {
   );
 }
 
+app.use(passport.initialize());
+configureGoogleStrategy();
+
+
 /* -------------------------------------------------------------------------- */
 /*                 WEBHOOK CHANNELS (CRITICAL: RAW BODY ROUTING)               */
 /*   These must sit BEFORE json() body-parsers modify incoming data streams   */
@@ -106,6 +113,8 @@ app.use(
 /* -------------------------------------------------------------------------- */
 app.set("views", join(__dirname, "views"));
 app.set("view engine", "ejs");
+
+
 
 /* -------------------------------------------------------------------------- */
 /*                             INFRASTRUCTURE HEALTH SITES                    */

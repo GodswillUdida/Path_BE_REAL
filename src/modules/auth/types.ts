@@ -6,6 +6,7 @@ export interface GoogleProfile {
   emails: Array<{ value: string; verified: boolean }>;
   photos?: Array<{ value: string }>;
   _json: {
+    email?: string;
     email_verified: boolean;
   };
 }
@@ -21,17 +22,21 @@ export interface SessionUser {
   email: string;
   role: Role;
   emailVerified: boolean;
+  profileImage: string | null;
+  studentProfile?: {
+    status:
+      | "ACTIVE"
+      | "SUSPENDED"
+      | "ALUMNI"
+      | "WITHDRAWN"
+      | "PENDING"
+      | "REJECTED";
+  } | null;
 }
 
 export interface AuthResult {
   tokens: AuthTokens;
-  user: Required<SessionUser>;
-}
-
-export interface RequestMeta {
-  userAgent?: string;
-  ipAddress?: string;
-  fingerprint?: string;
+  user: SessionUser;
 }
 
 export interface PaginatedUsers {

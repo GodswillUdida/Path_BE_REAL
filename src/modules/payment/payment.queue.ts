@@ -15,5 +15,8 @@ export const paymentFollowupQueue = createQueue<PaymentFollowupJob>(
 export async function enqueuePaymentFollowup(job: PaymentFollowupJob) {
   return paymentFollowupQueue.add("follow-up", job, {
     delay: 15 * 60_000, // check back in 15 min if webhook hasn't confirmed
+    // Idempotent: enqueueing the same (reference, attempt) twice is a no-op.
+    // BullMQ custom ids must not contain ":".
+    jobId: `followup-${job.paymentReference}-${job.attempt}`,
   });
 }

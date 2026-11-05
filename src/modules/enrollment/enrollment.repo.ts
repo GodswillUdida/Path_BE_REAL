@@ -1,43 +1,33 @@
 /**
- * enrollment.repository.ts
+ * enrollment.repo.ts
  *
- * Single point of contact with Prisma for the Enrollment domain (read-only
- * — creation/renewal happens exclusively in payment fulfillment, see
- * payment.queries.ts's upsertEnrollmentForCourse).
+ * Single point of contact with Prisma for the Enrollment domain.
+ * Read-only. Creation/renewal/grants go through ONE upsert shared with
+ * payment fulfillment (payment.queries.ts -> upsertEnrollmentForCourse).
+ *
+ * Schema v2 effects: pricingId, orderItemId are nullable (ADMIN_GRANT
+ * rows have neither), so `pricing`, `order` and `orderItem` below are
+ * nullable in the inferred types. `source` is exposed so the client can
+ * label granted vs purchased access. grantedById/grantReason are staff
+ * internal and are never selected here.
  */
 
 import prisma from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SELECT SHAPES
-// ─────────────────────────────────────────────────────────────────────────────
-
-// FIXED: previously `user: true` — every User scalar, including
-// resetToken/resetTokenExpires/verificationToken/verificationExpires.
-// Scoped to public-safe fields only, matching the pattern used everywhere
-// else a User is embedded in a response (course.instructor, etc.).
-const ENROLLMENT_USER_SELECT = {
-  id: true,
-  name: true,
-  email: true,
-  profileImage: true,
-  phone: true,
-} satisfies Prisma.UserSelect;
+import type { AccessWindow } from "./enrollment.access";
 
 export const ENROLLMENT_DETAIL_SELECT = {
   id: true,
-  userId: true,
   courseId: true,
   pricingId: true,
   orderItemId: true,
   orderId: true,
+  source: true,
   status: true,
   startedAt: true,
   expiresAt: true,
   completedAt: true,
   progressPercentage: true,
-  user: { select: ENROLLMENT_USER_SELECT },
   course: {
     select: {
       id: true,
@@ -46,16 +36,9 @@ export const ENROLLMENT_DETAIL_SELECT = {
       thumbnail: true,
       level: true,
       issuesCertificate: true,
-      // FIXED: previously `modules: { include: { topics: true } }` — no
-      // deletedAt filter (soft-deleted curriculum would appear) and no
-      // ordering (silently broke as soon as an instructor reordered
-      // anything without re-inserting), same class of bug fixed earlier
-      // in course/module/topic repositories. Also now nests videoAsset —
-      // previously absent entirely, meaning a learner had no way to know
-      // whether a topic's video was even playable.
       modules: {
         where: { deletedAt: null },
-        orderBy: { position: "asc" as const },
+        orderBy: [{ position: "asc" as const }, { id: "asc" as const }],
         select: {
           id: true,
           title: true,
@@ -63,7 +46,7 @@ export const ENROLLMENT_DETAIL_SELECT = {
           totalDurationSeconds: true,
           topics: {
             where: { deletedAt: null },
-            orderBy: { position: "asc" as const },
+            orderBy: [{ position: "asc" as const }, { id: "asc" as const }],
             select: {
               id: true,
               title: true,
@@ -89,18 +72,14 @@ export const ENROLLMENT_DETAIL_SELECT = {
   },
   order: { select: { id: true, status: true, createdAt: true } },
   orderItem: { select: { id: true, unitPrice: true, createdAt: true } },
-  // REMOVED: `payments: true` — Enrollment has no relation to Payment at
-  // all anymore (Payment relates only to Order). This field didn't exist
-  // and would have thrown on every request to either enrollment endpoint.
 } satisfies Prisma.EnrollmentSelect;
 
 export type EnrollmentDetail = Prisma.EnrollmentGetPayload<{ select: typeof ENROLLMENT_DETAIL_SELECT }>;
 
-// List view — deliberately shallow, no module/topic tree. A "my courses"
-// list page needs enough to render a card, not the full curriculum.
 export const ENROLLMENT_LIST_SELECT = {
   id: true,
   courseId: true,
+  source: true,
   status: true,
   startedAt: true,
   expiresAt: true,
@@ -112,10 +91,6 @@ export const ENROLLMENT_LIST_SELECT = {
 
 export type EnrollmentListItem = Prisma.EnrollmentGetPayload<{ select: typeof ENROLLMENT_LIST_SELECT }>;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// READ
-// ─────────────────────────────────────────────────────────────────────────────
-
 export async function findEnrollmentsForUser(
   userId: string,
   limit: number,
@@ -126,7 +101,7 @@ export async function findEnrollmentsForUser(
     prisma.enrollment.findMany({
       where: { userId },
       select: ENROLLMENT_LIST_SELECT,
-      orderBy: { startedAt: "desc" },
+      orderBy: [{ startedAt: "desc" }, { id: "desc" }],
       skip: offset,
       take: limit,
     }),
@@ -134,9 +109,33 @@ export async function findEnrollmentsForUser(
   return { data, total };
 }
 
-export async function findEnrollmentById(id: string): Promise<(EnrollmentDetail & { userId: string }) | null> {
-  return prisma.enrollment.findUnique({
-    where: { id },
-    select: { ...ENROLLMENT_DETAIL_SELECT, userId: true },
+/**
+ * Ownership is part of the query, not a post-fetch check. A caller can
+ * never distinguish "doesn't exist" from "belongs to someone else", and
+ * the heavy curriculum tree is never loaded for the wrong user.
+ */
+export async function findEnrollmentByIdForUser(id: string, userId: string): Promise<EnrollmentDetail | null> {
+  return prisma.enrollment.findFirst({
+    where: { id, userId },
+    select: ENROLLMENT_DETAIL_SELECT,
   });
+}
+
+/**
+ * Minimal row for access decisions (playback guard, cohort policy).
+ */
+export async function findAccessWindow(userId: string, courseId: string): Promise<AccessWindow | null> {
+  return prisma.enrollment.findUnique({
+    where: { userId_courseId: { userId, courseId } },
+    select: { status: true, startedAt: true, expiresAt: true },
+  });
+}
+
+/** Courses this learner was explicitly REVOKED from. */
+export async function findRevokedCourseIds(userId: string, courseIds: string[]): Promise<string[]> {
+  const rows = await prisma.enrollment.findMany({
+    where: { userId, courseId: { in: courseIds }, status: "REVOKED" },
+    select: { courseId: true },
+  });
+  return rows.map((r) => r.courseId);
 }

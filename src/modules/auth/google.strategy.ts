@@ -1,36 +1,76 @@
-// import passport from "passport";
-// import { Strategy as GoogleStrategy } from "passport-google-oauth20";
-// import type { Profile } from "passport-google-oauth20";
+// src/modules/auth/strategies/google.strategy.ts
+const passport = require("passport");
+import {
+  Strategy as GoogleStrategy,
+  Profile,
+  VerifyCallback,
+} from "passport-google-oauth20";
+import { prisma } from "@/lib/prisma";
+import { env } from "@/config/env";
 
-// passport.serializeUser((user: Express.User, done) => {
-//   // Store only the ID — never the full profile
-//   done(null, (user as { id: string }).id);
-// });
+export function configureGoogleStrategy() {
+  passport.use(
+    new GoogleStrategy(
+      {
+        clientID: env.G_ID,
+        clientSecret: env.G_SECRET,
+        callbackURL: env.G_CALLBACK_URL, // e.g. https://api.yourdomain.com/auth/google/callback
+        scope: ["openid", "profile", "email"],
+      },
+      async (
+        _accessToken: string,
+        _refreshToken: string,
+        profile: Profile,
+        done: VerifyCallback,
+      ) => {
+        try {
+          const email = profile.emails?.[0]?.value?.toLowerCase();
+          if (!email) {
+            return done(new Error("Google account has no email"), undefined);
+          }
 
-// passport.deserializeUser(async (id: string, done) => {
-//   // Only needed if you use sessions — for JWT/cookie-only, you can skip this
-//   done(null, { id } as Express.User);
-// });
+          // Find or create user
+          let user = await prisma.user.findUnique({ where: { email } });
 
-// passport.use(
-//   new GoogleStrategy(
-//     {
-//       clientID: process.env.G_ID!,
-//       clientSecret: process.env.G_SECRET!,
-//       callbackURL: `${process.env.BACKEND_URL}/api/v1/auth/google/callback`.replace(/\/$/, ""),
-//       scope: ["openid", "profile", "email"],
-//     },
-//     // THIS FUNCTION MUST DO ZERO DATABASE WORK.
-//     // All DB logic lives in processGoogleOAuth, called from the controller.
-//     async (_accessToken, _refreshToken, profile: Profile, done) => {
-//       try {
-//         // Pass the raw profile through — controller handles everything
-//         return done(null, profile as unknown as Express.User);
-//       } catch (err) {
-//         return done(err as Error);
-//       }
-//     },
-//   ),
-// );
+          if (!user) {
+            user = await prisma.user.create({
+              data: {
+                email,
+                name: profile.displayName || email.split("@")[0],
+                emailVerified: true, // Google emails are verified
+                profileImage: profile.photos?.[0]?.value ?? null,
+                accounts: {
+                  create: {
+                    provider: "google",
+                    providerId: profile.id,
+                  },
+                },
+              },
+            });
+          }
 
-// export default passport;
+          // Optional: link Google provider id if you store it
+          await prisma.account.upsert({
+            where: {
+              provider_providerId: {
+                provider: "google",
+                providerId: profile.id,
+              },
+            },
+
+            update: {},
+            create: {
+              provider: "google",
+              providerId: profile.id,
+              userId: user.id,
+            },
+          });
+
+          return done(null, { ...user, userId: user.id });
+        } catch (err) {
+          return done(err as Error, undefined);
+        }
+      },
+    ),
+  );
+}

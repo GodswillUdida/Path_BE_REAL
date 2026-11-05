@@ -1,10 +1,6 @@
+// src/types/express.d.ts
 import "express";
-import type { Multer } from "multer";
-
-// export interface MulterFiles {
-//   videoPreview?: Express.Multer.File[];
-//   thumbnail?: Express.Multer.File[];
-// }
+import "passport";
 
 export type MulterFiles = {
   videoPreview?: Express.Multer.File[];
@@ -18,13 +14,33 @@ export type MediaInput = {
   videoUrl?: string;
 };
 
+declare global {
+  namespace Express {
+    // What Passport (and your JWT middleware) put on req.user
+    interface User {
+      userId: string;
+      id: string;
+      role: string;
+      tokenId?: string;
+    }
+
+    // Keep the Request augmentation as well (belt & suspenders)
+    interface Request {
+      user?: User;
+    }
+  }
+}
+
+// Also augment the core module (your original approach)
 declare module "express-serve-static-core" {
   interface Request {
     user?: {
       userId: string;
       id: string;
       role: string;
-      tokenId?: string; // for refresh tokens if needed
+      tokenId?: string;
     };
   }
 }
+
+export {};

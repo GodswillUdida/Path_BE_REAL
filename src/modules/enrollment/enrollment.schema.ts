@@ -1,40 +1,37 @@
 import { z } from "zod";
 
-/**
- * ⚠️ CURRENTLY UNUSED — no controller/route calls this. Enrollment
- * creation happens exclusively through payment fulfillment
- * (payment.queries.ts's upsertEnrollmentForCourse), triggered by a paid
- * or free order, never via a direct API call.
- *
- * This is either:
- *   (a) leftover from before that design was settled, and safe to delete, or
- *   (b) the start of a genuinely useful admin feature — manually granting
- *       a course to a user (support requests, scholarships, comped access)
- *       — that was never finished.
- *
- * Left in place rather than silently deleted since (b) is a common,
- * legitimate LMS need and this looks like a real attempt at it. If you
- * want that feature, it needs: an admin-only route/controller, a service
- * function that calls the SAME upsertEnrollmentForCourse used by payment
- * fulfillment (so admin grants and paid enrollments behave identically —
- * same renewal/upgrade semantics, no separate code path to drift), and
- * probably an accessDurationDays override here since an admin grant may
- * not correspond to any real CoursePricing row. If not wanted, delete
- * this file and the schema below.
- */
-export const CreateEnrollmentSchema = z.object({
-  courseId: z.string().uuid(),
-  pricingId: z.string().uuid(),
-  orderItemId: z.string().uuid().optional(),
+// ── Learner-facing (read) ────────────────────────────────────────────────
+export const ListEnrollmentsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type ListEnrollmentsQuery = z.infer<typeof ListEnrollmentsQuerySchema>;
+
+export const EnrollmentIdParamSchema = z.object({
+  id: z.string().uuid(),
 });
 
-export type CreateEnrollmentDTO = z.infer<typeof CreateEnrollmentSchema>;
+// ── Admin grant (replaces the unused CreateEnrollmentSchema) ──────────────
+// Not wired to a route yet. It must call the SAME upsert used by payment
+// fulfillment so grants and purchases share renewal/upgrade semantics.
+const AccessSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("lifetime") }),
+  z.object({ mode: z.literal("days"), days: z.number().int().min(1).max(3650) }),
+  z.object({
+    mode: z.literal("until"),
+    expiresAt: z.coerce.date().refine((d) => d.getTime() > Date.now(), {
+      message: "expiresAt must be in the future",
+    }),
+  }),
+]);
 
-// REMOVED: DURATION_DAYS_MAP / computeEnrollmentExpiry / isEnrollmentActive
-// (previously commented out) — these referenced CoursePricingDuration, an
-// enum that no longer exists anywhere in the schema (CoursePricing.
-// accessDurationDays is a plain nullable Int now, null = lifetime, per an
-// explicit schema comment: "DO NOT introduce a separate duration enum").
-// This exact logic already lives correctly in payment.queries.ts's
-// upsertEnrollmentForCourse — no reason to keep a stale, non-functional
-// duplicate around even as a comment.
+export const GrantEnrollmentSchema = z.object({
+  userId: z.string().uuid(),
+  courseId: z.string().uuid(),
+  access: AccessSchema,
+  reason: z.string().trim().min(3).max(500),
+});
+
+export type GrantEnrollmentDTO = z.infer<typeof GrantEnrollmentSchema>;
+
+export const IdempotencyKeyHeaderSchema = z.string().trim().min(1).max(100);

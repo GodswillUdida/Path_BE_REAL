@@ -1,10 +1,12 @@
 /**
- * @file auth.service.ts
  * Business logic only. All DB access goes through AuthRepository.
- * Session creation is ALWAYS outside any interactive transaction.
+ *
+ * Rules:
+ *  - Session creation is always outside any interactive transaction.
+ *  - Email enqueue is fire-and-forget; failures are logged, never thrown.
+ *  - Credential login performs a constant-time-ish compare even when the
+ *    user is missing (DUMMY_HASH).
  */
-// import crypto from "crypto";
-// import { authRepository } from "./auth.repo";
 import {
   hashPassword,
   hashToken,
@@ -18,8 +20,8 @@ import {
 } from "../../lib/jwt";
 import { badRequest, unauthorized } from "../../utils/errors";
 import logger from "../../utils/logger";
-import { RegisterDTO, ResetPasswordDTO } from "./auth.schema";
-import {
+import type { RegisterDTO, ResetPasswordDTO } from "./auth.schema";
+import type {
   AuthResult,
   GoogleProfile,
   PaginatedUsers,
@@ -34,11 +36,60 @@ import {
   toPublicUser,
   TTL,
 } from "./config";
-import { RequestMeta } from "../../types/auth.types";
+import type { RequestMeta } from "../../types/auth.types";
 import { enqueueAuthEmail } from "./email.queue";
-import { authRepository } from "./auth.repo";
+import {
+  AccountDisabledError,
+  authRepository,
+  isUniqueViolation,
+} from "./auth.repo";
+import { clearOtpAttempts, consumeOtpAttempt } from "./otp-guard";
 
-// ─── Shared session + token factory (never inside a $transaction) ────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function pickGoogleEmail(profile: GoogleProfile) {
+  const emails = profile.emails ?? [];
+  return (
+    emails.find((e) => e.verified === true) ??
+    emails.find((e) => e.verified !== false) ??
+    emails[0]
+  );
+}
+
+/** Prefer verified addresses; never invent one. */
+function extractGoogleEmail(profile: GoogleProfile): string | null {
+  const candidate = pickGoogleEmail(profile)?.value ?? profile._json?.email;
+  return typeof candidate === "string" && candidate.length > 0
+    ? normalizeEmail(candidate)
+    : null;
+}
+
+function isGoogleEmailExplicitlyUnverified(profile: GoogleProfile): boolean {
+  return (
+    profile._json?.email_verified === false ||
+    pickGoogleEmail(profile)?.verified === false
+  );
+}
+
+function enqueueEmailSafe(
+  job: Parameters<typeof enqueueAuthEmail>[0],
+  context: Record<string, unknown>,
+): void {
+  enqueueAuthEmail(job).catch((err: unknown) => {
+    logger.error("AUTH_EMAIL_ENQUEUE_FAILED", {
+      ...context,
+      type: job.type,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
+}
+
+// ─── Session + tokens (never inside $transaction) ────────────────────────────
+
 export async function createSessionAndTokens(
   user: SessionUser,
   meta?: RequestMeta,
@@ -52,12 +103,11 @@ export async function createSessionAndTokens(
 
   const tokenId = generateToken(16);
   const refreshToken = signRefreshToken({ userId: user.id, tokenId });
-  const tokenHash = hashToken(refreshToken);
 
   await authRepository.createSession({
     userId: user.id,
     tokenId,
-    tokenHash,
+    tokenHash: hashToken(refreshToken),
     userAgent: meta?.userAgent,
     ipAddress: meta?.ipAddress,
     fingerprint: meta?.fingerprint,
@@ -71,193 +121,188 @@ export async function createSessionAndTokens(
   };
 }
 
-// ─── Registration ────────────────────────────────────────────────────────
+// ─── Registration ────────────────────────────────────────────────────────────
+
 export async function createUser(
   dto: RegisterDTO,
 ): Promise<Pick<SessionUser, "id" | "name" | "email">> {
-  const existing = await authRepository.findUserByEmail(dto.email);
-  if (existing) throw badRequest("Email already registered");
+  const email = normalizeEmail(dto.email);
+  const hashedPassword = await hashPassword(dto.password);
+  const otp = generateOTP();
 
-  const [hashedPassword, otp] = await Promise.all([
-    hashPassword(dto.password),
-    Promise.resolve(generateOTP()),
-  ]);
-
-  const otpHash = hashOTP(otp);
-  const verificationExpires = new Date(Date.now() + TTL.OTP);
-
-  const user = await authRepository.createCredentialsUser({
-    name: dto.name,
-    email: dto.email,
-    hashedPassword,
-    otpHash,
-    verificationExpires,
-  });
-
-  enqueueAuthEmail({
-    type: "welcome",
-    to: user.email,
-    name: user.name!,
-    code: otp,
-  }).catch((err) => {
-    logger.error("Failed to enqueue verification email", {
-      userId: user.id,
-      error: err.message,
+  let user: Pick<SessionUser, "id" | "name" | "email">;
+  try {
+    // The unique constraint is the source of truth; no check-then-insert race.
+    user = await authRepository.createCredentialsUser({
+      name: dto.name,
+      email,
+      hashedPassword,
+      otpHash: hashOTP(otp),
+      verificationExpires: new Date(Date.now() + TTL.OTP),
     });
-  });
+  } catch (err) {
+    if (isUniqueViolation(err)) throw badRequest("Email already registered");
+    throw err;
+  }
 
-  return user;
+  enqueueEmailSafe(
+    { type: "welcome", to: user.email, name: user.name ?? "there", code: otp },
+    { userId: user.id, flow: "register" },
+  );
+
+  return { id: user.id, name: user.name, email: user.email };
 }
 
-// ─── Email verification ──────────────────────────────────────────────────
+// ─── Email verification ──────────────────────────────────────────────────────
+
 export async function verifyEmail(
   email: string,
   code: string,
   meta?: RequestMeta,
 ): Promise<AuthResult> {
-  const otpHash = hashOTP(code);
-  const now = new Date();
+  const normalized = normalizeEmail(email);
 
-  // Pure DB transaction – stays well under 5 s
-  const updatedUser = await prismaTransaction(async () => {
-    const user = await authRepository.findVerificationUser(email, otpHash, now);
-    if (!user) throw badRequest("Invalid or expired verification code");
-    return authRepository.markEmailVerified(user.id);
-  });
+  // Count the attempt BEFORE checking the code. 6 digits = 1M combinations.
+  const allowed = await consumeOtpAttempt(normalized);
+  if (!allowed) {
+    // Swap for your 429 helper if utils/errors has one.
+    throw badRequest("Too many attempts. Request a new code.");
+  }
 
-  return createSessionAndTokens(updatedUser, meta);
+  const user = await authRepository.verifyEmailByOtp(
+    normalized,
+    hashOTP(code),
+    new Date(),
+  );
+  if (!user) throw badRequest("Invalid or expired verification code");
+
+  await clearOtpAttempts(normalized).catch((err: unknown) =>
+    logger.warn("OTP_ATTEMPTS_CLEAR_FAILED", {
+      message: err instanceof Error ? err.message : String(err),
+    }),
+  );
+
+  return createSessionAndTokens(user, meta, "credentials");
 }
 
-// helper so we can still use $transaction without leaking prisma into service
-async function prismaTransaction<T>(fn: () => Promise<T>): Promise<T> {
-  const { default: prisma } = await import("../../lib/prisma");
-  return prisma.$transaction(fn);
-}
-
+/** Silent for unknown / already-verified emails (no enumeration). */
 export async function resendVerificationEmail(email: string): Promise<void> {
-  const user = await authRepository.findUserByEmail(email);
-  if (!user) throw badRequest("User not found");
-  if (user.emailVerified) throw badRequest("Email is already verified");
+  const normalized = normalizeEmail(email);
+  const user = await authRepository.findActiveUserByEmail(normalized);
+  if (!user || user.emailVerified) return;
 
   const otp = generateOTP();
-  const otpHash = hashOTP(otp);
-  const expires = new Date(Date.now() + TTL.OTP);
+  await authRepository.updateVerificationToken(
+    normalized,
+    hashOTP(otp),
+    new Date(Date.now() + TTL.OTP),
+  );
+  await clearOtpAttempts(normalized).catch(() => undefined);
 
-  await authRepository.updateVerificationToken(email, otpHash, expires);
-
-  enqueueAuthEmail({
-    type: "welcome",
-    to: email,
-    name: user.name!,
-    code: otp,
-  }).catch((err) => {
-    logger.error("Failed to re-queue verification email", {
-      email,
-      error: err.message,
-    });
-  });
+  enqueueEmailSafe(
+    { type: "welcome", to: normalized, name: user.name ?? "there", code: otp },
+    { userId: user.id, flow: "resend-verification" },
+  );
 }
 
-// ─── Credential login ────────────────────────────────────────────────────
+// ─── Credential login ────────────────────────────────────────────────────────
+
 export async function authenticate(
   email: string,
   password: string,
   meta?: RequestMeta,
 ): Promise<AuthResult> {
-  const user = await authRepository.findUserByEmail(email);
+  const normalized = normalizeEmail(email);
+  const user = await authRepository.findUserByEmail(normalized);
 
-  // Constant-time path even when user does not exist
-  const hashed = user?.accounts[0]?.password ?? DUMMY_HASH;
-  const match = await comparePassword(password, hashed);
+  // Always run a compare so response time doesn't reveal account existence.
+  const passwordHash = user?.accounts[0]?.password ?? null;
+  const match = await comparePassword(password, passwordHash ?? DUMMY_HASH);
 
-  if (!user || !match) throw unauthorized("Invalid email or password");
+  if (!user || !passwordHash || !match) {
+    throw unauthorized("Invalid email or password");
+  }
   if (!user.emailVerified) throw unauthorized("Email not verified");
 
-  const { accounts: _, ...sessionUser } = user;
+  const { accounts: _accounts, ...sessionUser } = user;
   return createSessionAndTokens(sessionUser, meta, "credentials");
 }
 
-// ─── Google OAuth ────────────────────────────────────────────────────────
+// ─── Google OAuth ────────────────────────────────────────────────────────────
+
 export async function processGoogleOAuth(
   profile: GoogleProfile,
   meta: RequestMeta,
 ): Promise<AuthResult> {
-  const email = profile.emails?.[0]?.value;
-  const name = profile.displayName || email?.split("@")[0];
-  const avatar = profile.photos?.[0]?.value;
-  const googleId = profile.id;
-  const emailVerified = profile._json?.email_verified === true;
-
-  if (!email) throw badRequest("Google account has no email associated.");
-  if (!emailVerified) throw unauthorized("Google email address is unverified.");
-
-  // Single short transaction that only does account/user linking
-  const user = await authRepository.findOrCreateGoogleUser({
-    email,
-    name,
-    avatar,
-    googleId,
-  });
-
-  // Welcome email only for brand-new users (optional heuristic)
-  // You can add a flag from the repository if you need exact detection.
-  enqueueAuthEmail({
-    type: "welcome",
-    to: user.email,
-    name: user.name ?? "there",
-  }).catch((err) => {
-    logger.error("Failed to enqueue Google welcome email", {
-      error: err.message,
+  const email = extractGoogleEmail(profile);
+  if (!email) {
+    logger.warn("GOOGLE_OAUTH_MISSING_EMAIL", {
+      googleId: profile.id,
+      hasEmails: Boolean(profile.emails?.length),
     });
-  });
+    throw badRequest("Google account has no email associated.");
+  }
 
-  // Session creation ALWAYS outside the transaction
-  return createSessionAndTokens(user, meta, "google");
+  if (isGoogleEmailExplicitlyUnverified(profile)) {
+    throw unauthorized("Google email address is unverified.");
+  }
+
+  try {
+    const user = await authRepository.findOrCreateGoogleUser({
+      email,
+      name: profile.displayName?.trim() || email.split("@")[0] || "User",
+      avatar: profile.photos?.[0]?.value ?? null,
+      googleId: profile.id,
+    });
+    return createSessionAndTokens(user, meta, "google");
+  } catch (err) {
+    if (err instanceof AccountDisabledError) {
+      throw unauthorized("This account is disabled.");
+    }
+    throw err;
+  }
 }
 
-// ─── Password reset ──────────────────────────────────────────────────────
+// ─── Password reset ──────────────────────────────────────────────────────────
+
+/** Silent when the account is unknown. */
 export async function requestPasswordReset(email: string): Promise<void> {
-  const user = await authRepository.findUserByEmail(email);
-  if (!user) return; // silent
+  const user = await authRepository.findActiveUserByEmail(normalizeEmail(email));
+  if (!user) return;
 
   const rawToken = generateToken(32);
-  const tokenHash = hashToken(rawToken); // never store raw token
-
   await authRepository.setResetToken(
     user.id,
-    tokenHash,
+    hashToken(rawToken),
     new Date(Date.now() + TTL.RESET_TOKEN),
   );
 
-  enqueueAuthEmail({
-    type: "password-reset",
-    to: user.email,
-    resetToken: rawToken, // send the raw one
-  }).catch((err) => {
-    logger.error("Failed to enqueue password-reset email", {
-      userId: user.id,
-      error: err.message,
-    });
-  });
+  enqueueEmailSafe(
+    { type: "password-reset", to: user.email, resetToken: rawToken },
+    { userId: user.id, flow: "password-reset" },
+  );
 }
 
 export async function verifyPasswordResetToken(token: string): Promise<boolean> {
   if (!token || token.length < 32) return false;
-  const tokenHash = hashToken(token);
-  const user = await authRepository.findUserByResetToken(tokenHash);
-  return !!user;
+  const user = await authRepository.findUserByResetToken(hashToken(token));
+  return user !== null;
 }
 
 export async function resetPassword(dto: ResetPasswordDTO): Promise<void> {
   const tokenHash = hashToken(dto.token);
-  const user = await authRepository.findUserByResetToken(tokenHash);
-  if (!user) throw badRequest("Invalid or expired reset token");
+
+  // Cheap pre-check so invalid tokens never burn a bcrypt round.
+  const candidate = await authRepository.findUserByResetToken(tokenHash);
+  if (!candidate) throw badRequest("Invalid or expired reset token");
 
   const hashed = await hashPassword(dto.newPassword);
-  await authRepository.resetPasswordAndRevokeSessions(user.id, hashed);
+  const consumed = await authRepository.consumeResetToken(tokenHash, hashed);
+  if (!consumed) throw badRequest("Invalid or expired reset token");
 }
 
-// ─── Refresh-token rotation with reuse detection ─────────────────────────
+// ─── Refresh-token rotation ──────────────────────────────────────────────────
+
 export async function rotateRefreshToken(
   refreshToken: string,
   meta?: RequestMeta,
@@ -269,29 +314,29 @@ export async function rotateRefreshToken(
     throw unauthorized("Invalid refresh token");
   }
 
-  // Pure DB transaction – revoke only
-  const session = await prismaTransaction(async () => {
-    const s = await authRepository.findSessionByTokenId(payload.tokenId);
+  const session = await authRepository.findSessionByTokenId(payload.tokenId);
+  if (!session || session.userId !== payload.userId) {
+    throw unauthorized("Invalid session");
+  }
 
-    if (!s || s.revokedAt || s.expiresAt < new Date()) {
-      throw unauthorized("Invalid session");
-    }
+  if (!compareTokenHash(refreshToken, session.tokenHash)) {
+    await authRepository.revokeAllUserSessions(session.userId);
+    throw unauthorized("Security breach detected. Please login again.");
+  }
 
-    // Reuse detection
-    if (!compareTokenHash(refreshToken, s.tokenHash)) {
-      await authRepository.revokeAllUserSessions(s.userId);
-      throw unauthorized("Security breach detected. Please login again.");
-    }
+  const { deletedAt, ...user } = session.user;
+  if (deletedAt) throw unauthorized("Invalid session");
 
-    await authRepository.revokeSession(s.id);
-    return s;
-  });
+  // Atomic claim: of N concurrent refreshes with the same token, exactly one
+  // proceeds. Also enforces revokedAt/expiresAt in the same statement.
+  const claimed = await authRepository.claimSessionForRotation(session.id);
+  if (!claimed) throw unauthorized("Invalid session");
 
-  // New session created AFTER the transaction commits
-  return createSessionAndTokens(session.user, meta, session.provider);
+  return createSessionAndTokens(user, meta, session.provider);
 }
 
-// ─── Logout / session management ─────────────────────────────────────────
+// ─── Logout / sessions ───────────────────────────────────────────────────────
+
 export async function logout(tokenId: string): Promise<void> {
   await authRepository.revokeByTokenId(tokenId);
 }
@@ -308,10 +353,8 @@ export async function revokeSession(
   userId: string,
   sessionId: string,
 ): Promise<void> {
-  const sessions = await authRepository.listActiveSessions(userId);
-  const target = sessions.find((session: SessionView) => session.id === sessionId);
-  if (!target) throw badRequest("Session not found or already revoked");
-  await authRepository.revokeSession(sessionId);
+  const revoked = await authRepository.revokeUserSession(userId, sessionId);
+  if (!revoked) throw badRequest("Session not found or already revoked");
 }
 
 export async function getUserById(id: string): Promise<SessionUser | null> {
@@ -320,7 +363,7 @@ export async function getUserById(id: string): Promise<SessionUser | null> {
 
 export async function getAllUsers(
   page = 1,
-  pageSize = 50,
+  pageSize = 25,
 ): Promise<PaginatedUsers> {
   return authRepository.paginateUsers(page, pageSize);
 }

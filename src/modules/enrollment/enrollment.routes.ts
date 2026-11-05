@@ -5,10 +5,9 @@ import {
   getMyEnrollments,
   getOneEnrollment,
 } from "./enrollment.controller";
-import { authGuard } from "../../middleware/authGuard";
+import { authGuard } from "@/middleware/authGuard";
 
 const r = Router();
-
 
 r.get("/", authGuard, getMyEnrollments);
 

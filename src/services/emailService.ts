@@ -1,7 +1,14 @@
 /**
  * @file email.service.ts
- * @description 2026 Enterprise Transactional Email Dispatcher.
- * Refactored to align with type-safe async worker payloads and structured error propagation.
+ * @description Transactional email dispatcher (Gmail OAuth2 + EJS).
+ *
+ * Contract:
+ * - Specialized helpers (verification, reset, OTP, confirmation, admin)
+ *   stay for call-site clarity.
+ * - Generic `sendEmail` is the single path used by the notification worker
+ *   so delivery tracking (provider / messageId) is always available.
+ * - Rendering failures and transport failures both throw; callers decide
+ *   whether to retry (BullMQ) or mark a NotificationDelivery as FAILED.
  */
 
 import path from "path";
@@ -9,10 +16,7 @@ import crypto from "crypto";
 import fs from "fs/promises";
 import logger from "../utils/logger";
 
-const getEjs = async () => {
-  const mod = await import("ejs");
-  return mod.default || mod;
-};
+// ─── Env ──────────────────────────────────────────────────────────────────
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -26,20 +30,68 @@ const {
   FRONTEND_URL,
 } = process.env;
 
-if (
-  !G_ID ||
-  !G_SECRET ||
-  !G_URL ||
-  !G_REFRESH_TOKEN ||
-  !ADMIN_EMAIL ||
-  !FRONTEND_URL
-) {
+if (!G_ID || !G_SECRET || !G_URL || !G_REFRESH_TOKEN || !ADMIN_EMAIL || !FRONTEND_URL) {
   throw new Error(
-    "CRITICAL: Missing required environment variables for email engine execution.",
+    "CRITICAL: Missing required environment variables for email engine (G_ID, G_SECRET, G_URL, G_REFRESH_TOKEN, ADMIN_EMAIL, FRONTEND_URL).",
   );
 }
 
-let oAuth2Client: any;
+// ─── Types ────────────────────────────────────────────────────────────────
+
+export interface SendEmailInput {
+  to: string;
+  subject: string;
+  /** EJS template basename under src/views (or dist/views in production). */
+  template: string;
+  /** Variables passed to the template. */
+  context: Record<string, unknown>;
+}
+
+export interface SendEmailResult {
+  provider: "gmail";
+  messageId: string | undefined;
+  correlationId: string;
+}
+
+interface VerificationEmailInput {
+  to: string;
+  template: "welcome";
+  variables: { name: string; code: string };
+}
+
+interface ConfirmationEmailVariables {
+  name: string;
+  courseName: string;
+  enrollmentId: string;
+  orderId: string;
+  amount: string | number;
+  currency: string;
+  startDate: string;
+  endDate: string;
+  accessLabel?: string;
+}
+
+interface AdminNotificationVariables {
+  name: string;
+  email: string;
+  phone?: string;
+  courseName: string;
+  courseDuration: string;
+  coursePrice: string;
+  enrollmentId: string;
+  startDate: string;
+  endDate: string;
+}
+
+// ─── Lazy deps (keep cold-start light) ────────────────────────────────────
+
+const getEjs = async () => {
+  const mod = await import("ejs");
+  return (mod as { default?: typeof import("ejs") }).default ?? mod;
+};
+
+let oAuth2Client: InstanceType<typeof import("googleapis").google.auth.OAuth2> | null = null;
+
 const getOAuth2Client = async () => {
   if (!oAuth2Client) {
     const { google } = await import("googleapis");
@@ -49,14 +101,13 @@ const getOAuth2Client = async () => {
   return oAuth2Client;
 };
 
-export const getGmailTransporter = async (): Promise<any> => {
+export const getGmailTransporter = async () => {
   const nodemailer = await import("nodemailer");
   const client = await getOAuth2Client();
   const { token } = await client.getAccessToken();
-  if (!token)
-    throw new Error(
-      "Failed to obtain dynamic access token for Gmail OAuth2 layer",
-    );
+  if (!token) {
+    throw new Error("Failed to obtain Gmail OAuth2 access token");
+  }
 
   return nodemailer.createTransport({
     service: "gmail",
@@ -71,6 +122,8 @@ export const getGmailTransporter = async (): Promise<any> => {
   });
 };
 
+// ─── Template render ──────────────────────────────────────────────────────
+
 const templateCache: Record<string, string> = {};
 
 const resolveViewPath = (template: string): string => {
@@ -82,177 +135,144 @@ const resolveViewPath = (template: string): string => {
 
 const renderEmailTemplate = async (
   template: string,
-  data: Record<string, any>,
+  data: Record<string, unknown>,
 ): Promise<string> => {
   try {
     const ejs = await getEjs();
 
     if (!templateCache[template]) {
       const filePath = resolveViewPath(template);
-
       try {
         await fs.access(filePath);
       } catch {
-        throw new Error(
-          `Template asset could not be accessed at path: ${filePath}`,
-        );
+        throw new Error(`Email template not found: ${filePath}`);
       }
-
       templateCache[template] = await fs.readFile(filePath, "utf-8");
     }
 
     return ejs.render(templateCache[template], data);
-  } catch (err: any) {
-    logger.error("Email engine visualization rendering failed", {
-      template,
-      error: err.message,
-    });
-    throw new Error(`Failed execution on template rendering: ${template}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("Email template render failed", { template, error: message });
+    throw new Error(`Failed to render email template: ${template}`);
   }
 };
+
+// ─── Core transport ───────────────────────────────────────────────────────
 
 const sendCoreEmail = async (
   to: string,
   subject: string,
   html: string,
-): Promise<void> => {
+): Promise<SendEmailResult> => {
   const correlationId = crypto.randomUUID();
 
   try {
     const transporter = await getGmailTransporter();
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from: `Accountant Pathfinder <${EMAIL_USER || ADMIN_EMAIL}>`,
       to,
       subject,
       html,
     });
 
-    logger.info(`[Email Dispatch Success] Trace ID: ${correlationId}`, {
-      recipient: to,
+    logger.info("Email dispatch success", {
+      correlationId,
+      to,
+      subject,
+      messageId: info.messageId,
     });
-  } catch (err: any) {
-    logger.error(`[Email Dispatch Failure] Trace ID: ${correlationId}`, {
-      recipient: to,
-      error: err.message,
-      stack: err.stack,
+
+    return {
+      provider: "gmail",
+      messageId: typeof info.messageId === "string" ? info.messageId : undefined,
+      correlationId,
+    };
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error("Email dispatch failure", {
+      correlationId,
+      to,
+      subject,
+      error: error.message,
+      stack: error.stack,
     });
-    throw err;
+    throw error;
   }
 };
 
-interface VerificationEmailInput {
-  to: string;
-  template: "welcome";
-  variables: { name: string; code: string };
+// ─── Generic entry used by notification worker ────────────────────────────
+
+/**
+ * Single path for queued / fan-out mail.
+ * Returns provider + messageId so NotificationDelivery can be marked SENT
+ * with a durable provider reference.
+ */
+export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
+  const html = await renderEmailTemplate(input.template, input.context);
+  return sendCoreEmail(input.to, input.subject, html);
 }
 
-export const sendVerificationEmail = async (
-  input: VerificationEmailInput,
-): Promise<void> => {
+// ─── Specialized helpers (auth + enrollment) ──────────────────────────────
+
+export const sendVerificationEmail = async (input: VerificationEmailInput): Promise<void> => {
   const html = await renderEmailTemplate("verifyEmail", {
     email: input.to,
     name: input.variables.name,
     code: input.variables.code,
   });
-  await sendCoreEmail(input.to, "Verify your email - Pathfinder College", html);
+  await sendCoreEmail(input.to, "Verify your email - Accountant Pathfinder", html);
 };
 
-export const sendPasswordResetEmail = async (
-  to: string,
-  resetToken: string,
-): Promise<void> => {
+export const sendPasswordResetEmail = async (to: string, resetToken: string): Promise<void> => {
   const url = `${FRONTEND_URL}/auth/reset-password/${resetToken}`;
   const html = await renderEmailTemplate("resetPassword", {
     url,
     token: resetToken,
     expiresIn: "1 hour",
   });
-  await sendCoreEmail(to, "Reset your password - Pathfinder College", html);
+  await sendCoreEmail(to, "Reset your password - Accountant Pathfinder", html);
 };
 
-/**
- * FIXED — signature mismatch with payment.service.ts's actual call site.
- * This function previously accepted `(to, templateName, { courseTitle })`
- * — but `templateName` was never actually used (renderEmailTemplate always
- * hardcoded "confirmation" regardless of what was passed), and
- * payment.service.ts calls this with a richer, 2-argument shape:
- * `sendConfirmationEmail(email, { name, courseName, enrollmentId, orderId,
- * amount, currency, startDate, endDate })`. That mismatch meant the
- * options object would land in the ignored `templateName` slot and
- * `variables` would be `undefined` — every enrollment confirmation email
- * would have failed to render. Dropped the dead `templateName` param
- * entirely and expanded `variables` to match what's actually sent and
- * what a real confirmation email needs (dates, price, order reference) —
- * a confirmation email with only a course title was thin anyway.
- *
- * BREAKING CHANGE: any other existing caller of sendConfirmationEmail
- * needs updating to the new 2-arg (to, variables) signature — this
- * codebase's only known caller (payment.service.ts) already expects it.
- */
-interface ConfirmationEmailVariables {
-  name: string;
-  courseName: string;
-  enrollmentId: string;
-  orderId: string;
-  amount: number;
-  currency: string;
-  startDate: string;
-  endDate: string;
-}
-
-export const sendConfirmationEmail = async (
-  to: string,
-  variables: ConfirmationEmailVariables,
-): Promise<void> => {
-  const html = await renderEmailTemplate("confirmation", variables);
-  await sendCoreEmail(to, "Enrollment Confirmation - Pathfinder College", html);
-};
-
-/**
- * NEW — payment.service.ts already calls this on every successful
- * enrollment (paid or free), but it never existed here at all. That
- * import would have failed to resolve, and every post-payment
- * notification attempt would have thrown (harmlessly, since it's called
- * fire-and-forget with a .catch() — but silently, meaning admin
- * notifications for every single sale were never actually sending).
- *
- * DEPENDENCY: requires an `adminNotification.ejs` template in your views
- * directory (same convention as "confirmation", "welcome", etc.) — I
- * don't have visibility into your views folder to confirm it exists;
- * create it with the variable set below if it doesn't.
- */
-interface AdminNotificationVariables {
-  name: string;
-  email: string;
-  phone: string;
-  courseName: string;
-  courseDuration: string;
-  coursePrice: string;
-  enrollmentId: string;
-  startDate: string;
-  endDate: string;
-}
-
-export const sendAdminNotification = async (
-  variables: AdminNotificationVariables,
-): Promise<void> => {
-  const html = await renderEmailTemplate("adminNotification", variables);
-  await sendCoreEmail(ADMIN_EMAIL, `New Enrollment: ${variables.courseName}`, html);
-};
-
-export const sendOtpEmail = async ({
-  to,
-  name,
-  code,
-}: {
+export const sendOtpEmail = async (input: {
   to: string;
   name?: string;
   code: string;
-}) => {
+}): Promise<void> => {
   const html = await renderEmailTemplate("otpEmail", {
-    email: to,
-    name: name ?? "",
-    code,
+    email: input.to,
+    name: input.name ?? "",
+    code: input.code,
   });
-  await sendCoreEmail(to, "Your Pathfinder Verification Code", html);
+  await sendCoreEmail(input.to, "Your Pathfinder Verification Code", html);
+};
+
+/**
+ * Direct confirmation (non-queued path). Prefer the notification worker +
+ * sendEmail for anything that must be durable and retried.
+ */
+export const sendConfirmationEmail = async (
+  to: string,
+  variables: ConfirmationEmailVariables,
+): Promise<SendEmailResult> => {
+  const html = await renderEmailTemplate("confirmation", {
+    name: variables.name,
+    courseName: variables.courseName,
+    courseTitle: variables.courseName, // alias used by some templates
+    enrollmentId: variables.enrollmentId,
+    orderId: variables.orderId,
+    amount: variables.amount,
+    currency: variables.currency,
+    startDate: variables.startDate,
+    endDate: variables.endDate,
+    accessLabel: variables.accessLabel ?? variables.endDate,
+  });
+  return sendCoreEmail(to, "Enrollment Confirmation - Accountant Pathfinder", html);
+};
+
+export const sendAdminNotification = async (
+  variables: AdminNotificationVariables,
+): Promise<SendEmailResult> => {
+  const html = await renderEmailTemplate("adminNotification", { ...variables });
+  return sendCoreEmail(ADMIN_EMAIL!, `New Enrollment: ${variables.courseName}`, html);
 };

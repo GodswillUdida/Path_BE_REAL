@@ -1,0 +1,44 @@
+name: CI Quality Gate
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  verify:
+    runs-on: Ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm # Automatically detects the pnpm store cache based on your packageManager block
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile # Ensures that the lockfile is respected and no new versions are installed
+
+      - name: Run Linters & Formatters
+        run: pnpm run lint # Adjust to your matching package.json script (e.g., eslint, prettier)
+
+      - name: Generate Prisma Client
+        run: pnpm prisma generate # Ensures that the Prisma client is generated before running tests or builds
+
+      - name: Run Tests
+        run: pnpm test # Ensures broken tests block deployment pipelines
+
+      - name: Test Build compilation
+        run: pnpm run build # Ensures broken builds block deployment pipelines
+
+      - name: Trigger Render Deploy Hook
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' # Only deploy on true main merges
+        run: |
+          curl -X POST ${{ secrets.RENDER_DEPLOY_HOOK }}

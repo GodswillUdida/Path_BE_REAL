@@ -1,3 +1,5 @@
+// queues/registry.ts
+
 export const QUEUE_NAMES = {
   TOPIC_VIDEO: "topic-video-processing",
   COURSE_VIDEO_PREVIEW: "course-video-preview",
@@ -6,6 +8,11 @@ export const QUEUE_NAMES = {
   COURSE_ANALYTICS: "course-analytics",
   PAYMENT_FOLLOWUP: "payment-followup",
   RESOURCE_UPLOAD: "topic-resource-upload",
+  // Per-user notification delivery: post-payment emails now; announcements,
+  // live-class reminders and grant notices reuse it.
+  NOTIFICATIONS: "notifications",
+  // Delayed jobs that expire unpaid orders (was borrowing COURSE_ANALYTICS).
+  ORDER_EXPIRY: "order-expiry",
 } as const;
 
 export type QueueName =

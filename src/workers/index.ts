@@ -24,6 +24,7 @@ import "../modules/intake/intake.worker";
 import "../modules/course/course.worker";
 import "../modules/payment/payment.worker";
 import "../modules/topic/resource.worker";
+import "../modules/notifications/notification.worker";
 
 import { startBullBoard } from "./board";
 import logger from "@/utils/logger";

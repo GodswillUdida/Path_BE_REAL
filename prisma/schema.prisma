@@ -426,6 +426,62 @@ model IdempotencyKey {
 // STUDENT DOMAIN  (PHASE 1)
 // ============================================================
 
+/**
+ * Durable email-ownership challenge for ANONYMOUS applications. No User,
+ * Applicant or StudentProfile exists until the code is verified; verification
+ * atomically consumes this row and creates all three in one transaction.
+ *
+ * - id is the unpredictable public identifier (UUIDv4) used in the
+ *   verification link; the emailed code is the secret.
+ * - codeHash = hashOTP(`${id}:${code}`): bound to the row, never the raw code.
+ * - passwordHash / payload hold PII; both are scrubbed when COMPLETED.
+ * - userId / applicantId are provenance only (no FK on purpose: a completed
+ *   row must never block deleting or merging users).
+ * - The Otp model above is intentionally NOT used (it is unreferenced).
+ */
+enum PendingRegistrationStatus {
+  PENDING
+  COMPLETED
+  SUPERSEDED
+  EXPIRED
+}
+
+model PendingRegistration {
+  id String @id @default(uuid())
+
+  email String
+
+  status PendingRegistrationStatus @default(PENDING)
+
+  passwordHash String
+  payload      Json
+
+  codeHash      String
+  codeExpiresAt DateTime
+
+  attempts    Int @default(0)
+  maxAttempts Int @default(5)
+
+  sendCount  Int      @default(1)
+  lastSentAt DateTime @default(now())
+
+  /**
+   * Whole-registration lifetime (the code has its own, shorter expiry).
+   */
+  expiresAt  DateTime
+  consumedAt DateTime?
+
+  userId      String?
+  applicantId String?
+  ipAddress   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email, status])
+  @@index([status, expiresAt])
+}
+
 enum StudentStatus {
   ACTIVE
   SUSPENDED

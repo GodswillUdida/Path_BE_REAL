@@ -1,19 +1,116 @@
-import { PrismaClient, Applicant, ApplicantStatus } from '@prisma/client';
-import { CreateApplicantInput, UpdateApplicantInput, ListApplicantsQuery, PaginatedResponse } from './intake.types';
+import {
+  PrismaClient,
+  ApplicantStatus,
+  StudentRegistrationSource,
+  StudentStatus,
+  type Prisma,
+} from "@prisma/client";
+import {
+  CreateApplicantInput,
+  UpdateApplicantInput,
+  ListApplicantsQuery,
+  PaginatedResponse,
+  ResolvedIdentity,
+} from "./intake.types";
 
-// =============================================================================
-// Intake Repository Functions (Functional Style)
-// =============================================================================
+type Tx = Prisma.TransactionClient;
+
+const applicantDetailSelect = {
+  id: true,
+  fullName: true,
+  email: true,
+  phone: true,
+  address: true,
+  lectureCenter: true,
+  previousCenter: true,
+  isNewStudent: true,
+  level: true,
+  careerChallenges: true,
+  referredBy: true,
+  documents: true,
+  status: true,
+  userId: true,
+  cohortOfferId: true,
+  approvedAt: true,
+  autoApproved: true,
+  createdAt: true,
+  updatedAt: true,
+  papers: { select: { id: true, paperName: true } },
+  employment: {
+    select: { id: true, placeOfWork: true, position: true },
+  },
+  sponsor: {
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      email: true,
+      location: true,
+      workplace: true,
+    },
+  },
+  studentProfile: {
+    select: {
+      id: true,
+      status: true,
+      registrationSource: true,
+      userId: true,
+    },
+  },
+} satisfies Prisma.ApplicantSelect;
+
+export type ApplicantDetail = Prisma.ApplicantGetPayload<{
+  select: typeof applicantDetailSelect;
+}>;
 
 /**
- * Create applicant with nested employment, sponsor, and papers in a transaction.
- * This ensures atomic operation - either all succeed or all fail.
+ * Atomic: optional credentials User + Applicant (PENDING) + StudentProfile (ACTIVE).
+ * Never creates CohortMember or Enrollment.
  */
-export async function createApplicant(
+export async function createApplicantWithProfile(
   prisma: PrismaClient,
-  data: CreateApplicantInput
-): Promise<Applicant> {
+  data: CreateApplicantInput,
+  identity: ResolvedIdentity,
+): Promise<ApplicantDetail> {
   return prisma.$transaction(async (tx) => {
+    let userId: string;
+
+    if (identity.kind === "existing") {
+      userId = identity.userId;
+    } else {
+      const user = await tx.user.create({
+        data: {
+          name: identity.name,
+          email: identity.email,
+          emailVerified: false,
+          verificationToken: identity.otpHash,
+          verificationExpires: identity.verificationExpires,
+          accounts: {
+            create: {
+              provider: "credentials",
+              providerId: identity.email,
+              password: identity.hashedPassword,
+            },
+          },
+        },
+        select: { id: true },
+      });
+      userId = user.id;
+    }
+
+    const existingProfile = await tx.studentProfile.findUnique({
+      where: { userId },
+      select: { id: true, applicantId: true },
+    });
+
+    if (existingProfile?.applicantId) {
+      const existingApplicant = await tx.applicant.findUnique({
+        where: { id: existingProfile.applicantId },
+        select: applicantDetailSelect,
+      });
+      if (existingApplicant) return existingApplicant;
+    }
+
     const applicant = await tx.applicant.create({
       data: {
         fullName: data.fullName,
@@ -28,7 +125,8 @@ export async function createApplicant(
         referredBy: data.referredBy || null,
         documents: data.documents || [],
         status: ApplicantStatus.PENDING,
-        // Nested creates
+        userId,
+        cohortOfferId: data.cohortOfferId || null,
         papers: {
           createMany: {
             data: data.papers.map((paperName) => ({ paperName })),
@@ -54,68 +152,42 @@ export async function createApplicant(
             }
           : undefined,
       },
+      select: { id: true },
     });
 
-    return applicant;
+    await tx.studentProfile.upsert({
+      where: { userId },
+      create: {
+        userId,
+        applicantId: applicant.id,
+        registrationSource: StudentRegistrationSource.APPLICATION,
+        status: StudentStatus.ACTIVE,
+      },
+      update: {
+        applicantId: applicant.id,
+        registrationSource: StudentRegistrationSource.APPLICATION,
+      },
+    });
+
+    const full = await tx.applicant.findUnique({
+      where: { id: applicant.id },
+      select: applicantDetailSelect,
+    });
+    if (!full) throw new Error("APPLICANT_CREATE_FAILED");
+    return full;
   });
 }
 
-/**
- * Get single applicant with all relations.
- * Uses select for efficiency - only fetch needed fields.
- */
 export async function getApplicantById(prisma: PrismaClient, id: string) {
   return prisma.applicant.findUnique({
     where: { id },
-    select: {
-      id: true,
-      fullName: true,
-      email: true,
-      phone: true,
-      address: true,
-      lectureCenter: true,
-      previousCenter: true,
-      isNewStudent: true,
-      level: true,
-      careerChallenges: true,
-      referredBy: true,
-      documents: true,
-      status: true,
-      createdAt: true,
-      updatedAt: true,
-      papers: {
-        select: {
-          id: true,
-          paperName: true,
-        },
-      },
-      employment: {
-        select: {
-          id: true,
-          placeOfWork: true,
-          position: true,
-        },
-      },
-      sponsor: {
-        select: {
-          id: true,
-          name: true,
-          phone: true,
-          email: true,
-          location: true,
-          workplace: true,
-        },
-      },
-    },
+    select: applicantDetailSelect,
   });
 }
 
-/**
- * Check if applicant exists by email (for duplicate prevention).
- */
 export async function existsByEmail(
   prisma: PrismaClient,
-  email: string
+  email: string,
 ): Promise<boolean> {
   const result = await prisma.applicant.findFirst({
     where: { email },
@@ -124,81 +196,39 @@ export async function existsByEmail(
   return !!result;
 }
 
-/**
- * List applicants with filters and pagination.
- * Includes optional search and status filtering.
- */
+export async function findApplicantByEmail(
+  prisma: PrismaClient,
+  email: string,
+): Promise<ApplicantDetail | null> {
+  return prisma.applicant.findFirst({
+    where: { email },
+    select: applicantDetailSelect,
+  });
+}
+
 export async function listApplicants(
   prisma: PrismaClient,
-  query: ListApplicantsQuery & { page: number; limit: number }
-): Promise<PaginatedResponse<Applicant>> {
+  query: ListApplicantsQuery & { page: number; limit: number },
+): Promise<PaginatedResponse<ApplicantDetail>> {
   const skip = (query.page - 1) * query.limit;
+  const where: Prisma.ApplicantWhereInput = {};
 
-  // Build where clause
-  const where: any = {};
-
-  if (query.status) {
-    where.status = query.status;
-  }
-
+  if (query.status) where.status = query.status;
   if (query.search) {
     where.OR = [
-      { fullName: { contains: query.search, mode: 'insensitive' } },
-      { email: { contains: query.search, mode: 'insensitive' } },
-      { phone: { contains: query.search, mode: 'insensitive' } },
+      { fullName: { contains: query.search, mode: "insensitive" } },
+      { email: { contains: query.search, mode: "insensitive" } },
+      { phone: { contains: query.search, mode: "insensitive" } },
     ];
   }
 
-  // Build order by
-  const orderBy: any = {};
-  if (query.sortBy) {
-    orderBy[query.sortBy] = query.sortOrder;
-  }
+  const orderBy: Prisma.ApplicantOrderByWithRelationInput = {};
+  if (query.sortBy) orderBy[query.sortBy] = query.sortOrder ?? "desc";
 
-  // Fetch data and count in parallel
   const [applicants, total] = await Promise.all([
     prisma.applicant.findMany({
       where,
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        phone: true,
-        address: true,
-        lectureCenter: true,
-        previousCenter: true,
-        isNewStudent: true,
-        level: true,
-        careerChallenges: true,
-        referredBy: true,
-        documents: true,
-        status: true,
-        createdAt: true,
-        updatedAt: true,
-        papers: {
-          select: {
-            id: true,
-            paperName: true,
-          },
-        },
-        employment: {
-          select: {
-            id: true,
-            placeOfWork: true,
-            position: true,
-          },
-        },
-        sponsor: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-            email: true,
-            location: true,
-            workplace: true,
-          },
-        },
-      },
+      select: applicantDetailSelect,
       skip,
       take: query.limit,
       orderBy,
@@ -206,93 +236,63 @@ export async function listApplicants(
     prisma.applicant.count({ where }),
   ]);
 
-  const pages = Math.ceil(total / query.limit);
-
   return {
     data: applicants,
     pagination: {
       page: query.page,
       limit: query.limit,
       total,
-      pages,
+      pages: Math.ceil(total / query.limit),
     },
   };
 }
 
-/**
- * Update applicant with partial data.
- * Handles nested updates carefully.
- */
 export async function updateApplicant(
   prisma: PrismaClient,
   id: string,
-  data: UpdateApplicantInput
+  data: UpdateApplicantInput,
 ) {
-  return prisma.$transaction(async (tx) => {
-    // Update main applicant fields
+  return prisma.$transaction(async (tx: Tx) => {
     const { employment, sponsor, papers, ...mainData } = data;
+    const applicant = await tx.applicant.update({ where: { id }, data: mainData });
 
-    const applicant = await tx.applicant.update({
-      where: { id },
-      data: mainData,
-    });
-
-    // Update employment if provided
     if (employment !== undefined) {
       const existingEmployment = await tx.employmentInfo.findUnique({
         where: { applicantId: id },
       });
-
       if (existingEmployment) {
         await tx.employmentInfo.update({
           where: { id: existingEmployment.id },
           data: employment,
         });
-      } else if (Object.values(employment).some((value) => value !== undefined)) {
+      } else if (Object.values(employment).some((v) => v !== undefined)) {
         await tx.employmentInfo.create({
-          data: {
-            applicantId: id,
-            ...employment,
-          },
+          data: { applicantId: id, ...employment },
         });
       }
     }
 
-    // Update sponsor if provided
     if (sponsor !== undefined) {
       const existingSponsor = await tx.sponsorInfo.findUnique({
         where: { applicantId: id },
       });
-
       if (existingSponsor) {
         await tx.sponsorInfo.update({
           where: { id: existingSponsor.id },
           data: sponsor,
         });
-      } else if (Object.values(sponsor).some((value) => value !== undefined)) {
+      } else if (Object.values(sponsor).some((v) => v !== undefined)) {
         await tx.sponsorInfo.create({
-          data: {
-            applicantId: id,
-            ...sponsor,
-          },
+          data: { applicantId: id, ...sponsor },
         });
       }
     }
 
-    // Update papers if provided
     if (papers !== undefined && Array.isArray(papers)) {
-      // Delete existing papers
-      await tx.applicantPaper.deleteMany({
-        where: { applicantId: id },
-      });
-
-      // Create new papers
+      await tx.applicantPaper.deleteMany({ where: { applicantId: id } });
       if (papers.length > 0) {
         await tx.applicantPaper.createMany({
-          data: papers.map((paperName) => ({
-            applicantId: id,
-            paperName,
-          })),
+          data: papers.map((paperName) => ({ applicantId: id, paperName })),
         });
       }
     }
@@ -301,29 +301,22 @@ export async function updateApplicant(
   });
 }
 
-/**
- * Update applicant status only.
- */
 export async function updateApplicantStatus(
   prisma: PrismaClient,
   id: string,
-  status: ApplicantStatus
+  status: ApplicantStatus,
 ) {
+  const data: Prisma.ApplicantUpdateInput = { status };
+  if (status === ApplicantStatus.APPROVED) {
+    data.approvedAt = new Date();
+  }
   return prisma.applicant.update({
     where: { id },
-    data: { status },
-    select: {
-      id: true,
-      email: true,
-      status: true,
-      updatedAt: true,
-    },
+    data,
+    select: { id: true, email: true, status: true, updatedAt: true },
   });
 }
 
-/**
- * Delete applicant and all related data (cascades handled by database).
- */
 export async function deleteApplicant(prisma: PrismaClient, id: string) {
   return prisma.applicant.delete({
     where: { id },
@@ -331,12 +324,38 @@ export async function deleteApplicant(prisma: PrismaClient, id: string) {
   });
 }
 
-/**
- * Get applicant count by status (useful for dashboard).
- */
 export async function getCountByStatus(prisma: PrismaClient) {
   return prisma.applicant.groupBy({
-    by: ['status'],
+    by: ["status"],
     _count: true,
+  });
+}
+
+export async function findUserIdentityByEmail(
+  prisma: PrismaClient,
+  email: string,
+) {
+  return prisma.user.findUnique({
+    where: { email, deletedAt: null },
+    select: {
+      id: true,
+      email: true,
+      emailVerified: true,
+      name: true,
+      studentProfile: { select: { id: true, status: true, applicantId: true } },
+    },
+  });
+}
+
+export async function findUserIdentityById(prisma: PrismaClient, id: string) {
+  return prisma.user.findUnique({
+    where: { id, deletedAt: null },
+    select: {
+      id: true,
+      email: true,
+      emailVerified: true,
+      name: true,
+      studentProfile: { select: { id: true, status: true, applicantId: true } },
+    },
   });
 }

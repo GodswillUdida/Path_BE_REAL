@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 /**
@@ -542,10 +541,25 @@ model StudentImportBatch {
 // ============================================================
 
 enum CohortStatus {
+  DRAFT
   UPCOMING
   ACTIVE
   COMPLETED
   ARCHIVED
+  CANCELLED
+}
+
+enum CohortMemberStatus {
+  ACTIVE
+  EXPIRED
+  REMOVED
+  COMPLETED
+}
+
+enum CohortMemberSource {
+  PURCHASE
+  ADMIN
+  IMPORT
 }
 
 /**
@@ -637,18 +651,6 @@ model CohortInstructor {
 
   @@unique([cohortId, userId])
   @@index([userId])
-}
-
-enum CohortMemberSource {
-  PURCHASE
-  ADMIN
-  IMPORT
-}
-
-enum CohortMemberStatus {
-  ACTIVE
-  REMOVED
-  COMPLETED
 }
 
 /**
@@ -1322,6 +1324,7 @@ model ProgramCourse {
    * Keep that metadata here rather than polluting Course.
    */
   /**
+   * /**
    * ORDERING: position is intentionally NOT unique. A unique position
    * makes drag-reorder swaps fail mid-transaction. Reorder inside one
    * transaction and break ties by (position, id) when reading.
@@ -1585,6 +1588,7 @@ model Topic {
    * Do not add a type enum merely to prepare for hypothetical features.
    */
   /**
+   * /**
    * ORDERING: position is intentionally NOT unique (see ProgramCourse).
    * SLUGS: (moduleId, slug) stays unique so findUnique accessors keep
    * working. On soft delete the service MUST suffix the slug

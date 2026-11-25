@@ -9,12 +9,12 @@ const envSchema = z.object({
     PORT: z.coerce.number().default(5000),
     
     // Core URLs & Access Control
-    ADMIN_EMAIL: z.string().email(),
-    EMAIL_USER: z.string().email(),
+    ADMIN_EMAIL: z.email(),
+    EMAIL_USER: z.email(),
     EMAIL_PASS: z.string().optional().default(''),
-    FRONTEND_URL: z.string().url(),
-    BASE_URL: z.string().url(),
-    BACKEND_URL: z.string().url(),
+    FRONTEND_URL: z.url(),
+    BASE_URL: z.url(),
+    BACKEND_URL: z.url(),
     ACCESS_COOKIE_NAME: z.string().default('access_token'),
     REFRESH_COOKIE_NAME: z.string().default('refresh_token'),
     COOKIE_SECRET: z.string().default('your_cookie_secret'),
@@ -58,7 +58,7 @@ const envSchema = z.object({
     // Security Tokens
     JWT_ACCESS_SECRET: z.string().min(1),
     JWT_REFRESH_SECRET: z.string().min(1),
-    VERIFIED_TOKEN_SECRET: z.string().min(1),
+    VERIFIED_TOKEN_SECRET: z.string().min(32),
     VERIFIED_TOKEN_TTL_SECONDS: z.coerce.number().default(300),
     
     // Transactional Mail Providers
@@ -72,7 +72,7 @@ const envSchema = z.object({
     PAYSTACK_WEBHOOK_SECRET: z.string().min(1),
     
     // Redis Connection URL
-    REDIS_URL: z.string().url().default('redis://127.0.0.1:6379'),
+    REDIS_URL: z.url().default('redis://127.0.0.1:6379'),
     REDIS_HOST: z.string().optional().default('localhost'),
     REDIS_PORT: z.coerce.number().optional().default(6379),
     REDIS_PASSWORD: z.string().optional(),

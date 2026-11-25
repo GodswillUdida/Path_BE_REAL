@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { ApplicantStatus } from '@prisma/client';
 
 // Base validation schemas - reusable
-const emailSchema = z.string().email('Invalid email address').trim().toLowerCase();
+const emailSchema = z.email('Invalid email address').trim().toLowerCase();
 const phoneSchema = z.string().min(10, 'Phone must be at least 10 digits').regex(/^[\d+\-\s()]+$/, 'Invalid phone format');
 const nameSchema = z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must not exceed 100 characters').trim();
 const addressSchema = z.string().min(5, 'Address must be at least 5 characters').max(200, 'Address must not exceed 200 characters').trim();

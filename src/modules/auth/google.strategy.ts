@@ -6,15 +6,15 @@ import {
   VerifyCallback,
 } from "passport-google-oauth20";
 import { prisma } from "@/lib/prisma";
-import { env } from "@/config/env";
+import { envConfig } from "@/config/envConfig";
 
 export function configureGoogleStrategy() {
   passport.use(
     new GoogleStrategy(
       {
-        clientID: env.G_ID,
-        clientSecret: env.G_SECRET,
-        callbackURL: env.G_CALLBACK_URL, // e.g. https://api.yourdomain.com/auth/google/callback
+        clientID: envConfig.google.id,
+        clientSecret: envConfig.google.secret,
+        callbackURL: envConfig.google.callbackUrl, // e.g. https://api.yourdomain.com/auth/google/callback
         scope: ["openid", "profile", "email"],
       },
       async (

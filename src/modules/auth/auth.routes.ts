@@ -27,7 +27,7 @@ import {
   otpLimiter,
 } from "../../middleware/Ratelimiter.middleware";
 import crypto from "crypto";
-import { env } from "@/config/env";
+import { envConfig } from "@/config/envConfig";
 
 // `passport` ships without bundled TypeScript declarations in this project setup,
 // so use CommonJS require to avoid the "Could not find a declaration file" error.
@@ -89,7 +89,7 @@ r.get(
   "/google/callback",
   passport.authenticate("google", {
     session: false,
-    failureRedirect: `${env.FRONTEND_URL}/auth/login?error=google`,
+    failureRedirect: `${envConfig.frontendUrl}/auth/login?error=google`,
   }),
   authController.googleCallbackController,
 );

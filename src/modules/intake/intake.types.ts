@@ -1,5 +1,5 @@
 // Domain types for intake module
-import { ApplicantStatus } from '@prisma/client';
+import { ApplicantStatus, StudentStatus } from "@prisma/client";
 
 export interface CreateApplicantInput {
   fullName: string;
@@ -13,7 +13,7 @@ export interface CreateApplicantInput {
   careerChallenges?: string;
   referredBy?: string;
   documents?: string[];
-  papers: string[]; // Array of paper names
+  papers: string[];
   employment?: {
     placeOfWork?: string;
     position?: string;
@@ -25,6 +25,8 @@ export interface CreateApplicantInput {
     location?: string;
     workplace?: string;
   };
+  password?: string;
+  cohortOfferId?: string;
 }
 
 export interface UpdateApplicantInput {
@@ -66,12 +68,11 @@ export interface ApplicantResponse {
   referredBy: string | null;
   documents: string[];
   status: ApplicantStatus;
+  userId: string | null;
+  cohortOfferId: string | null;
   createdAt: Date;
   updatedAt: Date;
-  papers: Array<{
-    id: string;
-    paperName: string;
-  }>;
+  papers: Array<{ id: string; paperName: string }>;
   employment?: {
     id: string;
     placeOfWork: string | null;
@@ -85,23 +86,41 @@ export interface ApplicantResponse {
     location: string | null;
     workplace: string | null;
   } | null;
+  studentProfile?: {
+    id: string;
+    status: StudentStatus;
+    registrationSource: string;
+    userId: string;
+  } | null;
+  emailVerificationRequired?: boolean;
 }
 
 export interface ListApplicantsQuery {
   page?: number;
   limit?: number;
   status?: ApplicantStatus;
-  search?: string; // search by name/email/phone
-  sortBy?: 'createdAt' | 'fullName';
-  sortOrder?: 'asc' | 'desc';
+  search?: string;
+  sortBy?: "createdAt" | "fullName";
+  sortOrder?: "asc" | "desc";
 }
 
 export interface PaginatedResponse<T> {
   data: T[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    pages: number;
-  };
+  pagination: { page: number; limit: number; total: number; pages: number };
 }
+
+export type ResolvedIdentity =
+  | {
+      kind: "existing";
+      userId: string;
+      email: string;
+      emailVerified: boolean;
+    }
+  | {
+      kind: "create";
+      email: string;
+      name: string;
+      hashedPassword: string;
+      otpHash: string;
+      verificationExpires: Date;
+    };

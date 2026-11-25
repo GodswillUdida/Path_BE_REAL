@@ -1,216 +1,251 @@
-import { PrismaClient, ApplicantStatus } from '@prisma/client';
-// import { Queue } from 'bullmq';
-import { createApplicant, deleteApplicant, existsByEmail, getApplicantById, getCountByStatus, listApplicants, updateApplicant, updateApplicantStatus } from './intake.repo';
-import { CreateApplicantInput, UpdateApplicantInput, ListApplicantsQuery, ApplicantResponse } from './intake.types';
+import { PrismaClient, ApplicantStatus } from "@prisma/client";
+import {
+  createApplicantWithProfile,
+  deleteApplicant,
+  existsByEmail,
+  findApplicantByEmail,
+  findUserIdentityByEmail,
+  findUserIdentityById,
+  getApplicantById,
+  getCountByStatus,
+  listApplicants,
+  updateApplicant,
+  updateApplicantStatus,
+} from "./intake.repo";
+import {
+  CreateApplicantInput,
+  UpdateApplicantInput,
+  ListApplicantsQuery,
+  ApplicantResponse,
+  ResolvedIdentity,
+} from "./intake.types";
+import { badRequest, conflict, unauthorized } from "@/utils/errors";
+import { hashPassword } from "@/utils/hash";
+import { generateOTP, hashOTP, TTL } from "@/modules/auth/config";
+import { enqueueAuthEmail } from "@/modules/auth/email.queue";
+import logger from "@/utils/logger";
 
-/**
- * Format applicant database record to response format.
- */
-const formatApplicantResponse = (applicant: any): ApplicantResponse => {
-  return {
-    id: applicant.id,
-    fullName: applicant.fullName,
-    email: applicant.email,
-    phone: applicant.phone,
-    address: applicant.address,
-    lectureCenter: applicant.lectureCenter,
-    previousCenter: applicant.previousCenter,
-    isNewStudent: applicant.isNewStudent,
-    level: applicant.level,
-    careerChallenges: applicant.careerChallenges,
-    referredBy: applicant.referredBy,
-    documents: applicant.documents || [],
-    status: applicant.status,
-    createdAt: applicant.createdAt,
-    updatedAt: applicant.updatedAt,
-    papers: applicant.papers || [],
-    employment: applicant.employment || undefined,
-    sponsor: applicant.sponsor || undefined,
-  };
+const normalizeEmail = (email: string) => email.trim().toLowerCase();
+
+const formatApplicantResponse = (
+  applicant: NonNullable<Awaited<ReturnType<typeof getApplicantById>>>,
+  extras?: { emailVerificationRequired?: boolean },
+): ApplicantResponse => ({
+  id: applicant.id,
+  fullName: applicant.fullName,
+  email: applicant.email,
+  phone: applicant.phone,
+  address: applicant.address,
+  lectureCenter: applicant.lectureCenter,
+  previousCenter: applicant.previousCenter,
+  isNewStudent: applicant.isNewStudent,
+  level: applicant.level,
+  careerChallenges: applicant.careerChallenges,
+  referredBy: applicant.referredBy,
+  documents: applicant.documents || [],
+  status: applicant.status,
+  userId: applicant.userId,
+  cohortOfferId: applicant.cohortOfferId,
+  createdAt: applicant.createdAt,
+  updatedAt: applicant.updatedAt,
+  papers: applicant.papers || [],
+  employment: applicant.employment || undefined,
+  sponsor: applicant.sponsor || undefined,
+  studentProfile: applicant.studentProfile
+    ? {
+        id: applicant.studentProfile.id,
+        status: applicant.studentProfile.status,
+        registrationSource: applicant.studentProfile.registrationSource,
+        userId: applicant.studentProfile.userId,
+      }
+    : null,
+  emailVerificationRequired: extras?.emailVerificationRequired,
+});
+
+type IdentityResult = {
+  identity: ResolvedIdentity;
+  emailVerificationRequired: boolean;
+  plainOtp?: string;
 };
 
-/**
- * Register a new applicant.
- * Validates uniqueness, creates applicant, and queues confirmation email.
- */
-export const registerApplicantService = async (
-  // repo: IntakeRepository,
+async function resolveIdentity(
   prisma: PrismaClient,
   input: CreateApplicantInput,
-  // emailQueue?: any,
+  sessionUserId?: string,
+): Promise<IdentityResult> {
+  const email = normalizeEmail(input.email);
+
+  if (sessionUserId) {
+    const sessionUser = await findUserIdentityById(prisma, sessionUserId);
+    if (!sessionUser) throw unauthorized("Invalid session");
+
+    if (normalizeEmail(sessionUser.email) !== email) {
+      throw badRequest(
+        "Application email must match the signed-in account",
+        { code: "EMAIL_MISMATCH" },
+      );
+    }
+
+    return {
+      identity: {
+        kind: "existing",
+        userId: sessionUser.id,
+        email: sessionUser.email,
+        emailVerified: sessionUser.emailVerified,
+      },
+      emailVerificationRequired: !sessionUser.emailVerified,
+    };
+  }
+
+  const existing = await findUserIdentityByEmail(prisma, email);
+  if (existing) {
+    throw conflict(
+      existing.emailVerified
+        ? "An account with this email already exists. Please log in and submit the application while signed in."
+        : "An account with this email already exists but is not verified. Verify your email, log in, then submit the application.",
+      {
+        code: existing.emailVerified
+          ? "LOGIN_REQUIRED"
+          : "EMAIL_VERIFICATION_REQUIRED",
+      },
+    );
+  }
+
+  if (!input.password) {
+    throw badRequest(
+      "Password is required to create an account for a new applicant",
+      { code: "PASSWORD_REQUIRED" },
+    );
+  }
+
+  const plainOtp = generateOTP();
+  const hashedPassword = await hashPassword(input.password);
+
+  return {
+    identity: {
+      kind: "create",
+      email,
+      name: input.fullName,
+      hashedPassword,
+      otpHash: hashOTP(plainOtp),
+      verificationExpires: new Date(Date.now() + TTL.OTP),
+    },
+    emailVerificationRequired: true,
+    plainOtp,
+  };
+}
+
+export const registerApplicantService = async (
+  prisma: PrismaClient,
+  input: CreateApplicantInput,
+  sessionUserId?: string,
 ): Promise<ApplicantResponse> => {
-  // Check for duplicate email
-  const existingApplicant = await existsByEmail(prisma, input.email);
+  const email = normalizeEmail(input.email);
+  input = { ...input, email };
+
+  const existingApplicant = await findApplicantByEmail(prisma, email);
   if (existingApplicant) {
-    throw new Error('APPLICANT_ALREADY_EXISTS');
+    if (
+      sessionUserId &&
+      existingApplicant.userId === sessionUserId &&
+      existingApplicant.studentProfile
+    ) {
+      return formatApplicantResponse(existingApplicant);
+    }
+    throw conflict("An application with this email already exists", {
+      code: "APPLICANT_ALREADY_EXISTS",
+    });
   }
 
-  // Create applicant in database
-  const applicant = await createApplicant(prisma, input);
+  const { identity, emailVerificationRequired, plainOtp } =
+    await resolveIdentity(prisma, input, sessionUserId);
 
-  // Queue confirmation email (non-blocking)
-  // await emailQueue.add(
-  //   'applicant-registration-confirmation',
-  //   {
-  //     applicantId: applicant.id,
-  //     email: applicant.email,
-  //     fullName: applicant.fullName,
-  //   },
-  //   {
-  //     attempts: 3,
-  //     backoff: {
-  //       type: 'exponential',
-  //       delay: 2000,
-  //     },
-  //   }
-  // );
+  const applicant = await createApplicantWithProfile(prisma, input, identity);
 
-  return formatApplicantResponse(applicant);
+  if (identity.kind === "create" && plainOtp) {
+    enqueueAuthEmail({
+      type: "welcome",
+      to: identity.email,
+      name: identity.name || "there",
+      code: plainOtp,
+    }).catch((err: unknown) => {
+      logger.error("INTAKE_WELCOME_EMAIL_ENQUEUE_FAILED", {
+        email: identity.email,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
+  return formatApplicantResponse(applicant, { emailVerificationRequired });
 };
 
-/**
- * Retrieve a single applicant by ID.
- */
-export const getApplicantService = async (prisma: PrismaClient, id: string): Promise<ApplicantResponse> => {
+export const getApplicantService = async (
+  prisma: PrismaClient,
+  id: string,
+): Promise<ApplicantResponse> => {
   const applicant = await getApplicantById(prisma, id);
-
-  if (!applicant) {
-    throw new Error('APPLICANT_NOT_FOUND');
-  }
-
+  if (!applicant) throw badRequest("Applicant not found");
   return formatApplicantResponse(applicant);
 };
 
-/**
- * List applicants with filters and pagination.
- */
-export const listApplicantsService = async (prisma: PrismaClient, query: ListApplicantsQuery) => {
+export const listApplicantsService = async (
+  prisma: PrismaClient,
+  query: ListApplicantsQuery,
+) => {
   const page = query.page || 1;
   const limit = query.limit || 10;
-
-  const result = await listApplicants(prisma, {
-    ...query,
-    page,
-    limit,
-  });
-
+  const result = await listApplicants(prisma, { ...query, page, limit });
   return {
     data: result.data.map((a) => formatApplicantResponse(a)),
     pagination: result.pagination,
   };
 };
 
-/**
- * Update applicant information.
- */
 export const updateApplicantService = async (
   prisma: PrismaClient,
   id: string,
-  input: UpdateApplicantInput
+  input: UpdateApplicantInput,
 ): Promise<ApplicantResponse> => {
-  // Verify applicant exists
   const existing = await getApplicantById(prisma, id);
-  if (!existing) {
-    throw new Error('APPLICANT_NOT_FOUND');
-  }
+  if (!existing) throw badRequest("Applicant not found");
 
-  // If email is being changed, check for duplicates
-  if (input.email && input.email !== existing.email) {
-    const duplicate = await existsByEmail(prisma, input.email);
+  if (input.email && normalizeEmail(input.email) !== existing.email) {
+    const duplicate = await existsByEmail(prisma, normalizeEmail(input.email));
     if (duplicate) {
-      throw new Error('EMAIL_ALREADY_IN_USE');
+      throw conflict("Email already in use", { code: "EMAIL_ALREADY_IN_USE" });
     }
   }
 
   await updateApplicant(prisma, id, input);
-
-  // Fetch full updated record with relations
   const fullUpdated = await getApplicantById(prisma, id);
-
   return formatApplicantResponse(fullUpdated!);
 };
 
-/**
- * Update applicant status (admin action).
- * Triggers email notification when status changes.
- */
 export const updateApplicantStatusService = async (
   prisma: PrismaClient,
   id: string,
   newStatus: ApplicantStatus,
-  adminId: string,
-  // emailQueue?: any,
+  _adminId: string,
 ): Promise<ApplicantResponse> => {
-  // Verify applicant exists and fetch current state
   const applicant = await getApplicantById(prisma, id);
-  if (!applicant) {
-    throw new Error('APPLICANT_NOT_FOUND');
-  }
-
-  const currentStatus = applicant.status;
-
-  // Update status
+  if (!applicant) throw badRequest("Applicant not found");
   await updateApplicantStatus(prisma, id, newStatus);
-
-  // Queue status change email if status actually changed
-  // if (currentStatus !== newStatus) {
-  //   await emailQueue.add(
-  //     'applicant-status-changed',
-  //     {
-  //       applicantId: id,
-  //       email: applicant.email,
-  //       fullName: applicant.fullName,
-  //       previousStatus: currentStatus,
-  //       newStatus: newStatus,
-  //       adminId: adminId,
-  //     },
-  //     {
-  //       attempts: 3,
-  //       backoff: {
-  //         type: 'exponential',
-  //         delay: 2000,
-  //       },
-  //     }
-  //   );
-  // }
-
-  // Fetch and return updated full record
   const fullUpdated = await getApplicantById(prisma, id);
-
   return formatApplicantResponse(fullUpdated!);
 };
 
-/**
- * Delete applicant and all related data.
- */
-//  (async (req: Request, res: Response) => {
 export const deleteApplicantService = async (
-  prisma: PrismaClient  ,
+  prisma: PrismaClient,
   id: string,
-  // emailQueue?: any
 ): Promise<{ success: boolean }> => {
   const applicant = await getApplicantById(prisma, id);
-  if (!applicant) {
-    throw new Error('APPLICANT_NOT_FOUND');
-  }
-
+  if (!applicant) throw badRequest("Applicant not found");
   await deleteApplicant(prisma, id);
-
-  // Queue deletion notification
-  // await emailQueue.add('applicant-deleted', {
-  //   email: applicant.email,
-  //   fullName: applicant.fullName,
-  // });
-
   return { success: true };
 };
 
-/**
- * Get summary stats for admin dashboard.
- */
 export const getStatsService = async (prisma: PrismaClient) => {
   const countByStatus = await getCountByStatus(prisma);
-
   const stats = {
     total: 0,
     pending: 0,
@@ -218,11 +253,10 @@ export const getStatsService = async (prisma: PrismaClient) => {
     approved: 0,
     rejected: 0,
   };
-
   countByStatus.forEach((item) => {
     stats.total += item._count;
-    stats[item.status.toLowerCase() as keyof typeof stats] = item._count;
+    const key = item.status.toLowerCase() as keyof typeof stats;
+    if (key in stats) stats[key] = item._count;
   });
-
   return stats;
 };

@@ -1,17 +1,1 @@
-generator client {
-  provider = "prisma-client-js"
-}
-
-datasource db {
-  provider = "postgresql"
-}
-
-// RESTORED - full content follows in next commit if this is truncated
-// THIS IS A TEMPORARY MARKER - DO NOT USE
-enum CohortMemberStatus {
-  ACTIVE
-  EXPIRED
-  REMOVED
-  COMPLETED
-  SUSPENDED
-}
+PLACEHOLDER_WILL_REPLACE

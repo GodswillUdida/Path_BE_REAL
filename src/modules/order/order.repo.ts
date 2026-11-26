@@ -157,18 +157,26 @@ export async function lockCohorts(tx: Tx, cohortIds: string[]): Promise<void> {
   }
 }
 
+/**
+ * Cohorts where the user already occupies a seat (ACTIVE or SUSPENDED).
+ * Suspended paid seats are still held — do not allow a second purchase.
+ */
 export async function findActiveMemberCohortIds(tx: Tx, userId: string, cohortIds: string[]): Promise<string[]> {
   const rows = await tx.cohortMember.findMany({
-    where: { userId, cohortId: { in: cohortIds }, status: "ACTIVE" },
+    where: { userId, cohortId: { in: cohortIds }, status: { in: ["ACTIVE", "SUSPENDED"] } },
     select: { cohortId: true },
   });
   return rows.map((r) => r.cohortId);
 }
 
-/** Seats in use = ACTIVE members + other people's unexpired PENDING order lines (holds). */
+/**
+ * Seats in use = members who still hold capacity (ACTIVE + SUSPENDED)
+ * + other users' unexpired PENDING order lines (holds).
+ * Suspended members do NOT free a seat for resale.
+ */
 export async function countSeatsInUse(tx: Tx, cohortId: string, excludeUserId: string): Promise<number> {
   const [members, holds] = await Promise.all([
-    tx.cohortMember.count({ where: { cohortId, status: "ACTIVE" } }),
+    tx.cohortMember.count({ where: { cohortId, status: { in: ["ACTIVE", "SUSPENDED"] } } }),
     tx.orderItem.count({
       where: {
         cohortOffer: { cohortId },

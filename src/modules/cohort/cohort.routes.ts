@@ -36,6 +36,7 @@ cohortAdminRouter.delete("/:id/courses/:courseId", authGuard, staffWrite, ctrl.r
 
 cohortAdminRouter.get("/:id/offers", authGuard, staffRead, ctrl.listOffers);
 cohortAdminRouter.post("/:id/offers", authGuard, staffWrite, ctrl.createOffer);
+cohortAdminRouter.get("/offers/:offerId", authGuard, staffRead, ctrl.getOfferAdmin);
 cohortAdminRouter.patch("/offers/:offerId", authGuard, staffWrite, ctrl.updateOffer);
 cohortAdminRouter.post("/offers/:offerId/activate", authGuard, staffWrite, ctrl.activateOffer);
 cohortAdminRouter.post("/offers/:offerId/deactivate", authGuard, staffWrite, ctrl.deactivateOffer);

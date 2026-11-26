@@ -3,6 +3,7 @@ import { AuthEmailJob } from "./email.queue";
 import { createWorker } from "@/lib/queues/create-worker";
 import { QUEUE_NAMES } from "@/lib/queues/registry";
 import {
+  sendApplicationVerificationEmail,
   sendConfirmationEmail,
   sendPasswordResetEmail,
   sendVerificationEmail,
@@ -26,6 +27,14 @@ async function processEmailJob(
              name: data.name,
              code: data.code as string, // Optional code for verification emails 
             },
+      });
+
+    case "application-verification":
+      return sendApplicationVerificationEmail({
+        to: data.to,
+        name: data.name,
+        code: data.code,
+        verifyUrl: data.verifyUrl,
       });
 
     case "password-reset":

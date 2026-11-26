@@ -3,12 +3,19 @@ import { authGuard } from "@/middleware/authGuard";
 import { optionalAuth } from "@/middleware/optionalAuth";
 import { roleGuard } from "@/middleware/roleGuard";
 import prisma from "@/lib/prisma";
+import {
+  intakeRegisterLimiter,
+  intakeResendLimiter,
+  intakeVerifyLimiter,
+} from "@/middleware/Ratelimiter.middleware";
 import { createIntakeControllers } from "./intake.controller";
 
 const router = Router();
 
 const {
   registerApplicantController,
+  verifyRegistrationController,
+  resendRegistrationController,
   listApplicantsController,
   getApplicantController,
   updateApplicantController,
@@ -18,7 +25,10 @@ const {
 } = createIntakeControllers(prisma);
 
 // Public registration with optional session (authenticated applicants skip password).
-router.post("/register", optionalAuth, registerApplicantController);
+router.post("/register", intakeRegisterLimiter, optionalAuth, registerApplicantController);
+// Anonymous applicants prove email ownership here; only then is the account created.
+router.post("/register/verify", intakeVerifyLimiter, verifyRegistrationController);
+router.post("/register/resend", intakeResendLimiter, resendRegistrationController);
 
 router.get(
   "/stats",

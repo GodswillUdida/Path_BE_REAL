@@ -4,6 +4,7 @@ import { QUEUE_NAMES } from "@/lib/queues/registry";
 // 1. Keep your clean, type-safe union definitions
 export type AuthEmailJob =
   | { type: "welcome"; to: string; name: string, code?:string }
+  | { type: "application-verification"; to: string; name: string; code: string; verifyUrl: string }
   | { type: "password-reset"; to: string; resetToken: string }
   | { type: "enrollment-confirmation"; to: string; courseTitle: string };
 

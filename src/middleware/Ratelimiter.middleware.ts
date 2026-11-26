@@ -65,3 +65,28 @@ export const otpLimiter = rateLimit({
     message: "Too many requests. Please try again later.",
   },
 });
+
+/** Per-IP guards for the anonymous application flow. DB-side per-email/attempt limits apply on top. */
+export const intakeRegisterLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many application attempts. Please try again later." },
+});
+
+export const intakeVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many verification attempts. Please try again later." },
+});
+
+export const intakeResendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many resend requests. Please try again later." },
+});

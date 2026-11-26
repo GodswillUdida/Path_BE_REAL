@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+<body>
+  <p>Hi <%= name %>,</p>
+  <p>Confirm your email to complete your Pathfinder College application. Enter this code on the verification page:</p>
+  <h1 style="letter-spacing: 6px; font-size: 25px; color: #2563eb"><%= code %></h1>
+  <p>The code expires in <%= expiresIn %>. Open the verification page:</p>
+  <p><a href="<%= verifyUrl %>"><%= verifyUrl %></a></p>
+  <p>Your application is not submitted and no account is created until this code is entered.
+     If you did not apply to Pathfinder College, ignore this email and do not share the code.</p>
+  <p>Best regards,<br>Pathfinder College Team</p>
+</body>
+</html>

@@ -10,6 +10,8 @@ import {
 } from "./intake.service";
 import {
   createApplicantSchema,
+  verifyRegistrationSchema,
+  resendRegistrationSchema,
   updateApplicantSchema,
   updateApplicantStatusSchema,
   listApplicantsQuerySchema,
@@ -17,7 +19,12 @@ import {
 import { asyncHandler } from "@/utils/asyncHandler";
 import { PrismaClient } from "@prisma/client";
 import type { AuthRequest } from "@/middleware/authGuard";
-import { isApiError } from "@/utils/errors";
+import { createSessionAndTokens } from "@/modules/auth/auth.service";
+import { extractMeta, issueTokens } from "@/modules/auth/config";
+import {
+  resendPendingRegistration,
+  verifyPendingRegistration,
+} from "./pending-registration.service";
 
 const isValidUUID = (id: string): boolean => {
   const uuidRegex =
@@ -34,26 +41,51 @@ export const createIntakeControllers = (
       const validated = createApplicantSchema.parse(req.body);
       const sessionUserId = req.user?.id ?? req.user?.userId;
 
-      try {
-        const applicant = await registerApplicantService(
-          prisma,
-          validated,
-          sessionUserId,
-        );
+      const outcome = await registerApplicantService(prisma, validated, {
+        sessionUserId,
+        ipAddress: req.ip,
+      });
 
+      if (outcome.kind === "registered") {
         res.status(201).json({
           success: true,
-          message: applicant.emailVerificationRequired
-            ? "Applicant registered successfully. Please verify your email before signing in."
-            : "Applicant registered successfully",
-          data: applicant,
+          message: "Applicant registered successfully",
+          data: outcome.applicant,
         });
-      } catch (err) {
-        if (isApiError(err)) throw err;
-        throw err;
+        return;
       }
+
+      // Anonymous: nothing exists yet except the pending challenge.
+      res.status(202).json({
+        success: true,
+        message: "Check your email for a verification code to finish your application.",
+        data: {
+          verificationRequired: true,
+          pendingId: outcome.pending.pendingId,
+          codeExpiresAt: outcome.pending.codeExpiresAt,
+          resendAvailableAt: outcome.pending.resendAvailableAt,
+        },
+      });
     },
   ),
+
+  verifyRegistrationController: asyncHandler(async (req: Request, res: Response) => {
+    const input = verifyRegistrationSchema.parse(req.body);
+    const { user } = await verifyPendingRegistration(prisma, input);
+    const result = await createSessionAndTokens(user, extractMeta(req), "credentials");
+    issueTokens(res, result, 201);
+  }),
+
+  resendRegistrationController: asyncHandler(async (req: Request, res: Response) => {
+    const { pendingId } = resendRegistrationSchema.parse(req.body);
+    const sent = await resendPendingRegistration(prisma, pendingId);
+    // Same body whether or not the id exists (no oracle on pending ids).
+    res.status(200).json({
+      success: true,
+      message: "If the verification is still open, a new code has been sent.",
+      data: sent ? { resendAvailableAt: sent.resendAvailableAt, codeExpiresAt: sent.codeExpiresAt } : null,
+    });
+  }),
 
   listApplicantsController: asyncHandler(async (req: Request, res: Response) => {
     const validated = listApplicantsQuerySchema.parse(req.query);

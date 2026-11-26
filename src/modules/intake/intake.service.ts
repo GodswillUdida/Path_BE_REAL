@@ -4,7 +4,6 @@ import {
   deleteApplicant,
   existsByEmail,
   findApplicantByEmail,
-  findUserIdentityByEmail,
   findUserIdentityById,
   getApplicantById,
   getCountByStatus,
@@ -17,13 +16,10 @@ import {
   UpdateApplicantInput,
   ListApplicantsQuery,
   ApplicantResponse,
-  ResolvedIdentity,
 } from "./intake.types";
-import { badRequest, conflict, unauthorized } from "@/utils/errors";
-import { hashPassword } from "@/utils/hash";
-import { generateOTP, hashOTP, TTL } from "@/modules/auth/config";
-import { enqueueAuthEmail } from "@/modules/auth/email.queue";
-import logger from "@/utils/logger";
+import { badRequest, conflict, forbidden, unauthorized } from "@/utils/errors";
+
+import { startPendingRegistration, type PendingStarted } from "./pending-registration.service";
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
@@ -62,121 +58,47 @@ const formatApplicantResponse = (
   emailVerificationRequired: extras?.emailVerificationRequired,
 });
 
-type IdentityResult = {
-  identity: ResolvedIdentity;
-  emailVerificationRequired: boolean;
-  plainOtp?: string;
-};
+export type RegisterOutcome =
+  | { kind: "registered"; applicant: ApplicantResponse }
+  | { kind: "pending"; pending: PendingStarted };
 
-async function resolveIdentity(
-  prisma: PrismaClient,
-  input: CreateApplicantInput,
-  sessionUserId?: string,
-): Promise<IdentityResult> {
-  const email = normalizeEmail(input.email);
-
-  if (sessionUserId) {
-    const sessionUser = await findUserIdentityById(prisma, sessionUserId);
-    if (!sessionUser) throw unauthorized("Invalid session");
-
-    if (normalizeEmail(sessionUser.email) !== email) {
-      throw badRequest(
-        "Application email must match the signed-in account",
-        { code: "EMAIL_MISMATCH" },
-      );
-    }
-
-    return {
-      identity: {
-        kind: "existing",
-        userId: sessionUser.id,
-        email: sessionUser.email,
-        emailVerified: sessionUser.emailVerified,
-      },
-      emailVerificationRequired: !sessionUser.emailVerified,
-    };
-  }
-
-  const existing = await findUserIdentityByEmail(prisma, email);
-  if (existing) {
-    throw conflict(
-      existing.emailVerified
-        ? "An account with this email already exists. Please log in and submit the application while signed in."
-        : "An account with this email already exists but is not verified. Verify your email, log in, then submit the application.",
-      {
-        code: existing.emailVerified
-          ? "LOGIN_REQUIRED"
-          : "EMAIL_VERIFICATION_REQUIRED",
-      },
-    );
-  }
-
-  if (!input.password) {
-    throw badRequest(
-      "Password is required to create an account for a new applicant",
-      { code: "PASSWORD_REQUIRED" },
-    );
-  }
-
-  const plainOtp = generateOTP();
-  const hashedPassword = await hashPassword(input.password);
-
-  return {
-    identity: {
-      kind: "create",
-      email,
-      name: input.fullName,
-      hashedPassword,
-      otpHash: hashOTP(plainOtp),
-      verificationExpires: new Date(Date.now() + TTL.OTP),
-    },
-    emailVerificationRequired: true,
-    plainOtp,
-  };
-}
-
+/**
+ * Signed-in applicant: identity is already proven, so the application is
+ * finalized immediately. Anonymous applicant: only a PendingRegistration is
+ * created; the User/Applicant/StudentProfile are created after the emailed
+ * code is verified (see pending-registration.service.ts).
+ */
 export const registerApplicantService = async (
   prisma: PrismaClient,
   input: CreateApplicantInput,
-  sessionUserId?: string,
-): Promise<ApplicantResponse> => {
+  ctx: { sessionUserId?: string; ipAddress?: string } = {},
+): Promise<RegisterOutcome> => {
   const email = normalizeEmail(input.email);
   input = { ...input, email };
 
+  if (!ctx.sessionUserId) {
+    return { kind: "pending", pending: await startPendingRegistration(prisma, input, { ipAddress: ctx.ipAddress }) };
+  }
+
+  const sessionUser = await findUserIdentityById(prisma, ctx.sessionUserId);
+  if (!sessionUser) throw unauthorized("Invalid session");
+  if (!sessionUser.emailVerified) {
+    throw forbidden("Verify your email before submitting an application");
+  }
+  if (normalizeEmail(sessionUser.email) !== email) {
+    throw badRequest("Application email must match the signed-in account", { code: "EMAIL_MISMATCH" });
+  }
+
   const existingApplicant = await findApplicantByEmail(prisma, email);
   if (existingApplicant) {
-    if (
-      sessionUserId &&
-      existingApplicant.userId === sessionUserId &&
-      existingApplicant.studentProfile
-    ) {
-      return formatApplicantResponse(existingApplicant);
+    if (existingApplicant.userId === sessionUser.id && existingApplicant.studentProfile) {
+      return { kind: "registered", applicant: formatApplicantResponse(existingApplicant) };
     }
-    throw conflict("An application with this email already exists", {
-      code: "APPLICANT_ALREADY_EXISTS",
-    });
+    throw conflict("An application with this email already exists", { code: "APPLICANT_ALREADY_EXISTS" });
   }
 
-  const { identity, emailVerificationRequired, plainOtp } =
-    await resolveIdentity(prisma, input, sessionUserId);
-
-  const applicant = await createApplicantWithProfile(prisma, input, identity);
-
-  if (identity.kind === "create" && plainOtp) {
-    enqueueAuthEmail({
-      type: "welcome",
-      to: identity.email,
-      name: identity.name || "there",
-      code: plainOtp,
-    }).catch((err: unknown) => {
-      logger.error("INTAKE_WELCOME_EMAIL_ENQUEUE_FAILED", {
-        email: identity.email,
-        message: err instanceof Error ? err.message : String(err),
-      });
-    });
-  }
-
-  return formatApplicantResponse(applicant, { emailVerificationRequired });
+  const applicant = await createApplicantWithProfile(prisma, input, sessionUser.id);
+  return { kind: "registered", applicant: formatApplicantResponse(applicant) };
 };
 
 export const getApplicantService = async (

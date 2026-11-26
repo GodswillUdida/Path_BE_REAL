@@ -224,6 +224,21 @@ export const sendVerificationEmail = async (input: VerificationEmailInput): Prom
   await sendCoreEmail(input.to, "Verify your email - Accountant Pathfinder", html);
 };
 
+export const sendApplicationVerificationEmail = async (input: {
+  to: string;
+  name: string;
+  code: string;
+  verifyUrl: string;
+}): Promise<void> => {
+  const html = await renderEmailTemplate("applicationVerification", {
+    name: input.name,
+    code: input.code,
+    verifyUrl: input.verifyUrl,
+    expiresIn: "15 minutes",
+  });
+  await sendCoreEmail(input.to, "Confirm your Pathfinder application", html);
+};
+
 export const sendPasswordResetEmail = async (to: string, resetToken: string): Promise<void> => {
   const url = `${FRONTEND_URL}/auth/reset-password/${resetToken}`;
   const html = await renderEmailTemplate("resetPassword", {

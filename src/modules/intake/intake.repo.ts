@@ -10,7 +10,6 @@ import {
   UpdateApplicantInput,
   ListApplicantsQuery,
   PaginatedResponse,
-  ResolvedIdentity,
 } from "./intake.types";
 
 type Tx = Prisma.TransactionClient;
@@ -64,118 +63,102 @@ export type ApplicantDetail = Prisma.ApplicantGetPayload<{
 }>;
 
 /**
- * Atomic: optional credentials User + Applicant (PENDING) + StudentProfile (ACTIVE).
- * Never creates CohortMember or Enrollment.
+ * Applicant (PENDING) + StudentProfile (ACTIVE) for an ALREADY VERIFIED user.
+ * Runs inside the caller's transaction so pending-registration finalization
+ * can create User + Applicant + StudentProfile atomically.
+ * Never creates CohortMember or Enrollment. An existing profile's status is
+ * never changed here (a SUSPENDED student is not reactivated by applying).
  */
+export async function insertApplicantWithProfile(
+  tx: Tx,
+  data: CreateApplicantInput,
+  userId: string,
+): Promise<ApplicantDetail> {
+  const existingProfile = await tx.studentProfile.findUnique({
+    where: { userId },
+    select: { id: true, applicantId: true },
+  });
+
+  if (existingProfile?.applicantId) {
+    const existingApplicant = await tx.applicant.findUnique({
+      where: { id: existingProfile.applicantId },
+      select: applicantDetailSelect,
+    });
+    if (existingApplicant) return existingApplicant;
+  }
+
+  const applicant = await tx.applicant.create({
+    data: {
+      fullName: data.fullName,
+      email: data.email,
+      phone: data.phone,
+      address: data.address,
+      lectureCenter: data.lectureCenter || null,
+      previousCenter: data.previousCenter || null,
+      isNewStudent: data.isNewStudent,
+      level: data.level || null,
+      careerChallenges: data.careerChallenges || null,
+      referredBy: data.referredBy || null,
+      documents: data.documents || [],
+      status: ApplicantStatus.PENDING,
+      userId,
+      cohortOfferId: data.cohortOfferId || null,
+      papers: {
+        createMany: {
+          data: data.papers.map((paperName) => ({ paperName })),
+        },
+      },
+      employment: data.employment
+        ? {
+            create: {
+              placeOfWork: data.employment.placeOfWork || null,
+              position: data.employment.position || null,
+            },
+          }
+        : undefined,
+      sponsor: data.sponsor
+        ? {
+            create: {
+              name: data.sponsor.name || null,
+              phone: data.sponsor.phone || null,
+              email: data.sponsor.email || null,
+              location: data.sponsor.location || null,
+              workplace: data.sponsor.workplace || null,
+            },
+          }
+        : undefined,
+    },
+    select: { id: true },
+  });
+
+  await tx.studentProfile.upsert({
+    where: { userId },
+    create: {
+      userId,
+      applicantId: applicant.id,
+      registrationSource: StudentRegistrationSource.APPLICATION,
+      status: StudentStatus.ACTIVE,
+    },
+    update: {
+      applicantId: applicant.id,
+      registrationSource: StudentRegistrationSource.APPLICATION,
+    },
+  });
+
+  const full = await tx.applicant.findUnique({
+    where: { id: applicant.id },
+    select: applicantDetailSelect,
+  });
+  if (!full) throw new Error("APPLICANT_CREATE_FAILED");
+  return full;
+}
+
 export async function createApplicantWithProfile(
   prisma: PrismaClient,
   data: CreateApplicantInput,
-  identity: ResolvedIdentity,
+  userId: string,
 ): Promise<ApplicantDetail> {
-  return prisma.$transaction(async (tx) => {
-    let userId: string;
-
-    if (identity.kind === "existing") {
-      userId = identity.userId;
-    } else {
-      const user = await tx.user.create({
-        data: {
-          name: identity.name,
-          email: identity.email,
-          emailVerified: false,
-          verificationToken: identity.otpHash,
-          verificationExpires: identity.verificationExpires,
-          accounts: {
-            create: {
-              provider: "credentials",
-              providerId: identity.email,
-              password: identity.hashedPassword,
-            },
-          },
-        },
-        select: { id: true },
-      });
-      userId = user.id;
-    }
-
-    const existingProfile = await tx.studentProfile.findUnique({
-      where: { userId },
-      select: { id: true, applicantId: true },
-    });
-
-    if (existingProfile?.applicantId) {
-      const existingApplicant = await tx.applicant.findUnique({
-        where: { id: existingProfile.applicantId },
-        select: applicantDetailSelect,
-      });
-      if (existingApplicant) return existingApplicant;
-    }
-
-    const applicant = await tx.applicant.create({
-      data: {
-        fullName: data.fullName,
-        email: data.email,
-        phone: data.phone,
-        address: data.address,
-        lectureCenter: data.lectureCenter || null,
-        previousCenter: data.previousCenter || null,
-        isNewStudent: data.isNewStudent,
-        level: data.level || null,
-        careerChallenges: data.careerChallenges || null,
-        referredBy: data.referredBy || null,
-        documents: data.documents || [],
-        status: ApplicantStatus.PENDING,
-        userId,
-        cohortOfferId: data.cohortOfferId || null,
-        papers: {
-          createMany: {
-            data: data.papers.map((paperName) => ({ paperName })),
-          },
-        },
-        employment: data.employment
-          ? {
-              create: {
-                placeOfWork: data.employment.placeOfWork || null,
-                position: data.employment.position || null,
-              },
-            }
-          : undefined,
-        sponsor: data.sponsor
-          ? {
-              create: {
-                name: data.sponsor.name || null,
-                phone: data.sponsor.phone || null,
-                email: data.sponsor.email || null,
-                location: data.sponsor.location || null,
-                workplace: data.sponsor.workplace || null,
-              },
-            }
-          : undefined,
-      },
-      select: { id: true },
-    });
-
-    await tx.studentProfile.upsert({
-      where: { userId },
-      create: {
-        userId,
-        applicantId: applicant.id,
-        registrationSource: StudentRegistrationSource.APPLICATION,
-        status: StudentStatus.ACTIVE,
-      },
-      update: {
-        applicantId: applicant.id,
-        registrationSource: StudentRegistrationSource.APPLICATION,
-      },
-    });
-
-    const full = await tx.applicant.findUnique({
-      where: { id: applicant.id },
-      select: applicantDetailSelect,
-    });
-    if (!full) throw new Error("APPLICANT_CREATE_FAILED");
-    return full;
-  });
+  return prisma.$transaction((tx) => insertApplicantWithProfile(tx, data, userId));
 }
 
 export async function getApplicantById(prisma: PrismaClient, id: string) {

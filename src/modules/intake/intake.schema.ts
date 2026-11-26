@@ -95,6 +95,16 @@ export const createApplicantSchema = z.object({
   cohortOfferId: z.string().uuid().optional(),
 });
 
+export const verifyRegistrationSchema = z.object({
+  pendingId: z.string().uuid("Invalid verification reference"),
+  code: z.string().regex(/^\d{6}$/, "Code must be 6 digits"),
+});
+
+export const resendRegistrationSchema = z.object({
+  pendingId: z.string().uuid("Invalid verification reference"),
+});
+
+
 export const updateApplicantSchema = createApplicantSchema
   .omit({ password: true })
   .partial()

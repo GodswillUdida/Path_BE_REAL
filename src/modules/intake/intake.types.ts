@@ -108,19 +108,3 @@ export interface PaginatedResponse<T> {
   data: T[];
   pagination: { page: number; limit: number; total: number; pages: number };
 }
-
-export type ResolvedIdentity =
-  | {
-      kind: "existing";
-      userId: string;
-      email: string;
-      emailVerified: boolean;
-    }
-  | {
-      kind: "create";
-      email: string;
-      name: string;
-      hashedPassword: string;
-      otpHash: string;
-      verificationExpires: Date;
-    };

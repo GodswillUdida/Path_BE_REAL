@@ -115,7 +115,7 @@ export async function rotateCode(
   next: { codeHash: string; codeExpiresAt: Date; now: Date },
 ): Promise<boolean> {
   const r = await db.pendingRegistration.updateMany({
-    where: { id: row.id, status: PendingRegistrationStatus.PENDING, lastSentAt: row.lastSentAt },
+    where: { id: row.id, status: PendingRegistrationStatus.PENDING, lastSentAt: row.lastSentAt, expiresAt: { gt: next.now } },
     data: {
       codeHash: next.codeHash,
       codeExpiresAt: next.codeExpiresAt,

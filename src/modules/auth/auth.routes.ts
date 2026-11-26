@@ -35,19 +35,19 @@ const passport = require("passport");
 
 const r = Router();
 
-r.post("/register", 
-  // credentialLimiter, 
+r.post("/register",
+  credentialLimiter,
   authController.registerController);
-r.post("/login", 
-  // credentialLimiter, 
+r.post("/login",
+  credentialLimiter,
   authController.loginController);
-r.post("/refresh", 
-  // credentialLimiter, 
+r.post("/refresh",
+  // credentialLimiter,
   authController.refreshTokenController);
 
 // ─── Public: Email Verification ──────────────────────────────────────────────
 
-r.post("/verify-email", 
+r.post("/verify-email",
   // otpLimiter,
 authController.verifyEmailController);
 r.post(

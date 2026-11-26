@@ -13,9 +13,9 @@ import {
   resendPendingRegistration,
   startPendingRegistration,
   verifyPendingRegistration,
-} from "@/modules/intake/pending-registration.service";
-import { registerApplicantService } from "@/modules/intake/intake.service";
-import type { CreateApplicantInput } from "@/modules/intake/intake.types";
+} from "../../src/modules/intake/pending-registration.service";
+import { registerApplicantService } from "../../src/modules/intake/intake.service";
+import type { CreateApplicantInput } from "../../src/modules/intake/intake.types";
 
 const form = (over: Partial<CreateApplicantInput> = {}): CreateApplicantInput => ({
   fullName: "Ada Obi",

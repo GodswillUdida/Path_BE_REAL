@@ -7,12 +7,12 @@
  * CohortMember or Enrollment, never links to an existing account by email.
  */
 
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { badRequest, conflict, serviceUnavailable, tooManyRequests } from "@/utils/errors";
 import { hashPassword } from "@/utils/hash";
 import logger from "@/utils/logger";
-import { generateOTP, hashOTP, TTL } from "@/modules/auth/config";
+import { generateOTP, TTL } from "@/modules/auth/config";
 import { sessionUserSelect, type SessionUser } from "@/modules/auth/auth.select";
 import { enqueueAuthEmail } from "@/modules/auth/email.queue";
 import {
@@ -29,6 +29,7 @@ import {
 } from "./pending-registration.repo";
 import { findApplicantByEmail, findUserIdentityByEmail, insertApplicantWithProfile, type ApplicantDetail } from "./intake.repo";
 import type { CreateApplicantInput } from "./intake.types";
+import { envConfig } from "@/config/envConfig";
 
 export const PENDING_LIMITS = {
   CODE_TTL_MS: TTL.OTP, // 15 min
@@ -43,7 +44,14 @@ const normalizeEmail = (email: string) => email.trim().toLowerCase();
 const INVALID_CODE = () =>
   badRequest("Invalid or expired verification code", { code: "INVALID_OR_EXPIRED_CODE" });
 
-const hashCode = (pendingId: string, code: string): string => hashOTP(`${pendingId}:${code}`);
+function hashCode(pendingId: string, code: string): string {
+  const secret = envConfig.security.pendingRegistrationSecret;
+
+  return createHmac("sha256", secret)
+    .update(`${pendingId}:${code}`)
+    .digest("hex");
+}
+
 
 function hashesEqual(a: string, b: string): boolean {
   const x = Buffer.from(a, "hex");

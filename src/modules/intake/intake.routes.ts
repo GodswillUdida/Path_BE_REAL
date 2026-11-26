@@ -24,7 +24,7 @@ const {
   getStatsController,
 } = createIntakeControllers(prisma);
 
-// Public registration with optional session (authenticated applicants skip password).
+// Public registration with optional session. Anonymous: password is set only on /register/verify.
 router.post("/register", intakeRegisterLimiter, optionalAuth, registerApplicantController);
 // Anonymous applicants prove email ownership here; only then is the account created.
 router.post("/register/verify", intakeVerifyLimiter, verifyRegistrationController);

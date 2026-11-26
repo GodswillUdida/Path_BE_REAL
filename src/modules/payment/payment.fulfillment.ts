@@ -27,13 +27,22 @@ import {
   upsertEnrollmentForCourse,
 } from "./payment.queries";
 
-export type FulfillAnomaly = "ORDER_ALREADY_PAID" | "COHORT_FULL" | "STUDENT_INELIGIBLE";
+export type FulfillAnomaly =
+  | "ORDER_ALREADY_PAID"
+  | "COHORT_FULL"
+  | "STUDENT_INELIGIBLE"
+  | "MEMBERSHIP_INELIGIBLE"
+  | "OFFER_UNAVAILABLE";
 
 export const ANOMALY_MESSAGES: Record<FulfillAnomaly, string> = {
   ORDER_ALREADY_PAID: "order was already paid; this payment needs a refund",
   COHORT_FULL: "payment received but the batch is full; refund or waitlist the seat",
   STUDENT_INELIGIBLE:
     "payment received but the buyer has no ACTIVE StudentProfile; refund or complete registration",
+  MEMBERSHIP_INELIGIBLE:
+    "payment received but membership is suspended/removed/expired/completed; admin must resolve explicitly",
+  OFFER_UNAVAILABLE:
+    "payment received but the offer or cohort is no longer purchasable; refund or waitlist",
 };
 
 export interface FulfillResult {
@@ -42,10 +51,21 @@ export interface FulfillResult {
   anomaly?: FulfillAnomaly;
 }
 
+type SeatAnomaly = Exclude<FulfillAnomaly, "ORDER_ALREADY_PAID">;
+
 type TxOutcome =
   | { kind: "payment_already_claimed" }
   | { kind: "order_already_paid" }
-  | { kind: "fulfilled"; anomaly: "COHORT_FULL" | "STUDENT_INELIGIBLE" | null };
+  | { kind: "fulfilled"; anomaly: SeatAnomaly | null };
+
+function mapIneligibleReason(
+  reason: string,
+): "STUDENT_INELIGIBLE" | "MEMBERSHIP_INELIGIBLE" {
+  if (reason === "NO_STUDENT_PROFILE" || reason === "STUDENT_NOT_ACTIVE") {
+    return "STUDENT_INELIGIBLE";
+  }
+  return "MEMBERSHIP_INELIGIBLE";
+}
 
 export async function markPaidAndFulfill(
   reference: string,
@@ -61,7 +81,11 @@ export async function markPaidAndFulfill(
     logger.error("Invalid payment state: missing userId", { reference });
     throw badRequest("Invalid payment state");
   }
-  const { id: paymentId, orderId, userId } = { id: payment.id, orderId: payment.orderId, userId: payment.userId };
+  const { id: paymentId, orderId, userId } = {
+    id: payment.id,
+    orderId: payment.orderId,
+    userId: payment.userId,
+  };
 
   const outcome = await withTransaction(
     async (tx): Promise<TxOutcome> => {
@@ -71,19 +95,22 @@ export async function markPaidAndFulfill(
       // Payment stays PAID (money really was received); we must not grant access twice.
       if (!(await markOrderPaid(tx, orderId))) return { kind: "order_already_paid" };
 
-      const anomaly = await fulfillOrder(tx, orderId, userId, reference);
+      const { anomaly, details } = await fulfillOrder(tx, orderId, userId, reference);
       // Durable ops marker on the payment row (Payment stays PAID; money was received).
       // Retries see alreadyProcessed via PAID claim and re-read metadata if needed.
       if (anomaly) {
+        const prior =
+          typeof payment.metadata === "object" && payment.metadata && !Array.isArray(payment.metadata)
+            ? (payment.metadata as Record<string, unknown>)
+            : {};
         await tx.payment.update({
           where: { id: paymentId },
           data: {
             metadata: {
-              ...(typeof payment.metadata === "object" && payment.metadata && !Array.isArray(payment.metadata)
-                ? (payment.metadata as object)
-                : {}),
+              ...prior,
               fulfillmentAnomaly: anomaly,
               fulfillmentAnomalyAt: new Date().toISOString(),
+              fulfillmentAnomalyDetails: details,
             },
           },
         });
@@ -115,11 +142,19 @@ export async function fulfillOrder(
   orderId: string,
   userId: string,
   reference: string,
-): Promise<"COHORT_FULL" | "STUDENT_INELIGIBLE" | null> {
+): Promise<{
+  anomaly: SeatAnomaly | null;
+  details: Array<{
+    orderItemId: string;
+    cohortId?: string;
+    code: SeatAnomaly;
+    reason?: string;
+  }>;
+}> {
   const items = await findOrderItemsForFulfillment(tx, orderId);
   if (items.length === 0) {
     logger.warn("fulfillOrder: no items", { orderId });
-    return null;
+    return { anomaly: null, details: [] };
   }
 
   // Deterministic order (seats first, then courses by id) keeps lock
@@ -130,7 +165,13 @@ export async function fulfillOrder(
     .sort((a, b) => a.pricing!.courseId.localeCompare(b.pricing!.courseId) || a.id.localeCompare(b.id));
 
   const newEnrollments: { id: string; courseId: string }[] = [];
-  let anomaly: "COHORT_FULL" | "STUDENT_INELIGIBLE" | null = null;
+  let anomaly: SeatAnomaly | null = null;
+  const details: Array<{
+    orderItemId: string;
+    cohortId?: string;
+    code: SeatAnomaly;
+    reason?: string;
+  }> = [];
   let seats = 0;
   let courses = 0;
   let renewed = 0;
@@ -144,6 +185,7 @@ export async function fulfillOrder(
     });
     if (r.kind === "full") {
       anomaly = "COHORT_FULL";
+      details.push({ orderItemId: item.id, cohortId: r.cohortId, code: "COHORT_FULL" });
       logger.error("payment.anomaly.cohort_full: paid seat but batch is full", {
         orderId,
         reference,
@@ -152,14 +194,33 @@ export async function fulfillOrder(
       });
       continue;
     }
+    if (r.kind === "offer_unavailable") {
+      anomaly = "OFFER_UNAVAILABLE";
+      details.push({ orderItemId: item.id, cohortId: r.cohortId, code: "OFFER_UNAVAILABLE" });
+      logger.error("payment.anomaly.offer_unavailable: paid seat but offer closed", {
+        orderId,
+        reference,
+        cohortId: r.cohortId,
+        orderItemId: item.id,
+      });
+      continue;
+    }
     if (r.kind === "ineligible") {
-      anomaly = "STUDENT_INELIGIBLE";
-      logger.error("payment.anomaly.student_ineligible: paid seat without ACTIVE profile", {
+      const code = mapIneligibleReason(r.reason);
+      anomaly = code;
+      details.push({
+        orderItemId: item.id,
+        cohortId: r.cohortId,
+        code,
+        reason: r.reason,
+      });
+      logger.error("payment.anomaly.seat_ineligible: paid seat cannot be granted", {
         orderId,
         reference,
         cohortId: r.cohortId,
         orderItemId: item.id,
         reason: r.reason,
+        code,
       });
       continue;
     }
@@ -183,9 +244,9 @@ export async function fulfillOrder(
     else renewed++;
   }
 
-  logger.info("Order fulfilled", { orderId, reference, seats, courses, renewedEnrollments: renewed });
+  logger.info("Order fulfilled", { orderId, reference, seats, courses, renewedEnrollments: renewed, anomaly });
 
   // Brand-new enrollments only: a renewal must not reset learner state.
   await initializeProgress(tx, newEnrollments);
-  return anomaly;
+  return { anomaly, details };
 }

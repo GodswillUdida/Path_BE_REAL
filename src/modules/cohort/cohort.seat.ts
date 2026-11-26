@@ -10,6 +10,12 @@
  * Capacity is enforced under a per-cohort advisory lock. ACTIVE + SUSPENDED
  * members occupy capacity (suspended paid seats are not resold).
  * StudentProfile is NEVER created here.
+ *
+ * Membership transitions on purchase:
+ *   - no row            -> create ACTIVE
+ *   - ACTIVE            -> idempotent success (attach orderItemId if missing)
+ *   - SUSPENDED/REMOVED/EXPIRED/COMPLETED -> ineligible (no silent reactivation)
+ * Admin reactivation is a separate audited path in cohort.service.
  */
 
 import type { Prisma } from "@prisma/client";
@@ -18,14 +24,19 @@ import { grantCohortSeatEnrollment } from "../enrollment/enrollment.commands";
 
 const DAY_MS = 86_400_000;
 
+export type SeatIneligibleReason =
+  | "NO_STUDENT_PROFILE"
+  | "STUDENT_NOT_ACTIVE"
+  | "MEMBER_SUSPENDED"
+  | "MEMBER_REMOVED"
+  | "MEMBER_EXPIRED"
+  | "MEMBER_COMPLETED";
+
 export type SeatOutcome =
   | { kind: "joined" | "already_member"; cohortId: string; newEnrollments: { id: string; courseId: string }[] }
   | { kind: "full"; cohortId: string }
-  | {
-      kind: "ineligible";
-      cohortId: string;
-      reason: "NO_STUDENT_PROFILE" | "STUDENT_NOT_ACTIVE" | "MEMBER_SUSPENDED" | "MEMBER_REMOVED";
-    };
+  | { kind: "offer_unavailable"; cohortId: string }
+  | { kind: "ineligible"; cohortId: string; reason: SeatIneligibleReason };
 
 export async function fulfillCohortSeat(
   tx: Prisma.TransactionClient,
@@ -35,19 +46,45 @@ export async function fulfillCohortSeat(
     where: { id: p.offerId },
     select: {
       includesCourseAccess: true,
+      isActive: true,
+      opensAt: true,
+      closesAt: true,
       cohort: {
         select: {
           id: true,
           endsAt: true,
           capacity: true,
+          status: true,
+          deletedAt: true,
           courses: { select: { courseId: true }, orderBy: { courseId: "asc" } },
         },
       },
     },
   });
   const cohort = offer.cohort;
+  const now = new Date();
 
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`cohort:${cohort.id}`}, 0))`;
+
+  // Defensive: offer/cohort may have closed between checkout and payment.
+  // Money is already claimed as PAID upstream; report anomaly, do not grant.
+  if (
+    cohort.deletedAt ||
+    !["UPCOMING", "ACTIVE"].includes(cohort.status) ||
+    !offer.isActive ||
+    (offer.opensAt && offer.opensAt > now) ||
+    (offer.closesAt && offer.closesAt < now)
+  ) {
+    logger.error("payment.anomaly.offer_unavailable: seat offer no longer purchasable at fulfillment", {
+      userId: p.userId,
+      cohortId: cohort.id,
+      orderItemId: p.orderItemId,
+      offerActive: offer.isActive,
+      cohortStatus: cohort.status,
+      deletedAt: cohort.deletedAt,
+    });
+    return { kind: "offer_unavailable", cohortId: cohort.id };
+  }
 
   const profile = await tx.studentProfile.findUnique({
     where: { userId: p.userId },
@@ -76,8 +113,9 @@ export async function fulfillCohortSeat(
     select: { id: true, status: true, orderItemId: true },
   });
 
+  // Never silently reactivate terminal / suspended membership via payment.
   if (existing?.status === "SUSPENDED") {
-    logger.error("payment.anomaly.member_suspended: paid seat but membership is suspended", {
+    logger.error("payment.anomaly.membership_ineligible: paid seat but membership is suspended", {
       userId: p.userId,
       cohortId: cohort.id,
       orderItemId: p.orderItemId,
@@ -85,17 +123,33 @@ export async function fulfillCohortSeat(
     return { kind: "ineligible", cohortId: cohort.id, reason: "MEMBER_SUSPENDED" };
   }
   if (existing?.status === "REMOVED") {
-    logger.error("payment.anomaly.member_removed: paid seat but membership was removed", {
+    logger.error("payment.anomaly.membership_ineligible: paid seat but membership was removed", {
       userId: p.userId,
       cohortId: cohort.id,
       orderItemId: p.orderItemId,
     });
     return { kind: "ineligible", cohortId: cohort.id, reason: "MEMBER_REMOVED" };
   }
+  if (existing?.status === "EXPIRED") {
+    logger.error("payment.anomaly.membership_ineligible: paid seat but membership is expired", {
+      userId: p.userId,
+      cohortId: cohort.id,
+      orderItemId: p.orderItemId,
+    });
+    return { kind: "ineligible", cohortId: cohort.id, reason: "MEMBER_EXPIRED" };
+  }
+  if (existing?.status === "COMPLETED") {
+    logger.error("payment.anomaly.membership_ineligible: paid seat but membership is completed", {
+      userId: p.userId,
+      cohortId: cohort.id,
+      orderItemId: p.orderItemId,
+    });
+    return { kind: "ineligible", cohortId: cohort.id, reason: "MEMBER_COMPLETED" };
+  }
 
   let kind: "joined" | "already_member" = "already_member";
 
-  if (!existing || existing.status !== "ACTIVE") {
+  if (!existing) {
     if (cohort.capacity !== null) {
       const taken = await tx.cohortMember.count({
         where: { cohortId: cohort.id, status: { in: ["ACTIVE", "SUSPENDED"] } },
@@ -103,31 +157,27 @@ export async function fulfillCohortSeat(
       if (taken >= cohort.capacity) return { kind: "full", cohortId: cohort.id };
     }
 
-    if (!existing) {
-      await tx.cohortMember.create({
-        data: {
-          cohortId: cohort.id,
-          userId: p.userId,
-          status: "ACTIVE",
-          source: "PURCHASE",
-          orderItemId: p.orderItemId,
-          expiresAt: cohort.endsAt,
-        },
-      });
-    } else {
+    await tx.cohortMember.create({
+      data: {
+        cohortId: cohort.id,
+        userId: p.userId,
+        status: "ACTIVE",
+        source: "PURCHASE",
+        orderItemId: p.orderItemId,
+        expiresAt: cohort.endsAt,
+      },
+    });
+    kind = "joined";
+  } else if (existing.status === "ACTIVE") {
+    // Idempotent: same paid seat, attach orderItemId only if missing.
+    // Never rewrite source or prior orderItemId when present.
+    if (!existing.orderItemId) {
       await tx.cohortMember.update({
         where: { id: existing.id },
-        data: {
-          status: "ACTIVE",
-          leftAt: null,
-          expiresAt: cohort.endsAt,
-          ...(existing.orderItemId ? {} : { orderItemId: p.orderItemId }),
-        },
+        data: { orderItemId: p.orderItemId },
       });
     }
-    kind = "joined";
-  } else if (!existing.orderItemId) {
-    await tx.cohortMember.update({ where: { id: existing.id }, data: { orderItemId: p.orderItemId } });
+    kind = "already_member";
   }
 
   const newEnrollments: { id: string; courseId: string }[] = [];

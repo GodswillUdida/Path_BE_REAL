@@ -607,6 +607,7 @@ enum CohortStatus {
 
 enum CohortMemberStatus {
   ACTIVE
+  SUSPENDED
   EXPIRED
   REMOVED
   COMPLETED

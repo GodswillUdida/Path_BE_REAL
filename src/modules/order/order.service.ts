@@ -84,6 +84,14 @@ export async function createOrder(dto: CreateOrderDTO, userId: string, idempoten
       }
     }
     if (offers.length > 0) {
+      // Registered-student features require a verified email. Legacy accounts
+      // created before verification existed may hold a profile while unverified.
+      if (!user.emailVerified) {
+        throw withCode(
+          forbidden("Verify your email before buying a live-class seat"),
+          "EMAIL_VERIFICATION_REQUIRED",
+        );
+      }
       // Submitting the application form creates the student profile.
       if (!user.studentProfile) {
         throw withCode(

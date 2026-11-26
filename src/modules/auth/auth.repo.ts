@@ -132,6 +132,14 @@ export class AuthRepository {
     });
   }
 
+  /** Removes the credentials password so only a verified-mailbox reset can set a new one. */
+  async clearCredentialPasswords(userId: string): Promise<void> {
+    await prisma.account.updateMany({
+      where: { userId, provider: "credentials" },
+      data: { password: null },
+    });
+  }
+
   async updateVerificationToken(
     email: string,
     otpHash: string,

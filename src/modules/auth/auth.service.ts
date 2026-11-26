@@ -182,6 +182,16 @@ export async function verifyEmail(
     }),
   );
 
+  // LEGACY: accounts created by the old register-before-verify intake flow hold a
+  // StudentProfile while unverified, and the password was chosen by whoever
+  // submitted the form, who may not own this mailbox. The mailbox owner has now
+  // proven control, so discard that password; they set their own via
+  // "forgot password". New-flow accounts are created verified and never reach here.
+  if (user.studentProfile) {
+    await authRepository.clearCredentialPasswords(user.id);
+    logger.warn("LEGACY_UNVERIFIED_STUDENT_CREDENTIALS_CLEARED", { userId: user.id });
+  }
+
   return createSessionAndTokens(user, meta, "credentials");
 }
 

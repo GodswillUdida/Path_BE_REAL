@@ -133,7 +133,7 @@ export async function findPurchasableOffers(offerIds: string[]) {
 export async function findUserForCheckout(userId: string) {
   return prisma.user.findUnique({
     where: { id: userId },
-    select: { email: true, name: true, studentProfile: { select: { status: true } } },
+    select: { email: true, name: true, emailVerified: true, studentProfile: { select: { status: true } } },
   });
 }
 

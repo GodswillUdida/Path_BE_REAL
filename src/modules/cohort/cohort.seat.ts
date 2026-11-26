@@ -10,6 +10,10 @@
  * Capacity is enforced under a per-cohort advisory lock. A paid seat that
  * finds the cohort FULL is reported as an anomaly, never silently dropped:
  * the money was received, so someone must refund or waitlist.
+ *
+ * StudentProfile is NEVER created here. Cohort-seat purchase requires an
+ * existing ACTIVE StudentProfile (enforced at order create and rechecked
+ * here). Missing/inactive profile is an anomaly requiring ops resolution.
  */
 
 import type { Prisma } from "@prisma/client";
@@ -20,7 +24,8 @@ const DAY_MS = 86_400_000;
 
 export type SeatOutcome =
   | { kind: "joined" | "already_member"; cohortId: string; newEnrollments: { id: string; courseId: string }[] }
-  | { kind: "full"; cohortId: string };
+  | { kind: "full"; cohortId: string }
+  | { kind: "ineligible"; cohortId: string; reason: "NO_STUDENT_PROFILE" | "STUDENT_NOT_ACTIVE" };
 
 export async function fulfillCohortSeat(
   tx: Prisma.TransactionClient,
@@ -44,15 +49,29 @@ export async function fulfillCohortSeat(
 
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`cohort:${cohort.id}`}, 0))`;
 
-  // Student STATUS. Normally created when the application form was
-  // submitted; created here if the buyer paid without ever submitting it,
-  // so a paying customer is never stranded.
-  await tx.studentProfile.upsert({
+  // Recheck eligibility: Tier-2 seat requires ACTIVE StudentProfile.
+  // Never auto-create a profile as a purchase side effect.
+  const profile = await tx.studentProfile.findUnique({
     where: { userId: p.userId },
-    update: {},
-    create: { userId: p.userId, registrationSource: "APPLICATION" },
-    select: { id: true },
+    select: { id: true, status: true },
   });
+  if (!profile) {
+    logger.error("payment.anomaly.student_ineligible: no StudentProfile for seat", {
+      userId: p.userId,
+      cohortId: cohort.id,
+      orderItemId: p.orderItemId,
+    });
+    return { kind: "ineligible", cohortId: cohort.id, reason: "NO_STUDENT_PROFILE" };
+  }
+  if (profile.status !== "ACTIVE") {
+    logger.error("payment.anomaly.student_ineligible: StudentProfile not ACTIVE", {
+      userId: p.userId,
+      cohortId: cohort.id,
+      orderItemId: p.orderItemId,
+      status: profile.status,
+    });
+    return { kind: "ineligible", cohortId: cohort.id, reason: "STUDENT_NOT_ACTIVE" };
+  }
 
   const existing = await tx.cohortMember.findUnique({
     where: { cohortId_userId: { cohortId: cohort.id, userId: p.userId } },

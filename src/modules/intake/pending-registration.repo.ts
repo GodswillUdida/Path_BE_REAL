@@ -7,7 +7,6 @@ export const pendingSelect = {
   id: true,
   email: true,
   status: true,
-  passwordHash: true,
   payload: true,
   codeHash: true,
   codeExpiresAt: true,
@@ -42,7 +41,6 @@ export async function createPending(
   data: {
     id: string;
     email: string;
-    passwordHash: string;
     payload: Prisma.InputJsonValue;
     codeHash: string;
     codeExpiresAt: Date;
@@ -50,7 +48,12 @@ export async function createPending(
     ipAddress?: string;
   },
 ): Promise<void> {
-  await tx.pendingRegistration.create({ data, select: { id: true } });
+  // passwordHash is intentionally empty until verify; credentials are set only
+  // after mailbox ownership is proven (never associated at submit time).
+  await tx.pendingRegistration.create({
+    data: { ...data, passwordHash: "" },
+    select: { id: true },
+  });
 }
 
 export async function findPendingById(db: Db, id: string): Promise<PendingRow | null> {
@@ -115,7 +118,12 @@ export async function rotateCode(
   next: { codeHash: string; codeExpiresAt: Date; now: Date },
 ): Promise<boolean> {
   const r = await db.pendingRegistration.updateMany({
-    where: { id: row.id, status: PendingRegistrationStatus.PENDING, lastSentAt: row.lastSentAt, expiresAt: { gt: next.now } },
+    where: {
+      id: row.id,
+      status: PendingRegistrationStatus.PENDING,
+      lastSentAt: row.lastSentAt,
+      expiresAt: { gt: next.now },
+    },
     data: {
       codeHash: next.codeHash,
       codeExpiresAt: next.codeExpiresAt,
@@ -128,13 +136,20 @@ export async function rotateCode(
 }
 
 /** Housekeeping: expire stale PENDING rows, purge old terminal rows. */
-export async function sweepPending(db: Db, now: Date, purgeBefore: Date): Promise<{ expired: number; purged: number }> {
+export async function sweepPending(
+  db: Db,
+  now: Date,
+  purgeBefore: Date,
+): Promise<{ expired: number; purged: number }> {
   const expired = await db.pendingRegistration.updateMany({
     where: { status: PendingRegistrationStatus.PENDING, expiresAt: { lte: now } },
     data: { status: PendingRegistrationStatus.EXPIRED, payload: {}, passwordHash: "", codeHash: "" },
   });
   const purged = await db.pendingRegistration.deleteMany({
-    where: { status: { not: PendingRegistrationStatus.PENDING }, updatedAt: { lt: purgeBefore } },
+    where: {
+      status: { not: PendingRegistrationStatus.PENDING },
+      updatedAt: { lt: purgeBefore },
+    },
   });
   return { expired: expired.count, purged: purged.count };
 }

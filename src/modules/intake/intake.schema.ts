@@ -87,17 +87,19 @@ export const createApplicantSchema = z.object({
     .min(1, "At least one paper is required"),
   employment: employmentSchema,
   sponsor: sponsorSchema,
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters")
-    .max(128)
-    .optional(),
+  // Password is accepted only on /register/verify (after email ownership).
+  // Ignored if sent on /register to avoid associating a password pre-verify.
+  password: z.string().min(8).max(128).optional(),
   cohortOfferId: z.string().uuid().optional(),
 });
 
 export const verifyRegistrationSchema = z.object({
   pendingId: z.string().uuid("Invalid verification reference"),
   code: z.string().regex(/^\d{6}$/, "Code must be 6 digits"),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(128, "Password must not exceed 128 characters"),
 });
 
 export const resendRegistrationSchema = z.object({

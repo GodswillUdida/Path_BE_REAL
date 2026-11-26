@@ -27,11 +27,13 @@ import {
   upsertEnrollmentForCourse,
 } from "./payment.queries";
 
-export type FulfillAnomaly = "ORDER_ALREADY_PAID" | "COHORT_FULL";
+export type FulfillAnomaly = "ORDER_ALREADY_PAID" | "COHORT_FULL" | "STUDENT_INELIGIBLE";
 
 export const ANOMALY_MESSAGES: Record<FulfillAnomaly, string> = {
   ORDER_ALREADY_PAID: "order was already paid; this payment needs a refund",
   COHORT_FULL: "payment received but the batch is full; refund or waitlist the seat",
+  STUDENT_INELIGIBLE:
+    "payment received but the buyer has no ACTIVE StudentProfile; refund or complete registration",
 };
 
 export interface FulfillResult {
@@ -43,7 +45,7 @@ export interface FulfillResult {
 type TxOutcome =
   | { kind: "payment_already_claimed" }
   | { kind: "order_already_paid" }
-  | { kind: "fulfilled"; anomaly: "COHORT_FULL" | null };
+  | { kind: "fulfilled"; anomaly: "COHORT_FULL" | "STUDENT_INELIGIBLE" | null };
 
 export async function markPaidAndFulfill(
   reference: string,
@@ -70,6 +72,22 @@ export async function markPaidAndFulfill(
       if (!(await markOrderPaid(tx, orderId))) return { kind: "order_already_paid" };
 
       const anomaly = await fulfillOrder(tx, orderId, userId, reference);
+      // Durable ops marker on the payment row (Payment stays PAID; money was received).
+      // Retries see alreadyProcessed via PAID claim and re-read metadata if needed.
+      if (anomaly) {
+        await tx.payment.update({
+          where: { id: paymentId },
+          data: {
+            metadata: {
+              ...(typeof payment.metadata === "object" && payment.metadata && !Array.isArray(payment.metadata)
+                ? (payment.metadata as object)
+                : {}),
+              fulfillmentAnomaly: anomaly,
+              fulfillmentAnomalyAt: new Date().toISOString(),
+            },
+          },
+        });
+      }
       return { kind: "fulfilled", anomaly };
     },
     { maxWait: 5_000, timeout: 20_000 },
@@ -97,7 +115,7 @@ export async function fulfillOrder(
   orderId: string,
   userId: string,
   reference: string,
-): Promise<"COHORT_FULL" | null> {
+): Promise<"COHORT_FULL" | "STUDENT_INELIGIBLE" | null> {
   const items = await findOrderItemsForFulfillment(tx, orderId);
   if (items.length === 0) {
     logger.warn("fulfillOrder: no items", { orderId });
@@ -112,7 +130,7 @@ export async function fulfillOrder(
     .sort((a, b) => a.pricing!.courseId.localeCompare(b.pricing!.courseId) || a.id.localeCompare(b.id));
 
   const newEnrollments: { id: string; courseId: string }[] = [];
-  let anomaly: "COHORT_FULL" | null = null;
+  let anomaly: "COHORT_FULL" | "STUDENT_INELIGIBLE" | null = null;
   let seats = 0;
   let courses = 0;
   let renewed = 0;
@@ -131,6 +149,17 @@ export async function fulfillOrder(
         reference,
         cohortId: r.cohortId,
         orderItemId: item.id,
+      });
+      continue;
+    }
+    if (r.kind === "ineligible") {
+      anomaly = "STUDENT_INELIGIBLE";
+      logger.error("payment.anomaly.student_ineligible: paid seat without ACTIVE profile", {
+        orderId,
+        reference,
+        cohortId: r.cohortId,
+        orderItemId: item.id,
+        reason: r.reason,
       });
       continue;
     }

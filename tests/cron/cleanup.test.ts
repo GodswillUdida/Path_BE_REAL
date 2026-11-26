@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { testPrisma, truncateAll } from "../setup/db";
-import { cleanup, cleanupPendingRegistrations, cleanupUnverifiedUsers } from "@/cron/cleanup";
+import { cleanup, cleanupPendingRegistrations, cleanupUnverifiedUsers } from "../../src/cron/cleanup";
 
 const old = new Date(Date.now() - 48 * 60 * 60 * 1000);
 

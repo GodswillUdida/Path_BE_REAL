@@ -40,8 +40,8 @@ async function processEmailJob(
     case "password-reset":
       return sendPasswordResetEmail(data.to, data.resetToken);
 
-    case "enrollment-confirmation":
-      return sendConfirmationEmail(data.to, {
+    case "enrollment-confirmation": {
+      await sendConfirmationEmail(data.to, {
         name: "there",
         courseName: data.courseTitle,
         enrollmentId: "",
@@ -51,6 +51,8 @@ async function processEmailJob(
         startDate: "",
         endDate: "",
       });
+      return;
+    }
 
     default: {
       // 2026 Standard: Compile-time check ensures developers can never forget a newly added email variant

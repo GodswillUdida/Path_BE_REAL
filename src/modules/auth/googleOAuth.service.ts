@@ -46,7 +46,8 @@ export const loginWithGoogle = async (idToken: string): Promise<AuthResult> => {
       email: true,
       name: true,
       role: true,
-      emailVerified:true
+      emailVerified: true,
+      profileImage: true,
     },
   });
 

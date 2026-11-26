@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { testPrisma, truncateAll } from "../setup/db";
-import { authRepository } from "@/modules/auth/auth.repo";
+import { authRepository } from "../../src/modules/auth/auth.repo";
 
 describe("legacy credential recovery (repository level)", () => {
   beforeEach(truncateAll);

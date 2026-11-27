@@ -443,7 +443,7 @@ export async function grantMemberService(
     });
   }
   if (profile.status !== "ACTIVE") {
-    throw forbidden("Student profile is not ACTIVE", { code: "STUDENT_NOT_ACTIVE" });
+    throw forbidden("Student profile is not ACTIVE");
   }
   const expiresAt = input.expiresAt === undefined ? cohort.endsAt : input.expiresAt;
   return withTransaction(async (tx) => {

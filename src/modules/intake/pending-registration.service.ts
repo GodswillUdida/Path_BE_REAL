@@ -117,6 +117,7 @@ export async function startPendingRegistration(
 
   const passwordHash = await hashPassword(input.password);
   const { password: _omit, ...form } = { ...input, email };
+  const pendingPayload = { ...form, passwordHash };
 
   const now = new Date();
   const id = randomUUID();
@@ -134,8 +135,8 @@ export async function startPendingRegistration(
     await createPending(tx, {
       id,
       email,
-      passwordHash,
-      payload: form as unknown as Prisma.InputJsonValue,
+      // passwordHash,
+      payload: pendingPayload as unknown as Prisma.InputJsonValue,
       codeHash: hashCode(id, code),
       codeExpiresAt,
       expiresAt,
@@ -185,14 +186,14 @@ export async function verifyPendingRegistration(
         const taken = await tx.user.findUnique({ where: { email: row.email }, select: { id: true } });
         if (taken) throw conflict("An account with this email already exists", { code: "LOGIN_REQUIRED" });
 
-        const form = row.payload as unknown as CreateApplicantInput;
+        const form = row.payload as unknown as CreateApplicantInput & { passwordHash: string };
         const created = await tx.user.create({
           data: {
             name: form.fullName,
             email: row.email,
             emailVerified: true,
             accounts: {
-              create: { provider: "credentials", providerId: row.email, password: row.passwordHash },
+              create: { provider: "credentials", providerId: row.email, password: form.passwordHash },
             },
           },
           select: { id: true },
